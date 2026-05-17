@@ -947,6 +947,142 @@ const Proiecte = {
     this.renderProjectDetail();
   },
 
+    openCreateModal() {
+    const phaseCheckboxes = PRESET_PHASES.map(ph => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+        <input type="checkbox" name="preset-phase" value="${ph.code}" checked style="width:16px;height:16px">
+        <span style="font-size:13px"><strong>${ph.code}.</strong> ${ph.name}</span>
+      </label>
+    `).join('');
+    openModal('Proiect nou', `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="grid-column:1/-1">
+          <label class="form-label">Nume proiect *</label>
+          <input id="p-name" class="form-input" placeholder="ex: Modul Găzduire Via Transilvanica">
+        </div>
+        <div>
+          <label class="form-label">Cod proiect *</label>
+          <input id="p-code" class="form-input" placeholder="ex: 222" maxlength="10">
+        </div>
+        <div>
+          <label class="form-label">Client</label>
+          <input id="p-client" class="form-input" placeholder="Numele clientului">
+        </div>
+        <div>
+          <label class="form-label">Data start</label>
+          <input id="p-start" type="date" class="form-input">
+        </div>
+        <div>
+          <label class="form-label">Data final</label>
+          <input id="p-end" type="date" class="form-input">
+        </div>
+        <div>
+          <label class="form-label">Status</label>
+          <select id="p-status" class="form-input">
+            <option value="activ">Activ</option>
+            <option value="in_asteptare">În așteptare</option>
+            <option value="finalizat">Finalizat</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Culoare</label>
+          <input id="p-color" type="color" value="#3B82F6" class="form-input" style="height:38px;padding:2px">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Link Google Drive</label>
+          <input id="p-drive" class="form-input" placeholder="https://drive.google.com/...">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label" style="margin-bottom:8px">Etape prestabilite de inclus</label>
+          <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;border:1px solid var(--border)">
+            ${phaseCheckboxes}
+          </div>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" onclick="Proiecte.createProject()">Creează proiect</button>
+    `);
+  },
+
+  async createProject() {
+    const name = document.getElementById('p-name') ? document.getElementById('p-name').value.trim() : '';
+    const code = document.getElementById('p-code') ? document.getElementById('p-code').value.trim() : '';
+    if (!name || !code) { showToast('Completează numele și codul proiectului', 'error'); return; }
+    const selectedPhases = Array.from(document.querySelectorAll('input[name="preset-phase"]:checked')).map(cb => cb.value);
+    const project = {
+      name,
+      code,
+      client_name: document.getElementById('p-client') ? document.getElementById('p-client').value.trim() || null : null,
+      start_date: document.getElementById('p-start') ? document.getElementById('p-start').value || null : null,
+      end_date: document.getElementById('p-end') ? document.getElementById('p-end').value || null : null,
+      status: document.getElementById('p-status') ? document.getElementById('p-status').value : 'activ',
+      color: document.getElementById('p-color') ? document.getElementById('p-color').value : '#3B82F6',
+      drive_url: document.getElementById('p-drive') ? document.getElementById('p-drive').value.trim() || null : null,
+      manager_id: Auth.currentProfile ? Auth.currentProfile.id : null,
+      budget_hours: 0,
+      consumed_hours: 0,
+    };
+    const createResult = await dbQuery('projects', q => q.insert(project).select().single(), null);
+    if (!createResult || createResult.error) {
+      showToast('Eroare la creare: ' + (createResult ? createResult.error.message : 'necunoscut'), 'error');
+      return;
+    }
+    const newProject = createResult.data;
+    if (selectedPhases.length > 0 && newProject) {
+      const phasesToInsert = PRESET_PHASES
+        .filter(ph => selectedPhases.includes(ph.code))
+        .map((ph, idx) => ({
+          project_id: newProject.id,
+          name: ph.name,
+          code: ph.code,
+          color: ph.color,
+          display_order: idx + 1,
+          budget_hours: 0,
+          status: 'activ',
+          is_preset: true,
+        }));
+      const phasesResult = await dbQuery('project_phases', q => q.insert(phasesToInsert).select(), []);
+      const insertedPhases = phasesResult ? (phasesResult.data || []) : [];
+      if (insertedPhases.length > 0) {
+        const tasksToInsert = [];
+        insertedPhases.forEach(phase => {
+          const presetPhase = PRESET_PHASES.find(p => p.code === phase.code);
+          if (presetPhase) {
+            presetPhase.tasks.forEach((taskName, tidx) => {
+              tasksToInsert.push({
+                project_id: newProject.id,
+                phase_id: phase.id,
+                name: taskName,
+                display_order: tidx + 1,
+                budget_hours: 0,
+                minutes_worked: 0,
+                status: 'todo',
+                is_preset: true,
+              });
+            });
+          }
+        });
+        if (tasksToInsert.length > 0) {
+          await dbQuery('project_tasks', q => q.insert(tasksToInsert), []);
+        }
+      }
+    }
+    // Adaugă creatorul ca coordonator
+    if (Auth.currentProfile) {
+      await dbQuery('project_members', q => q.insert({
+        project_id: newProject.id,
+        user_id: Auth.currentProfile.id,
+        role: 'coordonator',
+        added_by: Auth.currentProfile.id,
+      }), null);
+    }
+    closeModalForce();
+    showToast('Proiect creat cu succes!', 'success');
+    await this.loadData();
+    this.renderList();
+  },
+
   renderPage() {
     if (this.currentProject) {
       this.renderProjectDetail();
@@ -954,10 +1090,8 @@ const Proiecte = {
       this.renderList();
     }
   },
-
   async render() {
     await this.init();
   },
 };
-
 window.Proiecte = Proiecte;
