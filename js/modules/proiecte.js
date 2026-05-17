@@ -138,8 +138,8 @@ const Proiecte = {
     const container = document.getElementById('page-content');
     if (!container) return;
 
-    const statusColors = { activ: 'green', in_asteptare: 'yellow', finalizat: 'gray', anulat: 'red' };
-    const statusLabels = { activ: 'Activ', in_asteptare: 'În așteptare', finalizat: 'Finalizat', anulat: 'Anulat' };
+    const statusColors = { activ: 'green', suspendat: 'yellow', finalizat: 'gray', intern: 'blue' };
+    const statusLabels = { activ: 'Activ', suspendat: 'Suspendat', finalizat: 'Finalizat', intern: 'Intern' };
 
     const cards = this.projects.length === 0
       ? `<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-muted)">
@@ -161,7 +161,7 @@ const Proiecte = {
       <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
         <button class="btn-filter active" onclick="Proiecte.filterProjects('all',this)">Toate (${this.projects.length})</button>
         <button class="btn-filter" onclick="Proiecte.filterProjects('activ',this)">Active (${this.projects.filter(p=>p.status==='activ').length})</button>
-        <button class="btn-filter" onclick="Proiecte.filterProjects('in_asteptare',this)">În așteptare (${this.projects.filter(p=>p.status==='in_asteptare').length})</button>
+        <button class="btn-filter" onclick="Proiecte.filterProjects('suspendat',this)">Suspendate (${this.projects.filter(p=>p.status==='suspendat').length})</button>
         <button class="btn-filter" onclick="Proiecte.filterProjects('finalizat',this)">Finalizate (${this.projects.filter(p=>p.status==='finalizat').length})</button>
       </div>
 
@@ -212,8 +212,8 @@ const Proiecte = {
     const grid = document.getElementById('projects-grid');
     if (!grid) return;
     const filtered = filter === 'all' ? this.projects : this.projects.filter(p => p.status === filter);
-    const statusColors = { activ: 'green', in_asteptare: 'yellow', finalizat: 'gray', anulat: 'red' };
-    const statusLabels = { activ: 'Activ', in_asteptare: 'În așteptare', finalizat: 'Finalizat', anulat: 'Anulat' };
+    const statusColors = { activ: 'green', suspendat: 'yellow', finalizat: 'gray', intern: 'blue' };
+    const statusLabels = { activ: 'Activ', suspendat: 'Suspendat', finalizat: 'Finalizat', intern: 'Intern' };
     grid.innerHTML = filtered.length === 0
       ? `<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-muted)">Niciun proiect în această categorie.</div>`
       : filtered.map(p => this.renderProjectCard(p, statusColors, statusLabels)).join('');
@@ -262,7 +262,8 @@ const Proiecte = {
               </div>
             </div>
           </div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center">
+            ${p.drive_url ? `<a href="${p.drive_url}" target="_blank" rel="noopener" class="btn-secondary" style="display:flex;align-items:center;gap:6px;text-decoration:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Drive</a>` : ''}
             ${canEdit ? `<button class="btn-secondary" onclick="Proiecte.openEditProject()">⚙ Setări</button>` : ''}
             ${canEdit ? `<button class="btn-primary" onclick="Proiecte.openAddPhaseModal()">+ Etapă</button>` : ''}
           </div>
@@ -907,14 +908,17 @@ const Proiecte = {
           <label class="form-label">Status</label>
           <select id="ep-status" class="form-input">
             <option value="activ" ${p.status==='activ'?'selected':''}>Activ</option>
-            <option value="in_asteptare" ${p.status==='in_asteptare'?'selected':''}>În așteptare</option>
+            <option value="suspendat" ${p.status==='suspendat'?'selected':''}>Suspendat</option>
             <option value="finalizat" ${p.status==='finalizat'?'selected':''}>Finalizat</option>
-            <option value="anulat" ${p.status==='anulat'?'selected':''}>Anulat</option>
+            <option value="intern" ${p.status==='intern'?'selected':''}>Intern</option>
           </select>
         </div>
         <div>
-          <label class="form-label">Culoare</label>
-          <input id="ep-color" type="color" value="${p.color || '#3B82F6'}" class="form-input" style="height:38px;padding:2px">
+          <label class="form-label">Culoare proiect</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+            ${['#FFCB08','#1A1A1A','#FFFFFF','#E63946','#2A9D8F','#457B9D','#6D6875'].map(c => `<button type="button" onclick="document.getElementById('ep-color').value='${c}';document.querySelectorAll('.color-swatch-ep').forEach(s=>s.style.outline='none');this.style.outline='3px solid var(--primary)'" class="color-swatch-ep" style="width:28px;height:28px;border-radius:6px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${(p.color||'#FFCB08')===c?'3px solid var(--primary)':'none'};outline-offset:2px"></button>`).join('')}
+            <input id="ep-color" type="hidden" value="${p.color || '#FFCB08'}">
+          </div>
         </div>
         <div style="grid-column:1/-1">
           <label class="form-label">Link Google Drive</label>
@@ -980,13 +984,17 @@ const Proiecte = {
           <label class="form-label">Status</label>
           <select id="p-status" class="form-input">
             <option value="activ">Activ</option>
-            <option value="in_asteptare">În așteptare</option>
+            <option value="suspendat">Suspendat</option>
             <option value="finalizat">Finalizat</option>
+            <option value="intern">Intern</option>
           </select>
         </div>
-        <div>
-          <label class="form-label">Culoare</label>
-          <input id="p-color" type="color" value="#3B82F6" class="form-input" style="height:38px;padding:2px">
+        <div style="grid-column:1/-1">
+          <label class="form-label">Culoare proiect</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+            ${['#FFCB08','#1A1A1A','#FFFFFF','#E63946','#2A9D8F','#457B9D','#6D6875'].map(c => `<button type="button" onclick="document.getElementById('p-color').value='${c}';document.querySelectorAll('.color-swatch-p').forEach(s=>s.style.outline='none');this.style.outline='3px solid #333'" class="color-swatch-p" style="width:32px;height:32px;border-radius:8px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${c==='#FFCB08'?'3px solid #333':'none'};outline-offset:2px"></button>`).join('')}
+            <input id="p-color" type="hidden" value="#FFCB08">
+          </div>
         </div>
         <div style="grid-column:1/-1">
           <label class="form-label">Link Google Drive</label>
