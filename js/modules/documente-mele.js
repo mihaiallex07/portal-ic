@@ -162,19 +162,29 @@ const DocumenteMele = {
   },
 
   // Admin: vede toate folderele și poate configura maparea email → folder
-  renderAdminView(container, savedFolders) {
+  async renderAdminView(container, savedFolders) {
     const folderEntries = Object.entries(savedFolders);
+    // Încarcă utilizatorii din DB
+    let users = [];
+    try {
+      const result = await DB.getUsers();
+      users = (result?.data || []).filter(u => u.email);
+    } catch(e) { users = []; }
+    const userOptions = users.map(u => `<option value="${u.email}" data-name="${(u.full_name||'').replace(/"/g,'&quot;')}">${u.full_name || u.email} (${u.email})</option>`).join('');
     container.innerHTML = `
       <div style="max-width:700px">
         <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px">
           <h3 style="font-size:15px;font-weight:600;margin:0 0 4px">Configurare foldere angajați</h3>
-          <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Asociază email-ul fiecărui angajat cu folderul lui din Google Drive.</p>
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">Asociază fiecare angajat înrolat în portal cu folderul lui din Google Drive.</p>
           
           <div style="margin-bottom:16px">
-            <label class="form-label">Email angajat</label>
-            <input id="admin-emp-email" class="form-input" placeholder="prenume.nume@ingineriecreativa.ro" style="margin-bottom:8px">
-            <label class="form-label">Nume afișat</label>
-            <input id="admin-emp-name" class="form-input" placeholder="ex: Mihai PORUMBOIU" style="margin-bottom:8px">
+            <label class="form-label">Angajat</label>
+            <select id="admin-emp-select" class="form-input" style="margin-bottom:8px" onchange="DocumenteMele.onUserSelect(this)">
+              <option value="">-- Selectează angajat --</option>
+              ${userOptions}
+            </select>
+            <input id="admin-emp-email" type="hidden" value="">
+            <input id="admin-emp-name" type="hidden" value="">
             <label class="form-label">Link folder Google Drive (al angajatului)</label>
             <input id="admin-emp-folder" class="form-input" placeholder="https://drive.google.com/drive/folders/...">
             <button class="btn-primary" onclick="DocumenteMele.addEmployeeFolder()" style="margin-top:12px">+ Adaugă</button>
@@ -208,11 +218,19 @@ const DocumenteMele = {
     `;
   },
 
+   onUserSelect(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('admin-emp-email').value = opt.value;
+    document.getElementById('admin-emp-name').value = opt.getAttribute('data-name') || opt.value;
+  },
+
   addEmployeeFolder() {
-    const email = document.getElementById('admin-emp-email')?.value.trim();
-    const name = document.getElementById('admin-emp-name')?.value.trim();
+    const email = document.getElementById('admin-emp-email')?.value.trim() ||
+                  document.getElementById('admin-emp-select')?.value.trim();
+    const name = document.getElementById('admin-emp-name')?.value.trim() ||
+                 document.getElementById('admin-emp-select')?.options[document.getElementById('admin-emp-select')?.selectedIndex]?.text;
     const folderLink = document.getElementById('admin-emp-folder')?.value.trim();
-    if (!email || !folderLink) { showToast('Completează email-ul și link-ul folderului', 'error'); return; }
+    if (!email || email === '' || !folderLink) { showToast('Selectează un angajat și completează link-ul folderului', 'error'); return; }
     
     // Extrage folder ID din link
     const match = folderLink.match(/folders\/([a-zA-Z0-9_-]+)/);

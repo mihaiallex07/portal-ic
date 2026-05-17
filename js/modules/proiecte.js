@@ -927,6 +927,7 @@ const Proiecte = {
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button style="background:#EF4444;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500" onclick="Proiecte.confirmDeleteProject()">🗑 Șterge proiect</button>
       <button class="btn-primary" onclick="Proiecte.saveEditProject()">Salvează</button>
     `);
   },
@@ -1089,6 +1090,46 @@ const Proiecte = {
     showToast('Proiect creat cu succes!', 'success');
     await this.loadData();
     this.renderList();
+  },
+
+  confirmDeleteProject() {
+    const p = this.currentProject;
+    if (!p) return;
+    closeModalForce();
+    openModal('Confirmare ștergere', `
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:40px;margin-bottom:12px">⚠️</div>
+        <p style="font-size:15px;font-weight:600;margin:0 0 8px">Ești sigur că vrei să ștergi proiectul?</p>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 4px"><strong>${p.name}</strong></p>
+        <p style="font-size:12px;color:#EF4444;margin:8px 0 0">Această acțiune este ireversibilă. Se vor șterge și toate etapele și sarcinile asociate.</p>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button style="background:#EF4444;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600" onclick="Proiecte.deleteProject(${p.id})">Da, șterge definitiv</button>
+    `);
+  },
+
+  async deleteProject(projectId) {
+    closeModalForce();
+    try {
+      const sb = getSupabase();
+      if (!sb) { showToast('Nu ești conectat la baza de date', 'error'); return; }
+      // Șterge sarcinile proiectului
+      await sb.from('project_tasks').delete().eq('project_id', projectId);
+      // Șterge etapele proiectului
+      await sb.from('project_phases').delete().eq('project_id', projectId);
+      // Șterge membrii proiectului
+      await sb.from('project_members').delete().eq('project_id', projectId);
+      // Șterge proiectul
+      const { error } = await sb.from('projects').delete().eq('id', projectId);
+      if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+      showToast('Proiect șters cu succes', 'success');
+      this.currentProject = null;
+      await this.loadData();
+      this.renderList();
+    } catch(e) {
+      showToast('Eroare la ștergere: ' + e.message, 'error');
+    }
   },
 
   renderPage() {
