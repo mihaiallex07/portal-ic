@@ -42,6 +42,7 @@ const Auth = {
       const { data: { session } } = await sb.auth.getSession();
       if (session?.user) {
         this.currentUser = session.user;
+        this.providerToken = session.provider_token || null;
         await this.loadProfile(session.user.id);
         return this.currentProfile;
       }
@@ -50,11 +51,13 @@ const Auth = {
       sb.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
           this.currentUser = session.user;
+          this.providerToken = session.provider_token || null;
           await this.loadProfile(session.user.id);
           App.onAuthSuccess();
         } else if (event === 'SIGNED_OUT') {
           this.currentUser = null;
           this.currentProfile = null;
+          this.providerToken = null;
           App.onAuthLogout();
         }
       });

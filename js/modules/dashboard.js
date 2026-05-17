@@ -33,9 +33,17 @@ const Dashboard = {
     document.getElementById('page-content').innerHTML = `
       <div style="width:100%">
         <!-- Greeting -->
-        <div class="mb-4">
-          <h1 style="font-size:20px;font-weight:700;color:var(--text)">${greeting}, ${profile?.full_name?.split(' ')[0] || 'bun venit'}!</h1>
-          <p class="text-sm text-muted">${formatDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <div class="mb-4" style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 style="font-size:20px;font-weight:700;color:var(--text)">${greeting}, ${profile?.full_name?.split(' ')[0] || 'bun venit'}!</h1>
+            <p class="text-sm text-muted">${formatDate(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          </div>
+          <a href="https://app.hriflow.ro/#/dashboard" target="_blank" rel="noopener noreferrer"
+             style="display:inline-flex;align-items:center;gap:8px;background:var(--brand);color:#000;font-weight:700;font-size:13px;padding:9px 18px;border-radius:8px;text-decoration:none;white-space:nowrap;box-shadow:0 2px 8px rgba(255,203,8,0.3);transition:opacity 0.15s"
+             onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Pontaj HRiFlow
+          </a>
         </div>
 
         <!-- Metric cards -->
