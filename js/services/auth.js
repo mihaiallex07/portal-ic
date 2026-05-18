@@ -171,11 +171,6 @@ const Auth = {
       provider: 'google',
       options: {
         redirectTo: window.location.origin + window.location.pathname,
-        scopes: 'https://www.googleapis.com/auth/drive.readonly',
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
       },
     });
     if (error) return { success: false, error: error.message };
