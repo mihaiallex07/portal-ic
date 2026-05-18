@@ -72,32 +72,51 @@ const Auth = {
   async loadProfile(userId) {
     const sb = getSupabase();
     if (!sb) return;
-    const { data } = await sb.from('profiles').select('*').eq('id', userId).single();
-    if (data) {
-      this.currentProfile = data;
-    } else {
-      // Crează profil dacă nu există
-      const user = this.currentUser;
-      const fullName = user.user_metadata?.full_name || user.email.split('@')[0];
-      // Generează codul angajat din inițialele prenume+nume (ex: Mihai Porumboiu → MP)
-      const employeeCode = fullName
-        .split(' ')
-        .filter(w => w.length > 0)
-        .map(w => w[0].toUpperCase())
-        .join('')
-        .slice(0, 4);
-      const newProfile = {
-        id: userId,
-        email: user.email,
-        full_name: fullName,
-        role: 'angajat',
-        department: '',
-        position: '',
-        employee_code: employeeCode,
-      };
-      await sb.from('profiles').upsert(newProfile);
-      this.currentProfile = newProfile;
+
+    // 1. Caută profilul după id (cazul normal)
+    const { data: profileById } = await sb.from('profiles').select('*').eq('id', userId).single();
+    if (profileById) {
+      this.currentProfile = profileById;
+      return;
     }
+
+    // 2. Caută profilul după email (profil pre-creat de admin cu UUID temporar)
+    const user = this.currentUser;
+    if (user?.email) {
+      const { data: profileByEmail } = await sb.from('profiles').select('*').eq('email', user.email).single();
+      if (profileByEmail) {
+        // Actualizăm id-ul cu UUID-ul real din Google Auth
+        await sb.from('profiles').update({ id: userId, is_pre_created: false }).eq('email', user.email);
+        this.currentProfile = { ...profileByEmail, id: userId, is_pre_created: false };
+        return;
+      }
+    }
+
+    // 3. Crează profil nou dacă nu există deloc
+    const fullName = user.user_metadata?.full_name || user.email.split('@')[0];
+    const employeeCode = fullName
+      .split(' ')
+      .filter(w => w.length > 0)
+      .map(w => w[0].toUpperCase())
+      .join('')
+      .slice(0, 4);
+    const newProfile = {
+      id: userId,
+      email: user.email,
+      full_name: fullName,
+      role: 'angajat',
+      department: '',
+      position: '',
+      employee_code: employeeCode,
+      is_pre_created: false,
+    };
+    const { error: insertError } = await sb.from('profiles').insert(newProfile);
+    if (insertError) {
+      console.error('[Auth] Eroare creare profil:', insertError);
+      // Încearcă upsert ca fallback
+      await sb.from('profiles').upsert(newProfile, { onConflict: 'email' });
+    }
+    this.currentProfile = newProfile;
   },
 
   async loginWithEmail(email, password) {
