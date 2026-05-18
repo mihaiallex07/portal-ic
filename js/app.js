@@ -479,25 +479,17 @@ function quickStartLoadTasks(projectId) {
   const taskSelect = document.getElementById('qs-task');
   if (!taskSelect) return;
   const pid = parseInt(projectId);
-  const profile = Auth.currentProfile;
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'coordonator';
   const userId = Auth.currentUser?.id;
 
-  // Sursă de task-uri: preferă TimeTracking.tasks (deja filtrat după utilizator curent)
-  // Fallback la Proiecte.tasks cu filtru strict
+  // Toți utilizatorii (inclusiv admin) văd DOAR task-urile alocate lor explicit
   let tasks = [];
   if (typeof TimeTracking !== 'undefined' && TimeTracking.tasks?.length) {
-    // TimeTracking.tasks este filtrat: admin vede tot, angajat vede doar task-urile lui
+    // TimeTracking.tasks este filtrat după assigned_user_id pentru toți
     tasks = TimeTracking.tasks.filter(t => t.project_id === pid);
   } else {
-    // Fallback: Proiecte.tasks — filtru strict: doar task-urile alocate explicit utilizatorului
+    // Fallback: Proiecte.tasks — filtru strict pe assigned_user_id pentru toți
     const allTasks = (typeof Proiecte !== 'undefined' && Proiecte.tasks) ? Proiecte.tasks : [];
-    tasks = allTasks.filter(t => {
-      if (t.project_id !== pid) return false;
-      if (isAdmin) return true;
-      // Angajat: vede doar task-urile alocate lui explicit
-      return t.assigned_user_id === userId;
-    });
+    tasks = allTasks.filter(t => t.project_id === pid && t.assigned_user_id === userId);
   }
 
   taskSelect.innerHTML = '<option value="">— Selectează task —</option>' +

@@ -125,14 +125,11 @@ const TimeTracking = {
         .in('project_id', projectIds)
         .order('display_order');
       const allTasks = tasksRes.data || [];
-      if (isAdmin) {
-        this.tasks = allTasks;
-      } else {
-        const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => m.project_id));
-        this.tasks = allTasks.filter(t =>
-          coordProjectIds.has(t.project_id) || t.assigned_user_id === userId
-        );
-      }
+      // Toți utilizatorii (inclusiv admin) văd doar task-urile alocate lor
+      const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => m.project_id));
+      this.tasks = allTasks.filter(t =>
+        coordProjectIds.has(t.project_id) || t.assigned_user_id === userId
+      );
     } else {
       this.tasks = [];
     }
