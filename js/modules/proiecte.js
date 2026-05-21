@@ -783,8 +783,35 @@ const Proiecte = {
   },
 
   openAddPhaseModal() {
-    openModal('Adaugă etapă', `
-      <div style="display:grid;gap:12px">
+    // Determină etapele prestabilite care lipsesc din proiect
+    const existingCodes = new Set(this.phases.map(p => p.code).filter(Boolean));
+    const missingPresets = PRESET_PHASES.filter(ph => !existingCodes.has(ph.code));
+
+    const presetSection = missingPresets.length > 0 ? `
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Etape prestabilite disponibile</div>
+        <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">
+          ${missingPresets.map(ph => `
+            <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
+              <input type="radio" name="preset-phase" value="${ph.code}" style="accent-color:var(--primary)">
+              <div style="width:12px;height:12px;border-radius:50%;background:${ph.color};flex-shrink:0"></div>
+              <div>
+                <div style="font-weight:600;font-size:13px">${ph.code}. ${ph.name}</div>
+                <div style="font-size:11px;color:var(--text-muted)">${ph.tasks.length} sarcini prestabilite</div>
+              </div>
+            </label>
+          `).join('')}
+          <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
+            <input type="radio" name="preset-phase" value="__custom__" style="accent-color:var(--primary)">
+            <div style="width:12px;height:12px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></div>
+            <div style="font-weight:600;font-size:13px">+ Etapă personalizată</div>
+          </label>
+        </div>
+      </div>
+      <div id="custom-phase-fields" style="display:none;border-top:1px solid var(--border);padding-top:14px;display:grid;gap:12px">
+    ` : `<div id="custom-phase-fields" style="display:grid;gap:12px">`;
+
+    const customFields = `
         <div>
           <label class="form-label">Nume etapă *</label>
           <input id="new-phase-name" class="form-input" placeholder="Ex: Proiectare Structură">
@@ -803,30 +830,81 @@ const Proiecte = {
           </div>
         </div>
       </div>
-    `, `
+    `;
+
+    const toggleScript = missingPresets.length > 0 ? `
+      <script>
+        document.querySelectorAll('input[name="preset-phase"]').forEach(function(r) {
+          r.addEventListener('change', function() {
+            var cf = document.getElementById('custom-phase-fields');
+            if (cf) cf.style.display = this.value === '__custom__' ? 'grid' : 'none';
+          });
+        });
+      <\/script>
+    ` : '';
+
+    openModal('Adaugă etapă', presetSection + customFields + toggleScript, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
       <button class="btn-primary" onclick="Proiecte.saveNewPhase()">Adaugă etapă</button>
     `);
   },
 
   async saveNewPhase() {
-    const name = document.getElementById('new-phase-name')?.value?.trim();
-    if (!name) { showToast('Completează numele etapei', 'error'); return; }
-    const budgetH = parseFloat(document.getElementById('new-phase-budget')?.value) || 0;
-    const color = document.getElementById('new-phase-color')?.value || '#3B82F6';
     const maxOrder = this.phases.reduce((m, p) => Math.max(m, p.display_order || 0), 0);
-    const result = await dbQuery('project_phases', q => q.insert({
-      project_id: this.currentProject.id,
-      name,
-      color,
-      budget_hours: budgetH,
-      display_order: maxOrder + 1,
-      status: 'activ',
-      is_preset: false,
-    }).select(), null);
-    if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
-    closeModalForce();
-    showToast('Etapă adăugată!', 'success');
+    // Verifică dacă s-a selectat o etapă prestabilită
+    const selectedRadio = document.querySelector('input[name="preset-phase"]:checked');
+    const selectedCode = selectedRadio ? selectedRadio.value : null;
+
+    if (selectedCode && selectedCode !== '__custom__') {
+      // Adaugă etapa prestabilită cu toate task-urile ei
+      const preset = PRESET_PHASES.find(ph => ph.code === selectedCode);
+      if (!preset) { showToast('Etapă prestabilită negasită', 'error'); return; }
+      const phaseResult = await dbQuery('project_phases', q => q.insert({
+        project_id: this.currentProject.id,
+        name: preset.name,
+        code: preset.code,
+        color: preset.color,
+        budget_hours: 0,
+        display_order: maxOrder + 1,
+        status: 'activ',
+        is_preset: true,
+      }).select(), null);
+      if (phaseResult && phaseResult.error) { showToast('Eroare: ' + phaseResult.error.message, 'error'); return; }
+      const newPhase = phaseResult?.data?.[0];
+      if (newPhase && preset.tasks.length > 0) {
+        const tasksToInsert = preset.tasks.map((taskName, idx) => ({
+          project_id: this.currentProject.id,
+          phase_id: newPhase.id,
+          name: taskName,
+          display_order: idx + 1,
+          budget_hours: 0,
+          minutes_worked: 0,
+          status: 'todo',
+          is_preset: true,
+        }));
+        await dbQuery('project_tasks', q => q.insert(tasksToInsert), []);
+      }
+      closeModalForce();
+      showToast('Etapă ' + preset.code + '. ' + preset.name + ' adăugată cu ' + preset.tasks.length + ' sarcini!', 'success');
+    } else {
+      // Etapă personalizată
+      const name = document.getElementById('new-phase-name')?.value?.trim();
+      if (!name) { showToast('Completează numele etapei', 'error'); return; }
+      const budgetH = parseFloat(document.getElementById('new-phase-budget')?.value) || 0;
+      const color = document.getElementById('new-phase-color')?.value || '#3B82F6';
+      const result = await dbQuery('project_phases', q => q.insert({
+        project_id: this.currentProject.id,
+        name,
+        color,
+        budget_hours: budgetH,
+        display_order: maxOrder + 1,
+        status: 'activ',
+        is_preset: false,
+      }).select(), null);
+      if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
+      closeModalForce();
+      showToast('Etapă adăugată!', 'success');
+    }
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
