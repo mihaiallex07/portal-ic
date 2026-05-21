@@ -86,6 +86,27 @@ const PRESET_PHASES = [
       'Creare conținut',
     ]
   },
+  {
+    code: 'G', name: 'Conformare Energetică și Certificări', color: '#0EA5E9',
+    tasks: [
+      'Temă de proiectare',
+      'DesignPH',
+      'PHPP',
+      'Analiză amortizare investiție extra',
+      'Prezentare beneficiar',
+      'Implementare feedback beneficiar',
+      'Predare electronică',
+      'Finalizare PHPP',
+      'Calcule HTflux',
+      'Planșe PTh cu grafică PHI',
+      'Planșe instalații protocol PHI',
+      'Ajustări DesignPH și PHPP as built',
+      'Test de etanșeitate',
+      'Teste instalații protocol PHI',
+      'Jurnal foto',
+      'Facturi + acorduri scrise / documente misc',
+    ]
+  },
 ];
 
 const Proiecte = {
@@ -757,6 +778,104 @@ const Proiecte = {
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
     showToast('Sarcină actualizată!', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  openAddPhaseModal() {
+    openModal('Adaugă etapă', `
+      <div style="display:grid;gap:12px">
+        <div>
+          <label class="form-label">Nume etapă *</label>
+          <input id="new-phase-name" class="form-input" placeholder="Ex: Proiectare Structură">
+        </div>
+        <div>
+          <label class="form-label">Buget ore</label>
+          <input id="new-phase-budget" type="number" class="form-input" value="0" min="0">
+        </div>
+        <div>
+          <label class="form-label">Culoare</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            ${['#3B82F6','#8B5CF6','#EC4899','#F59E0B','#EF4444','#10B981','#0EA5E9','#F97316','#6366F1','#14B8A6'].map((c,i) =>
+              `<div onclick="document.querySelectorAll('.phase-color-opt').forEach(el=>el.style.outline='none');this.style.outline='3px solid #000';this.style.outlineOffset='2px';document.getElementById('new-phase-color').value='${c}'" class="phase-color-opt" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;transition:outline 0.1s;${i===0?'outline:3px solid #000;outline-offset:2px':''}"></div>`
+            ).join('')}
+            <input type="hidden" id="new-phase-color" value="#3B82F6">
+          </div>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" onclick="Proiecte.saveNewPhase()">Adaugă etapă</button>
+    `);
+  },
+
+  async saveNewPhase() {
+    const name = document.getElementById('new-phase-name')?.value?.trim();
+    if (!name) { showToast('Completează numele etapei', 'error'); return; }
+    const budgetH = parseFloat(document.getElementById('new-phase-budget')?.value) || 0;
+    const color = document.getElementById('new-phase-color')?.value || '#3B82F6';
+    const maxOrder = this.phases.reduce((m, p) => Math.max(m, p.display_order || 0), 0);
+    const result = await dbQuery('project_phases', q => q.insert({
+      project_id: this.currentProject.id,
+      name,
+      color,
+      budget_hours: budgetH,
+      display_order: maxOrder + 1,
+      status: 'activ',
+      is_preset: false,
+    }).select(), null);
+    if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
+    closeModalForce();
+    showToast('Etapă adăugată!', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  openAddTaskModal(phaseId) {
+    const phase = this.phases.find(p => p.id === phaseId);
+    const phaseName = phase ? phase.name : 'etapă';
+    const phaseBudget = phase ? (phase.budget_hours || 0) : 0;
+    const allocated = this.tasks.filter(t => t.phase_id === phaseId).reduce((s, t) => s + (t.budget_hours || 0), 0);
+    const remaining = Math.max(0, phaseBudget - allocated);
+    openModal('Adaugă sarcină în ' + phaseName, `
+      <div style="display:grid;gap:12px">
+        <div>
+          <label class="form-label">Nume sarcină *</label>
+          <input id="new-task-name" class="form-input" placeholder="Ex: Modelare 3D Draft 1" autofocus>
+        </div>
+        <div>
+          <label class="form-label">Buget ore ${phaseBudget > 0 ? '(max ' + remaining + 'h disponibil)' : ''}</label>
+          <input id="new-task-budget" type="number" class="form-input" value="0" min="0">
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" onclick="Proiecte.saveNewTask(${phaseId},${phaseBudget},${allocated})">Adaugă sarcină</button>
+    `);
+  },
+
+  async saveNewTask(phaseId, phaseBudget, allocated) {
+    const name = document.getElementById('new-task-name')?.value?.trim();
+    if (!name) { showToast('Completează numele sarcinii', 'error'); return; }
+    const budgetH = parseFloat(document.getElementById('new-task-budget')?.value) || 0;
+    if (phaseBudget > 0 && (allocated + budgetH) > phaseBudget) {
+      showToast('Depășești bugetul etapei! Disponibil: ' + Math.max(0, phaseBudget - allocated) + 'h', 'error');
+      return;
+    }
+    const maxOrder = this.tasks.filter(t => t.phase_id === phaseId).reduce((m, t) => Math.max(m, t.display_order || 0), 0);
+    const result = await dbQuery('project_tasks', q => q.insert({
+      project_id: this.currentProject.id,
+      phase_id: phaseId,
+      name,
+      budget_hours: budgetH,
+      display_order: maxOrder + 1,
+      minutes_worked: 0,
+      status: 'todo',
+      is_preset: false,
+    }), null);
+    if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
+    closeModalForce();
+    showToast('Sarcină adăugată!', 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
