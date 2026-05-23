@@ -388,7 +388,13 @@ const Proiecte = {
             </div>
           </td>
           <td style="padding:10px 12px;text-align:center">
-            ${canEdit ? `<input type="number" value="${budgetH}" min="0" style="width:70px;text-align:center;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="Proiecte.updatePhaseBudget(${phase.id},this.value)">` : `<strong>${budgetH}h</strong>`}
+            ${(() => {
+              const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
+              const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
+              return canEdit
+                ? `<span style="font-weight:700;color:var(--text)" title="Calculat automat din suma task-urilor">${displayBudget}h</span>`
+                : `<strong>${displayBudget}h</strong>`;
+            })()}
           </td>
           <td style="padding:10px 12px;text-align:center;color:#3B82F6;font-weight:600">${workedH}h</td>
           <td style="padding:10px 12px;text-align:center;color:var(--text-muted)">${remainH}h</td>
@@ -483,6 +489,7 @@ const Proiecte = {
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           ${canStart ? this.renderTimerBtn(task) : ''}
           ${canEdit ? `
+            <button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>
             <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
             <button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>
           ` : ''}
@@ -737,6 +744,108 @@ const Proiecte = {
     this.renderProjectDetail();
   },
 
+
+  // ── Actualizare buget task (inline input onchange) ────────────────────────
+  async updateTaskBudget(taskId, phaseId, newValue, phaseBudget) {
+    const budgetH = parseFloat(newValue) || 0;
+    const sb = getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from('project_tasks').update({ budget_hours: budgetH }).eq('id', taskId);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    // Actualizează bugetul fazei automat (suma task-urilor)
+    await this.recalcPhaseBudget(phaseId);
+    showToast('Buget task actualizat', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  // ── Actualizare buget etapă (inline input onchange) ───────────────────────
+  async updatePhaseBudget(phaseId, newValue) {
+    const budgetH = parseFloat(newValue) || 0;
+    const sb = getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from('project_phases').update({ budget_hours: budgetH }).eq('id', phaseId);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    showToast('Buget etapă actualizat', 'success');
+    // Nu re-render complet pentru a nu pierde focus
+  },
+
+  // ── Recalculează bugetul etapei din suma task-urilor ─────────────────────
+  async recalcPhaseBudget(phaseId) {
+    const phaseTasks = this.tasks.filter(t => t.phase_id === phaseId);
+    const totalBudget = phaseTasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
+    const sb = getSupabase();
+    if (!sb) return;
+    await sb.from('project_phases').update({ budget_hours: totalBudget }).eq('id', phaseId);
+    const phase = this.phases.find(p => p.id === phaseId);
+    if (phase) phase.budget_hours = totalBudget;
+  },
+
+  // ── Ștergere task ─────────────────────────────────────────────────────────
+  async deleteTask(taskId) {
+    if (!confirm('Ești sigur că vrei să ștergi această sarcină?')) return;
+    const task = this.tasks.find(t => t.id === taskId);
+    const sb = getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from('project_tasks').delete().eq('id', taskId);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    showToast('Sarcină ștearsă', 'success');
+    if (task?.phase_id) await this.recalcPhaseBudget(task.phase_id);
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  // ── Modal consum manual ore (admin/coordonator) ───────────────────────────
+  openManualConsumeModal(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
+    const budgetH = task.budget_hours || 0;
+    openModal('Consum manual ore — ' + task.name, `
+      <div style="display:grid;gap:12px">
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:13px">
+          <div>Ore bugetate: <strong>${budgetH}h</strong></div>
+          <div>Ore consumate curent: <strong>${workedH}h</strong></div>
+          <div>Ore rămase: <strong>${Math.max(0, budgetH - workedH)}h</strong></div>
+        </div>
+        <div>
+          <label class="form-label">Ore de adăugat manual (ex: 2.5 pentru 2h30min)</label>
+          <input id="manual-hours" type="number" class="form-input" value="0" min="0" step="0.25">
+        </div>
+        <div>
+          <label class="form-label">Notă (opțional)</label>
+          <input id="manual-note" class="form-input" placeholder="Ex: Ore lucrate înainte de crearea proiectului în portal">
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">
+          ⚠️ Aceste ore vor fi adăugate direct la contorul de ore consumate al sarcinii, fără a crea o înregistrare în Time-Tracking.
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" onclick="Proiecte.saveManualConsume(${taskId})">Adaugă ore</button>
+    `);
+  },
+
+  async saveManualConsume(taskId) {
+    const hoursVal = parseFloat(document.getElementById('manual-hours')?.value) || 0;
+    if (hoursVal <= 0) { showToast('Introdu un număr de ore pozitiv', 'error'); return; }
+    const minutes = Math.round(hoursVal * 60);
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    const newMinutes = (task.minutes_worked || 0) + minutes;
+    const { error } = await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    task.minutes_worked = newMinutes;
+    closeModalForce();
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    showToast(`✅ ${h > 0 ? h + 'h ' : ''}${m > 0 ? m + 'min ' : ''}adăugate manual pe sarcină`, 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
   openEditTaskModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -773,15 +882,16 @@ const Proiecte = {
     if (phaseBudget > 0 && (otherBudget + budgetH) > phaseBudget) {
       showToast('Depășești bugetul etapei! Disponibil: ' + Math.max(0, phaseBudget - otherBudget) + 'h', 'error');
       return;
-    }
-    const result = await dbQuery('project_tasks', q => q.update({ name, budget_hours: budgetH }).eq('id', taskId), null);
+    }    const result = await dbQuery('project_tasks', q => q.update({ name, budget_hours: budgetH }).eq('id', taskId), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
-    showToast('Sarcină actualizată!', 'success');
+    showToast('Sarcin\u0103 actualizat\u0103!', 'success');
+    // Recalculeaz\u0103 bugetul etapei din suma task-urilor
+    const editedTask = this.tasks.find(t => t.id === taskId);
+    if (editedTask?.phase_id) await this.recalcPhaseBudget(editedTask.phase_id);
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
-
   openAddPhaseModal() {
     // Determină etapele prestabilite care lipsesc din proiect
     const existingCodes = new Set(this.phases.map(p => p.code).filter(Boolean));
@@ -954,10 +1064,11 @@ const Proiecte = {
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
     showToast('Sarcină adăugată!', 'success');
+    // Recalculează bugetul etapei din suma task-urilor
+    await this.recalcPhaseBudget(phaseId);
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
-
   openAddMemberModal(role) {
     const existingIds = this.members.map(m => m.user_id);
     const available = this.allUsers.filter(u => !existingIds.includes(u.id));

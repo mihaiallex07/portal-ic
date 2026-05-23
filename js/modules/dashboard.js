@@ -23,8 +23,8 @@ const Dashboard = {
 
     const activeProjects = projects.filter(p => p.status === 'activ');
     const todayEntries = timeEntries.filter(e => e.date === getTodayStr());
-    const todayMinutes = todayEntries.filter(e => e.count_in_time).reduce((s, e) => s + e.duration_minutes, 0);
-    const weekMinutes = timeEntries.filter(e => e.count_in_time).reduce((s, e) => s + e.duration_minutes, 0);
+    const todayMinutes = todayEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
+    const weekMinutes = timeEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
     const unreadNotifs = notifications.length;
 
     const profile = Auth.currentProfile;
@@ -91,7 +91,7 @@ const Dashboard = {
                         <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.task_name}</div>
                         <div class="text-xs text-muted">${formatHours(e.duration_minutes)} · ${getActivityLabel(e.activity_type)}</div>
                       </div>
-                      <div class="text-xs text-muted">${String(e.start_hour).padStart(2,'0')}:${String(e.start_min).padStart(2,'0')}</div>
+                      <div class="text-xs text-muted">${(e.start_time || (String(e.start_hour||0).padStart(2,'0')+':'+String(e.start_min||0).padStart(2,'0'))).substring(0,5)}</div>
                     </div>
                   `).join('')
                 }
@@ -113,7 +113,7 @@ const Dashboard = {
                     const pct = p.budget_hours > 0 ? Math.min(100, Math.round(p.used_hours / p.budget_hours * 100)) : 0;
                     const colorClass = pct >= 90 ? 'danger' : pct >= 70 ? 'warning' : '';
                     return `
-                      <div class="flex items-center gap-3 p-3 cursor-pointer" style="border-bottom:1px solid var(--border)" onclick="navigate('proiecte', null)">
+                      <div class="flex items-center gap-3 p-3 cursor-pointer" style="border-bottom:1px solid var(--border)" onclick="navigate('proiecte', null); setTimeout(() => Proiecte && Proiecte.openProject(${p.id}), 200)">
                         <div style="font-size:20px">${p.emoji || '📁'}</div>
                         <div style="flex:1;min-width:0">
                           <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>

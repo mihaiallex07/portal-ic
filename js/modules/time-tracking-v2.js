@@ -264,6 +264,10 @@ const TimeTracking = {
             <button class="btn-secondary" onclick="TimeTracking.prevWeek()">‹ Anterioară</button>
             <button class="btn-secondary" onclick="TimeTracking.thisWeek()">Curentă</button>
             <button class="btn-secondary" onclick="TimeTracking.nextWeek()">Următoare ›</button>
+            <button class="btn-secondary" onclick="GoogleCalendarImport.openImportModal()" title="Import din Google Calendar" style="display:inline-flex;align-items:center;gap:6px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Import Calendar
+            </button>
             <button class="btn-brand" onclick="TimeTracking.openAddModal()">+ Adaugă activitate</button>
           </div>
         </div>
@@ -623,11 +627,23 @@ const TimeTracking = {
   },
 
   async deleteEntry(id) {
+    if (!confirm('Ești sigur că vrei să ștergi această activitate?')) return;
     const sb = getSupabase();
     if (!sb) return;
+    // Găsim înregistrarea pentru a scădea minutes_worked din task
+    const entry = this.entries.find(e => e.id === id);
     const { error } = await sb.from('time_entries').delete().eq('id', id);
     if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
-    showToast('Activitate ștearsă', 'success');
+    // Scade ore din project_task dacă există
+    if (entry?.project_task_id && entry?.duration_minutes) {
+      const task = this.tasks.find(t => t.id === entry.project_task_id);
+      if (task) {
+        const newMin = Math.max(0, (task.minutes_worked || 0) - entry.duration_minutes);
+        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', task.id);
+      }
+    }
+    closeModalForce();
+    showToast('✅ Activitate ștearsă', 'success');
     await this.loadData();
     this.renderPage();
   },
