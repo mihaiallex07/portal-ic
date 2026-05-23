@@ -332,8 +332,45 @@ const TimeTracking = {
             <input type="date" id="tt-date" class="input" value="${today}">
           </div>
           <div style="flex:1">
-            <label class="label">Durată (minute) *</label>
-            <input type="number" id="tt-duration" class="input" value="60" min="1" max="720">
+            <label class="label">Durată *</label>
+            <select id="tt-duration" class="select">
+              <option value="15">15min</option>
+              <option value="30">30min</option>
+              <option value="45">45min</option>
+              <option value="60" selected>1h</option>
+              <option value="75">1h 15min</option>
+              <option value="90">1h 30min</option>
+              <option value="105">1h 45min</option>
+              <option value="120">2h</option>
+              <option value="135">2h 15min</option>
+              <option value="150">2h 30min</option>
+              <option value="165">2h 45min</option>
+              <option value="180">3h</option>
+              <option value="195">3h 15min</option>
+              <option value="210">3h 30min</option>
+              <option value="225">3h 45min</option>
+              <option value="240">4h</option>
+              <option value="255">4h 15min</option>
+              <option value="270">4h 30min</option>
+              <option value="285">4h 45min</option>
+              <option value="300">5h</option>
+              <option value="315">5h 15min</option>
+              <option value="330">5h 30min</option>
+              <option value="345">5h 45min</option>
+              <option value="360">6h</option>
+              <option value="375">6h 15min</option>
+              <option value="390">6h 30min</option>
+              <option value="405">6h 45min</option>
+              <option value="420">7h</option>
+              <option value="435">7h 15min</option>
+              <option value="450">7h 30min</option>
+              <option value="465">7h 45min</option>
+              <option value="480">8h</option>
+              <option value="540">9h</option>
+              <option value="600">10h</option>
+              <option value="660">11h</option>
+              <option value="720">12h</option>
+            </select>
           </div>
         </div>
         <div class="flex gap-3">

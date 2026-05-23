@@ -192,14 +192,20 @@ const TimeTracking = {
           const st = this.parseStartTime(e);
           return e.date === dStr && st.h === hour;
         });
+        // Înălțime celulă: 60px per oră = 1px per minut
+        const CELL_H = 60;
         const blocks = dayEntries.map(e => {
           const proj = this.projects.find(p => p.id === e.project_id);
           const color = proj?.color || '#3B82F6';
           const emoji = proj?.emoji || '';
+          const st = this.parseStartTime(e);
+          const blockH = Math.max(18, (e.duration_minutes || 30));
+          const topOffset = st.m; // minute de la începutul orei
           return `<div onclick="TimeTracking.viewEntry(${e.id})"
             title="${e.task_name || ''} · ${this.fmtDuration(e.duration_minutes)}"
-            style="background:${color}22;border-left:3px solid ${color};border-radius:3px;padding:2px 5px;
-              margin:1px 0;cursor:pointer;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+            style="position:absolute;left:2px;right:2px;top:${topOffset}px;height:${blockH}px;
+              background:${color}22;border-left:3px solid ${color};border-radius:3px;padding:2px 5px;
+              cursor:pointer;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;z-index:1">
             <span style="font-weight:600;color:${color}">${emoji} ${e.task_name || 'Activitate'}</span>
             <span style="color:var(--text-muted);margin-left:4px">${this.fmtDuration(e.duration_minutes)}</span>
           </div>`;
@@ -207,7 +213,7 @@ const TimeTracking = {
         const clickHandler = dayEntries.length === 0
           ? `onclick="TimeTracking.openAddModal('${dStr}', ${hour})"`
           : '';
-        return `<td ${clickHandler} style="border:1px solid var(--border);padding:2px;vertical-align:top;height:44px;
+        return `<td ${clickHandler} style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;
           ${dayEntries.length === 0 ? 'cursor:pointer' : ''}"
           ${dayEntries.length === 0 ? `onmouseenter="this.style.background='rgba(255,203,9,0.08)'"` : ''}
           ${dayEntries.length === 0 ? `onmouseleave="this.style.background=''"` : ''}>
@@ -215,7 +221,7 @@ const TimeTracking = {
         </td>`;
       }).join('');
       return `<tr>
-        <td style="padding:4px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap;border-right:1px solid var(--border);width:50px">
+        <td style="padding:4px 8px;font-size:11px;color:var(--text-muted);white-space:nowrap;border-right:1px solid var(--border);width:50px;height:60px;vertical-align:top">
           ${String(hour).padStart(2,'0')}:00
         </td>
         ${cells}
@@ -239,6 +245,8 @@ const TimeTracking = {
             <td style="padding:8px 12px">${this.fmtTime(st.h, st.m)}${et ? ' → ' + this.fmtTime(et.h, et.m) : ''}</td>
             <td style="padding:8px 12px"><span class="badge badge-blue">${this.fmtDuration(e.duration_minutes)}</span></td>
             <td style="padding:8px 12px">
+              <button onclick="TimeTracking.openEditModal(${e.id})" title="Editează"
+                style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;padding:2px 6px">✏️</button>
               <button onclick="TimeTracking.deleteEntry(${e.id})" title="Șterge"
                 style="background:none;border:none;cursor:pointer;color:#EF4444;font-size:14px;padding:2px 6px">🗑</button>
             </td>
@@ -320,6 +328,20 @@ const TimeTracking = {
     return days;
   },
 
+
+  // ── Helper: generează opțiuni dropdown durată (15min intervale) ───────────
+  _buildDurationOptions(selectedMinutes) {
+    const opts = [];
+    const sel = Math.round((selectedMinutes || 60) / 15) * 15 || 15;
+    for (let m = 15; m <= 720; m += 15) {
+      const h = Math.floor(m / 60);
+      const min = m % 60;
+      const label = h > 0 ? (min > 0 ? `${h}h ${min}min` : `${h}h`) : `${min}min`;
+      opts.push(`<option value="${m}"${m === sel ? ' selected' : ''}>${label}</option>`);
+    }
+    return opts.join('');
+  },
+
   // ── Modal adăugare activitate ─────────────────────────────────────────────
 
   openAddModal(prefillDate, prefillHour) {
@@ -339,8 +361,8 @@ const TimeTracking = {
             <input type="date" id="tt-date" class="input" value="${today}">
           </div>
           <div style="flex:1">
-            <label class="label">Durată (minute) *</label>
-            <input type="number" id="tt-duration" class="input" value="60" min="1" max="720">
+            <label class="label">Durată *</label>
+            <select id="tt-duration" class="select">${this._buildDurationOptions(60)}</select>
           </div>
         </div>
         <div class="flex gap-3">
@@ -474,8 +496,130 @@ const TimeTracking = {
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Închide</button>
+      <button class="btn-secondary" onclick="TimeTracking.openEditModal(${id})">✏️ Editează</button>
       <button class="btn-danger" onclick="TimeTracking.deleteEntry(${id});closeModalForce()">🗑 Șterge</button>
     `);
+  },
+
+
+  openEditModal(id) {
+    const e = this.entries.find(e => e.id === id);
+    if (!e) return;
+    const st = this.parseStartTime(e);
+    const projectOptions = this.projects.map(p =>
+      `<option value="${p.id}"${e.project_id === p.id ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
+    ).join('');
+    const currentTasks = e.project_id
+      ? this.tasks.filter(t => t.project_id === e.project_id)
+      : [];
+    const taskOptions = currentTasks.map(t =>
+      `<option value="${t.id}"${e.project_task_id === t.id ? ' selected' : ''}>${t.name}</option>`
+    ).join('');
+    openModal('Editează activitate', `
+      <div class="space-y-3">
+        <div class="flex gap-3">
+          <div style="flex:1">
+            <label class="label">Data *</label>
+            <input type="date" id="tt-edit-date" class="input" value="${e.date}">
+          </div>
+          <div style="flex:1">
+            <label class="label">Durată *</label>
+            <select id="tt-edit-duration" class="select">${this._buildDurationOptions(e.duration_minutes)}</select>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <div style="flex:1">
+            <label class="label">Ora start</label>
+            <input type="number" id="tt-edit-hour" class="input" value="${st.h}" min="0" max="23">
+          </div>
+          <div style="flex:1">
+            <label class="label">Minut start</label>
+            <input type="number" id="tt-edit-min" class="input" value="${st.m}" min="0" max="59">
+          </div>
+        </div>
+        <div>
+          <label class="label">Descriere activitate *</label>
+          <input type="text" id="tt-edit-task" class="input" value="${(e.task_name || '').replace(/"/g, '&quot;')}">
+        </div>
+        <div>
+          <label class="label">Proiect</label>
+          <select id="tt-edit-project" class="select" onchange="TimeTracking.onEditProjectChange(this.value, ${e.project_task_id || 'null'})">
+            <option value="">— Fără proiect —</option>
+            ${projectOptions}
+          </select>
+        </div>
+        <div>
+          <label class="label">Task proiect</label>
+          <select id="tt-edit-task-id" class="select">
+            <option value="">— Selectează task —</option>
+            ${taskOptions}
+          </select>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" onclick="TimeTracking.saveEditEntry(${id})">Salvează</button>
+    `);
+  },
+
+  onEditProjectChange(projectId, currentTaskId) {
+    const taskSelect = document.getElementById('tt-edit-task-id');
+    if (!taskSelect) return;
+    const pid = parseInt(projectId);
+    const tasks = this.tasks.filter(t => t.project_id === pid);
+    taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
+      tasks.map(t => `<option value="${t.id}"${t.id === currentTaskId ? ' selected' : ''}>${t.name}</option>`).join('');
+  },
+
+  async saveEditEntry(id) {
+    const taskName = document.getElementById('tt-edit-task')?.value?.trim();
+    if (!taskName) { showToast('Completează descrierea activității', 'error'); return; }
+    const dateVal = document.getElementById('tt-edit-date')?.value;
+    if (!dateVal) { showToast('Selectează data', 'error'); return; }
+    const startHour = parseInt(document.getElementById('tt-edit-hour')?.value) || 0;
+    const startMin = parseInt(document.getElementById('tt-edit-min')?.value) || 0;
+    const durationMinutes = parseInt(document.getElementById('tt-edit-duration')?.value) || 60;
+    const projectId = document.getElementById('tt-edit-project')?.value || null;
+    const taskId = document.getElementById('tt-edit-task-id')?.value || null;
+    const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
+    const endTotalMin = startHour * 60 + startMin + durationMinutes;
+    const endH = Math.floor(endTotalMin / 60) % 24;
+    const endM = endTotalMin % 60;
+    const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
+    const sb = getSupabase();
+    if (!sb) { showToast('Eroare: conexiune Supabase indisponibilă', 'error'); return; }
+    const oldEntry = this.entries.find(e => e.id === id);
+    const { error } = await sb.from('time_entries').update({
+      date: dateVal,
+      start_time: startTimeStr,
+      end_time: endTimeStr,
+      duration_minutes: durationMinutes,
+      task_name: taskName,
+      project_id: projectId ? parseInt(projectId) : null,
+      project_task_id: taskId ? parseInt(taskId) : null,
+    }).eq('id', id);
+    if (error) { showToast('Eroare la salvare: ' + error.message, 'error'); return; }
+    // Ajustează minutes_worked: scade de pe task-ul vechi, adaugă pe cel nou
+    if (oldEntry?.project_task_id && String(oldEntry.project_task_id) !== String(taskId)) {
+      const oldTask = this.tasks.find(t => t.id === oldEntry.project_task_id);
+      if (oldTask) {
+        const newMin = Math.max(0, (oldTask.minutes_worked || 0) - (oldEntry.duration_minutes || 0));
+        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', oldTask.id);
+      }
+    }
+    if (taskId) {
+      const task = this.tasks.find(t => String(t.id) === String(taskId));
+      if (task) {
+        const oldMin = (oldEntry?.project_task_id && String(oldEntry.project_task_id) === String(taskId))
+          ? (oldEntry.duration_minutes || 0) : 0;
+        const newMin = Math.max(0, (task.minutes_worked || 0) - oldMin + durationMinutes);
+        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', parseInt(taskId));
+      }
+    }
+    closeModalForce();
+    showToast('✅ Activitate actualizată', 'success');
+    await this.loadData();
+    this.renderPage();
   },
 
   async deleteEntry(id) {
