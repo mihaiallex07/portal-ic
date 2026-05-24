@@ -796,11 +796,54 @@ const Proiecte = {
   },
 
   // ── Modal consum manual ore (admin/coordonator) ───────────────────────────
-  openManualConsumeModal(taskId) {
+  async openManualConsumeModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
     const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
     const budgetH = task.budget_hours || 0;
+
+    // Încărcă istoricul consumului manual
+    const sb = getSupabase();
+    let logHtml = '';
+    if (sb) {
+      const { data: logs } = await sb.from('manual_hours_log')
+        .select('id,minutes,note,created_at,added_by_profile_id,profiles!manual_hours_log_added_by_profile_id_fkey(full_name,employee_code)')
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (logs && logs.length > 0) {
+        const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
+        logHtml = `
+          <div style="margin-top:4px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Istoric consum manual</div>
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+              ${logs.map(log => {
+                const h = Math.floor(log.minutes / 60);
+                const m = log.minutes % 60;
+                const durStr = h > 0 ? (m > 0 ? h + 'h ' + m + 'min' : h + 'h') : m + 'min';
+                const dateStr = new Date(log.created_at).toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+                const who = log.profiles?.full_name || log.profiles?.employee_code || 'Necunoscut';
+                return `<div id="mhl-row-${log.id}" style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-weight:600;font-size:13px;color:var(--brand-dark)">+${durStr}</span>
+                      <span style="font-size:11px;color:var(--text-muted)">${who} · ${dateStr}</span>
+                    </div>
+                    ${log.note ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;font-style:italic">"${log.note}"</div>` : ''}
+                  </div>
+                  ${isAdmin ? `<div style="display:flex;gap:4px;flex-shrink:0">
+                    <button onclick="Proiecte.openEditManualLog(${log.id},${log.minutes},${taskId})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;padding:2px 4px" title="Editează">✏️</button>
+                    <button onclick="Proiecte.deleteManualLog(${log.id},${log.minutes},${taskId})" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:13px;padding:2px 4px" title="Șterge">🗑</button>
+                  </div>` : ''}
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+      } else {
+        logHtml = `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:8px">Niciun consum manual înregistrat.</div>`;
+      }
+    }
+
     openModal('Consum manual ore — ' + task.name, `
       <div style="display:grid;gap:12px">
         <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:13px">
@@ -808,9 +851,22 @@ const Proiecte = {
           <div>Ore consumate curent: <strong>${workedH}h</strong></div>
           <div>Ore rămase: <strong>${Math.max(0, budgetH - workedH)}h</strong></div>
         </div>
-        <div>
-          <label class="form-label">Ore de adăugat manual (ex: 2.5 pentru 2h30min)</label>
-          <input id="manual-hours" type="number" class="form-input" value="0" min="0" step="0.25">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label class="form-label">Ore</label>
+            <select id="manual-hours-h" class="form-input">
+              ${Array.from({length:13},(_,i)=>`<option value="${i}">${i}h</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Minute</label>
+            <select id="manual-hours-m" class="form-input">
+              <option value="0">0 min</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="45">45 min</option>
+            </select>
+          </div>
         </div>
         <div>
           <label class="form-label">Notă (opțional)</label>
@@ -819,6 +875,7 @@ const Proiecte = {
         <div style="font-size:12px;color:var(--text-muted)">
           ⚠️ Aceste ore vor fi adăugate direct la contorul de ore consumate al sarcinii, fără a crea o înregistrare în Time-Tracking.
         </div>
+        ${logHtml}
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
@@ -827,13 +884,30 @@ const Proiecte = {
   },
 
   async saveManualConsume(taskId) {
-    const hoursVal = parseFloat(document.getElementById('manual-hours')?.value) || 0;
-    if (hoursVal <= 0) { showToast('Introdu un număr de ore pozitiv', 'error'); return; }
-    const minutes = Math.round(hoursVal * 60);
+    const hoursH = parseInt(document.getElementById('manual-hours-h')?.value) || 0;
+    const hoursM = parseInt(document.getElementById('manual-hours-m')?.value) || 0;
+    const minutes = hoursH * 60 + hoursM;
+    if (minutes <= 0) { showToast('Selectează cel puțin 15 minute', 'error'); return; }
+    const note = document.getElementById('manual-note')?.value?.trim() || null;
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
     const sb = getSupabase();
     if (!sb) return;
+    const userUUID = Auth.currentUser?.id;
+    if (!userUUID) { showToast('Utilizator neidentificat', 'error'); return; }
+
+    // Inserează în manual_hours_log
+    const { error: logError } = await sb.from('manual_hours_log').insert({
+      task_id: taskId,
+      project_id: task.project_id,
+      added_by: userUUID,
+      added_by_profile_id: userUUID,
+      minutes,
+      note,
+    });
+    if (logError) { showToast('Eroare la salvarea istoricului: ' + logError.message, 'error'); return; }
+
+    // Actualizează minutes_worked pe task
     const newMinutes = (task.minutes_worked || 0) + minutes;
     const { error } = await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
@@ -842,6 +916,82 @@ const Proiecte = {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     showToast(`✅ ${h > 0 ? h + 'h ' : ''}${m > 0 ? m + 'min ' : ''}adăugate manual pe sarcină`, 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  async openEditManualLog(logId, currentMinutes, taskId) {
+    const currentH = Math.floor(currentMinutes / 60);
+    const currentM = currentMinutes % 60;
+    openModal('Editează consum manual ore', `
+      <div style="display:grid;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label class="form-label">Ore</label>
+            <select id="edit-mhl-h" class="form-input">
+              ${Array.from({length:13},(_,i)=>`<option value="${i}" ${i===currentH?'selected':''}>${i}h</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Minute</label>
+            <select id="edit-mhl-m" class="form-input">
+              ${[0,15,30,45].map(v=>`<option value="${v}" ${v===currentM?'selected':''}>${v} min</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Notă (opțional)</label>
+          <input id="edit-mhl-note" class="form-input" placeholder="Notă">
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" onclick="Proiecte.saveEditManualLog(${logId},${currentMinutes},${taskId})">Salvează</button>
+    `);
+  },
+
+  async saveEditManualLog(logId, oldMinutes, taskId) {
+    const newH = parseInt(document.getElementById('edit-mhl-h')?.value) || 0;
+    const newM = parseInt(document.getElementById('edit-mhl-m')?.value) || 0;
+    const newMinutes = newH * 60 + newM;
+    if (newMinutes <= 0) { showToast('Selectează cel puțin 15 minute', 'error'); return; }
+    const note = document.getElementById('edit-mhl-note')?.value?.trim() || null;
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const { error: logError } = await sb.from('manual_hours_log').update({ minutes: newMinutes, note, updated_at: new Date().toISOString() }).eq('id', logId);
+    if (logError) { showToast('Eroare: ' + logError.message, 'error'); return; }
+
+    // Ajustează minutes_worked pe task (diferența)
+    const diff = newMinutes - oldMinutes;
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) {
+      const updatedMin = Math.max(0, (task.minutes_worked || 0) + diff);
+      await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
+      task.minutes_worked = updatedMin;
+    }
+    closeModalForce();
+    showToast('✅ Consum manual actualizat', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
+  async deleteManualLog(logId, minutes, taskId) {
+    if (!confirm('Ștergi această înregistrare de consum manual? Orele vor fi scăzute din totalul sarcinii.')) return;
+    const sb = getSupabase();
+    if (!sb) return;
+
+    const { error } = await sb.from('manual_hours_log').delete().eq('id', logId);
+    if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+
+    // Scade orele din minutes_worked
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) {
+      const updatedMin = Math.max(0, (task.minutes_worked || 0) - minutes);
+      await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
+      task.minutes_worked = updatedMin;
+    }
+    showToast('✅ Consum manual șters', 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },

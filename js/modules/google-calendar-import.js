@@ -65,11 +65,12 @@ const GoogleCalendarImport = {
     let projects = [];
     let allTasks = [];
     if (sb) {
-      const userId = typeof TimeTracking !== 'undefined' ? TimeTracking.getNumericUserId() : (Auth.currentProfile?.id || null);
-      const isAdmin = Auth.currentProfile?.role === 'admin';
+      // user_id în project_members este UUID (Auth.currentUser.id), nu numeric
+      const userUUID = Auth.currentUser?.id || null;
+      const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
       const [projRes, memberRes] = await Promise.all([
         sb.from('projects').select('id,name,color,emoji').eq('status', 'activ'),
-        userId ? sb.from('project_members').select('project_id,role').eq('user_id', userId) : Promise.resolve({ data: [] }),
+        userUUID ? sb.from('project_members').select('project_id,project_role').eq('user_id', userUUID) : Promise.resolve({ data: [] }),
       ]);
       const allProjects = projRes.data || [];
       const memberships = memberRes.data || [];
@@ -462,10 +463,6 @@ const GoogleCalendarImport = {
         date: ev.date,
         start_time: startTimeStr,
         end_time: endTimeStr,
-        start_hour: ev.startH,
-        start_min: ev.startM,
-        end_hour: endH,
-        end_min: endM,
         duration_minutes: ev.durationMin,
         task_name: ev.title,
         project_id: projectId ? parseInt(projectId) : null,
