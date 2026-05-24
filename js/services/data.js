@@ -152,7 +152,7 @@ const DB = {
       return { data: entries };
     }
     const sb = getSupabase();
-    let q = sb.from('time_entries').select('*, projects(name,color,emoji)').eq('user_id', userId);
+    let q = sb.from('time_entries').select('*, projects(name,color)').eq('user_id', userId);
     if (dateFrom) q = q.gte('date', dateFrom);
     if (dateTo) q = q.lte('date', dateTo);
     return q.order('date', { ascending: false });

@@ -1285,52 +1285,96 @@ const Proiecte = {
 
   openAssignModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
-    // assigned_users poate fi array de UUID-uri sau assigned_user_id (legacy)
     const currentAssigned = task?.assigned_users || (task?.assigned_user_id ? [task.assigned_user_id] : []);
-
-    openModal('Asignează responsabili', `
-      <div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Selectează una sau mai multe persoane din echipa proiectului:</div>
-        <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
-          ${this.members.length === 0
-            ? '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">Niciun membru în echipa proiectului</div>'
-            : this.members.map(m => {
-                const u = m.profiles || {};
-                const name = u.full_name || u.name || u.email || 'Utilizator';
-                const initials = u.employee_code || (name).split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
-                const avatarEl = u.avatar_url
-                  ? `<img src="${u.avatar_url}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">`
-                  : `<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dark);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${initials}</div>`;
-                const checked = currentAssigned.includes(m.user_id) ? 'checked' : '';
-                return `
-                  <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
-                    <input type="checkbox" name="assign-cb" value="${m.user_id}" ${checked} style="width:16px;height:16px;accent-color:var(--brand-dark);flex-shrink:0" />
-                    ${avatarEl}
-                    <div style="flex:1;min-width:0">
-                      <div style="font-weight:600;font-size:13px">${name}</div>
-                      <div style="font-size:11px;color:var(--text-muted)">${u.department || ''} ${u.job_title || u.position ? '· ' + (u.job_title || u.position) : ''}</div>
+    // Încarcă assignment-urile existente pentru a pre-popula datele
+    dbQuery('project_task_assignments', q =>
+      q.select('user_id,start_date,end_date').eq('task_id', taskId), []
+    ).then(res => {
+      const existingMap = {};
+      (res.data || []).forEach(a => { existingMap[a.user_id] = a; });
+      openModal('Asignează responsabili', `
+        <div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Selectează persoanele și perioada în care lucrează la această sarcină:</div>
+          <div style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+            ${this.members.length === 0
+              ? '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">Niciun membru în echipa proiectului</div>'
+              : this.members.map(m => {
+                  const u = m.profiles || {};
+                  const name = u.full_name || u.name || u.email || 'Utilizator';
+                  const initials = u.employee_code || (name).split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+                  const avatarEl = u.avatar_url
+                    ? \`<img src="\${u.avatar_url}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">\`
+                    : \`<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dark);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">\${initials}</div>\`;
+                  const checked = currentAssigned.includes(m.user_id) ? 'checked' : '';
+                  const ex = existingMap[m.user_id] || {};
+                  const startVal = ex.start_date || '';
+                  const endVal = ex.end_date || '';
+                  const datesDisplay = checked ? 'flex' : 'none';
+                  return \`
+                    <div style="border-bottom:1px solid var(--border);padding:10px 12px">
+                      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                        <input type="checkbox" name="assign-cb" value="\${m.user_id}" \${checked}
+                          style="width:16px;height:16px;accent-color:var(--brand-dark);flex-shrink:0"
+                          onchange="this.closest('div').querySelector('.assign-dates-row').style.display=this.checked?'flex':'none'" />
+                        \${avatarEl}
+                        <div style="flex:1;min-width:0">
+                          <div style="font-weight:600;font-size:13px">\${name}</div>
+                          <div style="font-size:11px;color:var(--text-muted)">\${u.department || ''} \${u.job_title || u.position ? '· ' + (u.job_title || u.position) : ''}</div>
+                        </div>
+                      </label>
+                      <div class="assign-dates-row" style="display:\${datesDisplay};gap:8px;margin-top:8px;margin-left:42px">
+                        <div style="flex:1">
+                          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Data start</label>
+                          <input type="date" name="assign-start" data-uid="\${m.user_id}" class="form-input" style="font-size:12px;padding:4px 8px" value="\${startVal}">
+                        </div>
+                        <div style="flex:1">
+                          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px">Data final</label>
+                          <input type="date" name="assign-end" data-uid="\${m.user_id}" class="form-input" style="font-size:12px;padding:4px 8px" value="\${endVal}">
+                        </div>
+                      </div>
                     </div>
-                  </label>
-                `;
-              }).join('')
-          }
+                  \`;
+                }).join('')
+            }
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px">💡 Perioada apare în Process Overview ca bară Gantt per angajat.</div>
         </div>
-      </div>
-    `, `
-      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-primary" onclick="Proiecte.assignTask(${taskId})">Salvează</button>
-    `);
+      `, \`
+        <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+        <button class="btn-primary" onclick="Proiecte.assignTask(\${taskId})">Salvează</button>
+      \`);
+    });
   },
 
   async assignTask(taskId) {
     const checkboxes = document.querySelectorAll('input[name="assign-cb"]:checked');
     const userIds = Array.from(checkboxes).map(cb => cb.value);
-    // Salvăm primul user în assigned_user_id (compatibilitate) + toți în assigned_users
     const primaryUserId = userIds[0] || null;
+    const projectId = this.currentProject?.id;
+
+    // Actualizează project_tasks (compatibilitate)
     await dbQuery('project_tasks', q => q.update({
       assigned_user_id: primaryUserId,
       assigned_users: userIds.length > 0 ? userIds : null,
     }).eq('id', taskId), null);
+
+    // Șterge assignment-urile vechi și inserează cele noi cu perioadă
+    await dbQuery('project_task_assignments', q => q.delete().eq('task_id', taskId), null);
+    if (userIds.length > 0 && projectId) {
+      const rows = userIds.map(uid => {
+        const startInput = document.querySelector(`input[name="assign-start"][data-uid="${uid}"]`);
+        const endInput = document.querySelector(`input[name="assign-end"][data-uid="${uid}"]`);
+        return {
+          task_id: taskId,
+          project_id: projectId,
+          user_id: uid,
+          start_date: startInput?.value || null,
+          end_date: endInput?.value || null,
+        };
+      });
+      await dbQuery('project_task_assignments', q => q.insert(rows), null);
+    }
+
     closeModalForce();
     showToast(userIds.length > 0 ? `${userIds.length} responsabil${userIds.length !== 1 ? 'i asignați' : ' asignat'}` : 'Sarcină neasignată', 'success');
     await this.loadProjectDetails(this.currentProject.id);
