@@ -59,8 +59,36 @@ const GoogleCalendarImport = {
 
   // ── Deschide modalul de import ───────────────────────────────────────────
   async openImportModal() {
-    // Verifică că TimeTracking are proiectele încărcate
-    const projects = (typeof TimeTracking !== 'undefined' && TimeTracking.projects) ? TimeTracking.projects : [];
+    // Încarcă proiectele direct din Supabase (independent de starea TimeTracking)
+    const sb = getSupabase();
+    let projects = [];
+    let allTasks = [];
+    let allPhases = [];
+    if (sb) {
+      const userId = typeof TimeTracking !== 'undefined' ? TimeTracking.getNumericUserId() : (Auth.currentProfile?.id || null);
+      const isAdmin = Auth.currentProfile?.role === 'admin';
+      const [projRes, memberRes] = await Promise.all([
+        sb.from('projects').select('id,name,color,emoji').eq('status', 'activ'),
+        userId ? sb.from('project_members').select('project_id,role').eq('user_id', userId) : Promise.resolve({ data: [] }),
+      ]);
+      const allProjects = projRes.data || [];
+      const memberships = memberRes.data || [];
+      if (isAdmin) {
+        projects = allProjects;
+      } else {
+        const enrolledIds = new Set(memberships.map(m => m.project_id));
+        projects = allProjects.filter(p => enrolledIds.has(p.id));
+      }
+      if (projects.length > 0) {
+        const projectIds = projects.map(p => p.id);
+        const [tasksRes, phasesRes] = await Promise.all([
+          sb.from('project_tasks').select('id,name,project_id,phase_id,budget_hours,minutes_worked').in('project_id', projectIds).order('display_order'),
+          sb.from('project_phases').select('id,name,project_id').in('project_id', projectIds).order('display_order'),
+        ]);
+        allTasks = tasksRes.data || [];
+        allPhases = phasesRes.data || [];
+      }
+    }
 
     openModal('Import din Google Calendar', `
       <div style="display:grid;gap:14px">
@@ -105,8 +133,8 @@ const GoogleCalendarImport = {
     `);
     // Stochează proiectele pentru utilizare ulterioară
     this._projects = projects;
-    this._tasks = (typeof TimeTracking !== 'undefined' && TimeTracking.tasks) ? TimeTracking.tasks : [];
-    this._phases = (typeof TimeTracking !== 'undefined' && TimeTracking.phases) ? TimeTracking.phases : [];
+    this._tasks = allTasks;
+    this._phases = allPhases;
     this._fetchedEvents = [];
   },
 
