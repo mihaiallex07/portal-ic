@@ -2,6 +2,7 @@
 // GoogleCalendarImport — Import evenimente din Google Calendar
 // în Time-Tracking cu alocare pe proiect/etapă/task
 // Folosește Google Identity Services (GIS) — același pattern ca DriveViewer
+// v2: flux rapid cu alocare în masă + grupare pe zile
 // ============================================================
 const GoogleCalendarImport = {
   CLIENT_ID: '1079754177727-89qmga68d5r0utsdclspd0tfqldil0og.apps.googleusercontent.com',
@@ -63,7 +64,6 @@ const GoogleCalendarImport = {
     const sb = getSupabase();
     let projects = [];
     let allTasks = [];
-    let allPhases = [];
     if (sb) {
       const userId = typeof TimeTracking !== 'undefined' ? TimeTracking.getNumericUserId() : (Auth.currentProfile?.id || null);
       const isAdmin = Auth.currentProfile?.role === 'admin';
@@ -81,21 +81,26 @@ const GoogleCalendarImport = {
       }
       if (projects.length > 0) {
         const projectIds = projects.map(p => p.id);
-        const [tasksRes, phasesRes] = await Promise.all([
-          sb.from('project_tasks').select('id,name,project_id,phase_id,budget_hours,minutes_worked').in('project_id', projectIds).order('display_order'),
-          sb.from('project_phases').select('id,name,project_id').in('project_id', projectIds).order('display_order'),
-        ]);
+        const tasksRes = await sb.from('project_tasks')
+          .select('id,name,project_id,phase_id,budget_hours,minutes_worked')
+          .in('project_id', projectIds)
+          .order('display_order');
         allTasks = tasksRes.data || [];
-        allPhases = phasesRes.data || [];
       }
     }
+
+    const projectOptions = projects.map(p =>
+      `<option value="${p.id}">${p.emoji || '📁'} ${p.name}</option>`
+    ).join('');
 
     openModal('Import din Google Calendar', `
       <div style="display:grid;gap:14px">
         <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:13px;color:var(--text-muted)">
           📅 Importă evenimente din trecutul calendarului tău Google și alocă-le pe proiecte și task-uri.
-          Evenimentele importate nu vor suprascrie activitățile existente.
+          Evenimentele deja importate nu vor fi suprascrise.
         </div>
+
+        <!-- Interval date -->
         <div class="flex gap-3">
           <div style="flex:1">
             <label class="label">De la data *</label>
@@ -106,17 +111,50 @@ const GoogleCalendarImport = {
             <input type="date" id="gcal-to" class="input" value="${this._defaultTo()}">
           </div>
         </div>
-        <div id="gcal-events-container" style="display:none">
+
+        <!-- Alocare în masă -->
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:12px">
           <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
-            Evenimente găsite — selectează ce vrei să imporți
+            ⚡ Alocare rapidă — aplică pe toate evenimentele selectate
           </div>
-          <div id="gcal-events-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px"></div>
-          <div style="margin-top:8px;display:flex;gap:8px">
-            <button onclick="GoogleCalendarImport.selectAll(true)" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px;padding:0">Selectează toate</button>
-            <span style="color:var(--text-muted)">·</span>
-            <button onclick="GoogleCalendarImport.selectAll(false)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:12px;padding:0">Deselectează toate</button>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <label class="label" style="font-size:11px">Proiect implicit</label>
+              <select id="gcal-bulk-proj" class="select" style="font-size:12px"
+                onchange="GoogleCalendarImport.onBulkProjectChange(this.value)">
+                <option value="">— Fără proiect —</option>
+                ${projectOptions}
+              </select>
+            </div>
+            <div>
+              <label class="label" style="font-size:11px">Task implicit</label>
+              <select id="gcal-bulk-task" class="select" style="font-size:12px">
+                <option value="">— Selectează task —</option>
+              </select>
+            </div>
           </div>
+          <button onclick="GoogleCalendarImport.applyBulkAllocation()" 
+            style="margin-top:8px;background:var(--brand-dark);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600">
+            Aplică pe toate selectate
+          </button>
         </div>
+
+        <!-- Lista evenimente -->
+        <div id="gcal-events-container" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">
+              Evenimente găsite
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button onclick="GoogleCalendarImport.selectAll(true)" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px;padding:0">Selectează toate</button>
+              <span style="color:var(--text-muted)">·</span>
+              <button onclick="GoogleCalendarImport.selectAll(false)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:12px;padding:0">Deselectează toate</button>
+              <span id="gcal-count-badge" style="background:var(--brand-dark);color:#fff;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600"></span>
+            </div>
+          </div>
+          <div id="gcal-events-list" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px"></div>
+        </div>
+
         <div id="gcal-loading" style="display:none;text-align:center;padding:20px;color:var(--text-muted)">
           <div style="font-size:24px;margin-bottom:8px">⏳</div>
           Se încarcă evenimentele...
@@ -131,10 +169,10 @@ const GoogleCalendarImport = {
       <button id="gcal-fetch-btn" class="btn-secondary" onclick="GoogleCalendarImport.fetchEvents()">🔍 Caută evenimente</button>
       <button id="gcal-import-btn" class="btn-brand" style="display:none" onclick="GoogleCalendarImport.importSelected()">⬇ Importă selectate</button>
     `);
-    // Stochează proiectele pentru utilizare ulterioară
+
+    // Stochează proiectele și task-urile pentru utilizare ulterioară
     this._projects = projects;
     this._tasks = allTasks;
-    this._phases = allPhases;
     this._fetchedEvents = [];
   },
 
@@ -148,6 +186,38 @@ const GoogleCalendarImport = {
     return new Date().toISOString().split('T')[0];
   },
 
+  // ── Alocare în masă ───────────────────────────────────────────────────────
+  onBulkProjectChange(projectId) {
+    const taskSelect = document.getElementById('gcal-bulk-task');
+    if (!taskSelect) return;
+    const pid = parseInt(projectId);
+    const tasks = (this._tasks || []).filter(t => t.project_id === pid);
+    taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
+      tasks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  },
+
+  applyBulkAllocation() {
+    const bulkProjId = document.getElementById('gcal-bulk-proj')?.value || '';
+    const bulkTaskId = document.getElementById('gcal-bulk-task')?.value || '';
+
+    (this._fetchedEvents || []).forEach((_, idx) => {
+      const cb = document.getElementById(`gcal-cb-${idx}`);
+      if (!cb?.checked) return;
+
+      const projSel = document.getElementById(`gcal-proj-${idx}`);
+      if (projSel && bulkProjId) {
+        projSel.value = bulkProjId;
+        this.onProjectChange(idx, bulkProjId);
+        // Setează task-ul după ce se populează dropdown-ul
+        setTimeout(() => {
+          const taskSel = document.getElementById(`gcal-task-${idx}`);
+          if (taskSel && bulkTaskId) taskSel.value = bulkTaskId;
+        }, 50);
+      }
+    });
+    showToast('Alocare aplicată pe toate evenimentele selectate', 'success');
+  },
+
   // ── Fetch evenimente din Google Calendar API ─────────────────────────────
   async fetchEvents() {
     const fromVal = document.getElementById('gcal-from')?.value;
@@ -155,7 +225,6 @@ const GoogleCalendarImport = {
     if (!fromVal || !toVal) { showToast('Selectează intervalul de date', 'error'); return; }
     if (fromVal > toVal) { showToast('Data de start trebuie să fie înainte de data de final', 'error'); return; }
 
-    // Ascunde rezultate anterioare
     const container = document.getElementById('gcal-events-container');
     const loading = document.getElementById('gcal-loading');
     const empty = document.getElementById('gcal-empty');
@@ -174,33 +243,29 @@ const GoogleCalendarImport = {
 
     try {
       const timeMin = new Date(fromVal + 'T00:00:00').toISOString();
-      const toDate = new Date(toVal + 'T23:59:59');
-      const timeMax = toDate.toISOString();
+      const timeMax = new Date(toVal + 'T23:59:59').toISOString();
 
       const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
         `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}` +
-        `&singleEvents=true&orderBy=startTime&maxResults=250`;
+        `&singleEvents=true&orderBy=startTime&maxResults=500`;
 
-      const resp = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      let resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
 
       if (resp.status === 401) {
         this._accessToken = null;
         const newToken = await this.getToken(false);
         if (!newToken) { if (loading) loading.style.display = 'none'; showToast('Eroare autentificare Google', 'error'); return; }
-        const resp2 = await fetch(url, { headers: { 'Authorization': `Bearer ${newToken}` } });
-        if (!resp2.ok) { if (loading) loading.style.display = 'none'; showToast('Eroare API Google Calendar', 'error'); return; }
-        const data2 = await resp2.json();
-        this._fetchedEvents = this._parseEvents(data2.items || []);
-      } else if (!resp.ok) {
+        resp = await fetch(url, { headers: { 'Authorization': `Bearer ${newToken}` } });
+      }
+
+      if (!resp.ok) {
         if (loading) loading.style.display = 'none';
         showToast('Eroare Google Calendar API: ' + resp.status, 'error');
         return;
-      } else {
-        const data = await resp.json();
-        this._fetchedEvents = this._parseEvents(data.items || []);
       }
+
+      const data = await resp.json();
+      this._fetchedEvents = this._parseEvents(data.items || []);
 
       if (loading) loading.style.display = 'none';
 
@@ -212,11 +277,22 @@ const GoogleCalendarImport = {
       this._renderEventsList();
       if (container) container.style.display = 'block';
       if (importBtn) importBtn.style.display = 'inline-flex';
+      this._updateCountBadge();
 
     } catch(e) {
       if (loading) loading.style.display = 'none';
       showToast('Eroare la conectarea cu Google Calendar: ' + e.message, 'error');
     }
+  },
+
+  _updateCountBadge() {
+    const badge = document.getElementById('gcal-count-badge');
+    if (!badge) return;
+    const checked = (this._fetchedEvents || []).filter((_, idx) => {
+      const cb = document.getElementById(`gcal-cb-${idx}`);
+      return cb?.checked;
+    }).length;
+    badge.textContent = `${checked} / ${(this._fetchedEvents || []).length} selectate`;
   },
 
   // ── Parsare evenimente ────────────────────────────────────────────────────
@@ -237,13 +313,11 @@ const GoogleCalendarImport = {
           startM: startDt.getMinutes(),
           durationMin: roundedDuration,
           isAllDay,
-          description: ev.description || '',
-          location: ev.location || '',
         };
       });
   },
 
-  // ── Randare lista de evenimente cu checkbox-uri ───────────────────────────
+  // ── Randare lista de evenimente grupate pe zile ───────────────────────────
   _renderEventsList() {
     const list = document.getElementById('gcal-events-list');
     if (!list) return;
@@ -252,38 +326,64 @@ const GoogleCalendarImport = {
       `<option value="${p.id}">${p.emoji || '📁'} ${p.name}</option>`
     ).join('');
 
-    list.innerHTML = this._fetchedEvents.map((ev, idx) => {
-      const dateFormatted = ev.date.split('-').reverse().join('/');
-      const startStr = String(ev.startH).padStart(2,'0') + ':' + String(ev.startM).padStart(2,'0');
-      const h = Math.floor(ev.durationMin / 60);
-      const m = ev.durationMin % 60;
-      const durStr = h > 0 ? (m > 0 ? `${h}h ${m}min` : `${h}h`) : `${m}min`;
+    // Grupează pe zile
+    const byDay = {};
+    this._fetchedEvents.forEach((ev, idx) => {
+      if (!byDay[ev.date]) byDay[ev.date] = [];
+      byDay[ev.date].push({ ev, idx });
+    });
 
-      return `
-        <div id="gcal-ev-${idx}" style="padding:10px 12px;border-bottom:1px solid var(--border);transition:background 0.1s"
-          onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
-          <div style="display:flex;align-items:flex-start;gap:10px">
-            <input type="checkbox" id="gcal-cb-${idx}" checked
-              style="width:16px;height:16px;accent-color:var(--brand-dark);flex-shrink:0;margin-top:2px"
-              onchange="GoogleCalendarImport.toggleEventRow(${idx}, this.checked)">
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:13px;margin-bottom:2px">${ev.title}</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">
-                📅 ${dateFormatted} · ⏰ ${startStr} · ⏱ ${durStr}
-              </div>
-              <div id="gcal-alloc-${idx}" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-                <select id="gcal-proj-${idx}" class="select" style="font-size:12px"
-                  onchange="GoogleCalendarImport.onProjectChange(${idx}, this.value)">
-                  <option value="">— Fără proiect —</option>
-                  ${projectOptions}
-                </select>
-                <select id="gcal-task-${idx}" class="select" style="font-size:12px">
-                  <option value="">— Selectează task —</option>
-                </select>
+    const dayNames = ['Dum', 'Lun', 'Mar', 'Mie', 'Joi', 'Vin', 'Sâm'];
+    const monthNames = ['ian', 'feb', 'mar', 'apr', 'mai', 'iun', 'iul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+    list.innerHTML = Object.entries(byDay).map(([date, events]) => {
+      const d = new Date(date + 'T12:00:00');
+      const dayLabel = `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      const totalMin = events.reduce((s, { ev }) => s + ev.durationMin, 0);
+      const totalH = Math.floor(totalMin / 60);
+      const totalM = totalMin % 60;
+      const totalStr = totalH > 0 ? (totalM > 0 ? `${totalH}h ${totalM}min` : `${totalH}h`) : `${totalM}min`;
+
+      const evRows = events.map(({ ev, idx }) => {
+        const startStr = String(ev.startH).padStart(2,'0') + ':' + String(ev.startM).padStart(2,'0');
+        const h = Math.floor(ev.durationMin / 60);
+        const m = ev.durationMin % 60;
+        const durStr = h > 0 ? (m > 0 ? `${h}h ${m}min` : `${h}h`) : `${m}min`;
+
+        return `
+          <div id="gcal-ev-${idx}" style="padding:8px 12px 8px 36px;border-bottom:1px solid var(--border);transition:background 0.1s"
+            onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <input type="checkbox" id="gcal-cb-${idx}" checked
+                style="width:15px;height:15px;accent-color:var(--brand-dark);flex-shrink:0;margin-top:3px"
+                onchange="GoogleCalendarImport.toggleEventRow(${idx}, this.checked);GoogleCalendarImport._updateCountBadge()">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <span style="font-weight:600;font-size:13px">${ev.title}</span>
+                  <span style="font-size:11px;color:var(--text-muted);white-space:nowrap">⏰ ${startStr} · ⏱ ${durStr}</span>
+                </div>
+                <div id="gcal-alloc-${idx}" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                  <select id="gcal-proj-${idx}" class="select" style="font-size:11px;padding:3px 6px"
+                    onchange="GoogleCalendarImport.onProjectChange(${idx}, this.value)">
+                    <option value="">— Fără proiect —</option>
+                    ${projectOptions}
+                  </select>
+                  <select id="gcal-task-${idx}" class="select" style="font-size:11px;padding:3px 6px">
+                    <option value="">— Task —</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="background:var(--bg-secondary);padding:6px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:1">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">${dayLabel}</span>
+          <span style="font-size:11px;color:var(--text-muted)">${events.length} eveniment${events.length !== 1 ? 'e' : ''} · ${totalStr}</span>
         </div>
+        ${evRows}
       `;
     }).join('');
   },
@@ -293,7 +393,7 @@ const GoogleCalendarImport = {
     if (!taskSelect) return;
     const pid = parseInt(projectId);
     const tasks = (this._tasks || []).filter(t => t.project_id === pid);
-    taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
+    taskSelect.innerHTML = `<option value="">— Task —</option>` +
       tasks.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
   },
 
@@ -307,14 +407,17 @@ const GoogleCalendarImport = {
       const cb = document.getElementById(`gcal-cb-${idx}`);
       if (cb) { cb.checked = checked; this.toggleEventRow(idx, checked); }
     });
+    this._updateCountBadge();
   },
 
   // ── Import evenimente selectate ───────────────────────────────────────────
   async importSelected() {
     const sb = getSupabase();
     if (!sb) { showToast('Eroare: conexiune Supabase indisponibilă', 'error'); return; }
-    const userId = typeof TimeTracking !== 'undefined' ? TimeTracking.getNumericUserId() : null;
-    if (!userId) { showToast('Utilizator neidentificat', 'error'); return; }
+
+    // Obținem user_id UUID (nu numeric) pentru time_entries
+    const userUUID = Auth.currentUser?.id;
+    if (!userUUID) { showToast('Utilizator neidentificat', 'error'); return; }
 
     // Colectează evenimentele selectate
     const toImport = [];
@@ -328,76 +431,95 @@ const GoogleCalendarImport = {
 
     if (toImport.length === 0) { showToast('Selectează cel puțin un eveniment', 'error'); return; }
 
-    // Verifică existența pentru a nu suprascrie
     const btn = document.getElementById('gcal-import-btn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Se importă...'; }
+
+    // Verifică evenimentele deja importate (după gcal_event_id)
+    const gcalIds = toImport.map(x => x.ev.id);
+    const { data: existingByGcalId } = await sb.from('time_entries')
+      .select('gcal_event_id')
+      .eq('user_id', userUUID)
+      .in('gcal_event_id', gcalIds);
+    const alreadyImported = new Set((existingByGcalId || []).map(r => r.gcal_event_id));
 
     let imported = 0;
     let skipped = 0;
     let errors = 0;
 
+    // Pregătim toate inserările în batch
+    const inserts = [];
     for (const { ev, projectId, taskId } of toImport) {
-      try {
-        // Verifică dacă există deja o activitate cu același gcal_event_id
-        const { data: existing } = await sb.from('time_entries')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('date', ev.date)
-          .eq('task_name', ev.title)
-          .limit(1);
+      if (alreadyImported.has(ev.id)) { skipped++; continue; }
 
-        if (existing && existing.length > 0) {
-          skipped++;
-          continue;
-        }
+      const startTimeStr = String(ev.startH).padStart(2,'0') + ':' + String(ev.startM).padStart(2,'0') + ':00';
+      const endTotalMin = ev.startH * 60 + ev.startM + ev.durationMin;
+      const endH = Math.floor(endTotalMin / 60) % 24;
+      const endM = endTotalMin % 60;
+      const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
 
-        const startTimeStr = String(ev.startH).padStart(2,'0') + ':' + String(ev.startM).padStart(2,'0') + ':00';
-        const endTotalMin = ev.startH * 60 + ev.startM + ev.durationMin;
-        const endH = Math.floor(endTotalMin / 60) % 24;
-        const endM = endTotalMin % 60;
-        const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
+      inserts.push({
+        user_id: userUUID,
+        date: ev.date,
+        start_time: startTimeStr,
+        end_time: endTimeStr,
+        start_hour: ev.startH,
+        start_min: ev.startM,
+        end_hour: endH,
+        end_min: endM,
+        duration_minutes: ev.durationMin,
+        task_name: ev.title,
+        project_id: projectId ? parseInt(projectId) : null,
+        project_task_id: taskId ? parseInt(taskId) : null,
+        gcal_event_id: ev.id,
+        activity_type: 'proiectare',
+        is_billable: true,
+        is_running: false,
+        status: 'salvat',
+        _taskId: taskId, // folosit intern pentru update minutes_worked
+        _durationMin: ev.durationMin,
+      });
+    }
 
-        const entry = {
-          user_id: userId,
-          date: ev.date,
-          start_time: startTimeStr,
-          end_time: endTimeStr,
-          duration_minutes: ev.durationMin,
-          task_name: ev.title,
-          project_id: projectId ? parseInt(projectId) : null,
-          project_task_id: taskId ? parseInt(taskId) : null,
-          source: 'google_calendar',
-          gcal_event_id: ev.id,
-        };
+    if (inserts.length > 0) {
+      // Inserare în batch (fără câmpurile interne _taskId, _durationMin)
+      const batchData = inserts.map(({ _taskId, _durationMin, ...rest }) => rest);
 
-        const { error } = await sb.from('time_entries').insert(entry);
+      // Împarte în batch-uri de 50 pentru a evita timeout
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < batchData.length; i += BATCH_SIZE) {
+        const batch = batchData.slice(i, i + BATCH_SIZE);
+        const { error } = await sb.from('time_entries').insert(batch);
         if (error) {
-          console.error('Import error for event', ev.id, error);
-          errors++;
+          console.error('Batch insert error:', error);
+          errors += batch.length;
         } else {
-          imported++;
-          // Actualizează minutes_worked pe task
-          if (taskId) {
-            const task = (this._tasks || []).find(t => String(t.id) === String(taskId));
-            if (task) {
-              const newMin = (task.minutes_worked || 0) + ev.durationMin;
-              await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', parseInt(taskId));
-              task.minutes_worked = newMin;
-            }
-          }
+          imported += batch.length;
         }
-      } catch(e) {
-        console.error('Import exception:', e);
-        errors++;
+      }
+
+      // Actualizează minutes_worked pe task-uri (grupat)
+      const taskMinutes = {};
+      inserts.forEach(({ _taskId, _durationMin }) => {
+        if (_taskId) {
+          taskMinutes[_taskId] = (taskMinutes[_taskId] || 0) + _durationMin;
+        }
+      });
+      for (const [taskId, addMin] of Object.entries(taskMinutes)) {
+        const task = (this._tasks || []).find(t => String(t.id) === String(taskId));
+        if (task) {
+          const newMin = (task.minutes_worked || 0) + addMin;
+          await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', parseInt(taskId));
+          task.minutes_worked = newMin;
+        }
       }
     }
 
     closeModalForce();
 
     let msg = `✅ ${imported} eveniment${imported !== 1 ? 'e' : ''} importat${imported !== 1 ? 'e' : ''}`;
-    if (skipped > 0) msg += ` · ${skipped} omis${skipped !== 1 ? 'e' : ''} (deja există)`;
+    if (skipped > 0) msg += ` · ${skipped} omis${skipped !== 1 ? 'e' : ''} (deja importate)`;
     if (errors > 0) msg += ` · ${errors} erori`;
-    showToast(msg, imported > 0 ? 'success' : 'warning');
+    showToast(msg, imported > 0 ? 'success' : (skipped > 0 ? 'warning' : 'error'));
 
     // Reîncarcă time-tracking
     if (typeof TimeTracking !== 'undefined') {
