@@ -435,13 +435,12 @@ const Proiecte = {
               <span style="font-size:11px;color:var(--text-muted)">(${phaseTasks.length} sarcini)</span>
             </div>
           </td>
+          <td style="padding:10px 12px;text-align:center;color:var(--text-muted);font-size:12px">—</td>
           <td style="padding:10px 12px;text-align:center">
             ${(() => {
               const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
               const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
-              return canEdit
-                ? `<span style="font-weight:700;color:var(--text)" title="Calculat automat din suma task-urilor">${displayBudget}h</span>`
-                : `<strong>${displayBudget}h</strong>`;
+              return `<strong>${displayBudget}h</strong>`;
             })()}
           </td>
           <td style="padding:10px 12px;text-align:center;color:#3B82F6;font-weight:600">${workedH}h</td>
@@ -455,7 +454,6 @@ const Proiecte = {
             </div>
           </td>
           <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">—</td>
-          <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">—</td>
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
@@ -468,7 +466,7 @@ const Proiecte = {
         ${phaseTasks.map((task, idx) => this.renderTaskRow(task, idx + 1, canEdit, budgetH)).join('')}
         ${canEdit ? `
           <tr style="border-top:1px solid var(--border)">
-            <td colspan="8" style="padding:6px 16px 6px 52px">
+            <td colspan="9" style="padding:6px 16px 6px 52px">
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px">＋ Adaugă sarcină</button>
             </td>
           </tr>
@@ -485,6 +483,8 @@ const Proiecte = {
     const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
+    // canManage = admin/coord indiferent de editMode (pentru butoane Start, Asignare vizualizare, Consum manual)
+    const isAdminOrCoord = profile?.role === 'admin' || this.members.some(m => m.user_id === profile?.id && m.role === 'coordonator');
 
     // Perioadă task: din project_task_assignments (prima înregistrare sau interval comun)
     const taskAssigns = (this.taskAssignments || []).filter(a => a.task_id === task.id);
@@ -535,7 +535,7 @@ const Proiecte = {
       ? task.assigned_users
       : (task.assigned_user_id ? [task.assigned_user_id] : []);
     const isAssigned = assignedIds.includes(profile.id);
-    const canStart = isAssigned || canEdit;
+    const canStart = isAssigned || isAdminOrCoord;
 
     // Generăm avatarele pentru toți responsabilii (stivă cu overlap)
     const avatarsHtml = assignedIds.length > 0
@@ -576,16 +576,16 @@ const Proiecte = {
           </div>
         </td>
         <td style="padding:8px 12px;font-size:12px">
-          ${canEdit ? `
-            <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="Asignează responsabili">
+          ${isAdminOrCoord ? `
+            <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="${canEdit ? 'Asignează responsabili' : 'Vizualizează responsabili'}">
               ${avatarsHtml}
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           ${canStart ? this.renderTimerBtn(task) : ''}
+          ${isAdminOrCoord ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
           ${canEdit ? `
-            <button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>
             <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
             <button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>
           ` : ''}
