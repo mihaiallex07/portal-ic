@@ -117,6 +117,7 @@ const Proiecte = {
   phases: [],
   tasks: [],
   allUsers: [],
+  taskAssignments: [],  // cache project_task_assignments pentru proiectul curent
 
   async init() {
     await this.loadData();
@@ -143,14 +144,16 @@ const Proiecte = {
   },
 
   async loadProjectDetails(projectId) {
-    const [membersRes, phasesRes, tasksRes] = await Promise.all([
+    const [membersRes, phasesRes, tasksRes, assignRes] = await Promise.all([
       dbQuery('project_members', q => q.select('*, profiles!project_members_user_id_fkey(id,full_name,name,email,employee_code,role)').eq('project_id', projectId), []),
       dbQuery('project_phases', q => q.select('*').eq('project_id', projectId).order('display_order'), []),
       dbQuery('project_tasks', q => q.select('*').eq('project_id', projectId).order('display_order'), []),
+      dbQuery('project_task_assignments', q => q.select('task_id,user_id,start_date,end_date').eq('project_id', projectId), []),
     ]);
     this.members = membersRes.data || [];
     this.phases = phasesRes.data || [];
     this.tasks = tasksRes.data || [];
+    this.taskAssignments = assignRes.data || [];
   },
 
   renderList() {
@@ -345,6 +348,7 @@ const Proiecte = {
             <thead>
               <tr style="background:var(--bg-secondary);font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">
                 <th style="padding:10px 16px;text-align:left">Etapă / Sarcină</th>
+                <th style="padding:10px 12px;text-align:center;width:150px">Perioadă</th>
                 <th style="padding:10px 12px;text-align:center;width:100px">Buget (H)</th>
                 <th style="padding:10px 12px;text-align:center;width:100px">Lucrat (H)</th>
                 <th style="padding:10px 12px;text-align:center;width:100px">Rămas (H)</th>
@@ -407,6 +411,7 @@ const Proiecte = {
             </div>
           </td>
           <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">—</td>
+          <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">—</td>
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
@@ -419,7 +424,7 @@ const Proiecte = {
         ${phaseTasks.map((task, idx) => this.renderTaskRow(task, idx + 1, canEdit, budgetH)).join('')}
         ${canEdit ? `
           <tr style="border-top:1px solid var(--border)">
-            <td colspan="7" style="padding:6px 16px 6px 52px">
+            <td colspan="8" style="padding:6px 16px 6px 52px">
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px">＋ Adaugă sarcină</button>
             </td>
           </tr>
@@ -436,6 +441,50 @@ const Proiecte = {
     const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
+
+    // Perioadă task: din project_task_assignments (prima înregistrare sau interval comun)
+    const taskAssigns = (this.taskAssignments || []).filter(a => a.task_id === task.id);
+    const fmtShort = d => {
+      if (!d) return null;
+      const dt = new Date(d);
+      return dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' });
+    };
+    let periodHtml;
+    if (taskAssigns.length === 0) {
+      // Fără perioadă alocată
+      periodHtml = canEdit
+        ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:2px 6px;border:1px dashed var(--border);border-radius:4px" title="Setează perioadă">+ Perioadă</button>`
+        : `<span style="color:var(--text-muted);font-size:11px">—</span>`;
+    } else if (taskAssigns.length === 1) {
+      // Un singur angajat — afișează start–end
+      const a = taskAssigns[0];
+      const s = fmtShort(a.start_date);
+      const e = fmtShort(a.end_date);
+      const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
+      periodHtml = canEdit
+        ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă">📅 ${label}</button>`
+        : `<span style="font-size:11px;white-space:nowrap">📅 ${label}</span>`;
+    } else {
+      // Mai mulți angajați — verifică dacă au aceeași perioadă sau perioade diferite
+      const starts = [...new Set(taskAssigns.map(a => a.start_date).filter(Boolean))];
+      const ends = [...new Set(taskAssigns.map(a => a.end_date).filter(Boolean))];
+      const sameStart = starts.length === 1;
+      const sameEnd = ends.length === 1;
+      if (sameStart && sameEnd) {
+        // Toți în aceeași perioadă
+        const s = fmtShort(starts[0]);
+        const e = fmtShort(ends[0]);
+        const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
+        periodHtml = canEdit
+          ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă (${taskAssigns.length} angajați)">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></button>`
+          : `<span style="font-size:11px;white-space:nowrap">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></span>`;
+      } else {
+        // Perioade diferite per angajat
+        periodHtml = canEdit
+          ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--primary);padding:2px 6px;border:1px solid var(--primary);border-radius:4px;white-space:nowrap" title="Perioade diferite per angajat">📅 ${taskAssigns.length} perioade</button>`
+          : `<span style="font-size:11px;color:var(--primary);white-space:nowrap">📅 ${taskAssigns.length} perioade</span>`;
+      }
+    }
 
     // Suport multi-responsabil: assigned_users array sau fallback la assigned_user_id
     const assignedIds = Array.isArray(task.assigned_users) && task.assigned_users.length > 0
@@ -465,6 +514,9 @@ const Proiecte = {
         <td style="padding:8px 16px 8px 52px">
           <span style="color:var(--text-muted);margin-right:8px">${idx}.</span>
           ${task.name}
+        </td>
+        <td style="padding:8px 12px;text-align:center">
+          ${periodHtml}
         </td>
         <td style="padding:8px 12px;text-align:center">
           ${canEdit ? `<input type="number" value="${budgetH}" min="0" style="width:70px;text-align:center;padding:3px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:12px" onchange="Proiecte.updateTaskBudget(${task.id},${task.phase_id},this.value,${phaseBudget})">` : `${budgetH}h`}

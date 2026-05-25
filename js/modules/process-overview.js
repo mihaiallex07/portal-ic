@@ -34,7 +34,7 @@ const ProcessOverview = {
         dbQuery('project_members', q =>
           q.select('project_id,user_id,role').in('project_id', projIds), []),
         dbQuery('project_tasks', q =>
-          q.select('id,name,phase_id,project_id,assigned_user_id,assigned_users').in('project_id', projIds), []),
+          q.select('id,name,phase_id,project_id,assigned_user_id,assigned_users,budget_hours,minutes_worked').in('project_id', projIds), []),
         dbQuery('project_phases', q =>
           q.select('id,name,project_id').in('project_id', projIds), []),
         dbQuery('project_task_assignments', q =>
@@ -63,6 +63,8 @@ const ProcessOverview = {
     const totalW = days * this.ZOOM_PX;
     const LW = this.LABEL_W;
     const activeProjects = this.projects.filter(p => p.status === 'activ' || p.status === 'in_progress');
+    const profile = Auth.currentProfile;
+    const isAdmin = profile?.role === 'admin';
 
     // Map: userId → lista de bare
     const userBarsMap = {};
@@ -75,15 +77,24 @@ const ProcessOverview = {
       if (!task || !proj) return;
       const phase = this.phases.find(ph => ph.id === task.phase_id);
       if (!userBarsMap[a.user_id]) userBarsMap[a.user_id] = [];
+      const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
+      const budgetH = task.budget_hours || 0;
+      const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
       userBarsMap[a.user_id].push({
+        taskId: task.id,
         taskName: task.name,
         phaseName: phase ? phase.name : '',
+        phaseId: task.phase_id,
         projName: proj.name,
+        projId: proj.id,
         projCode: proj.abbreviation || proj.code,
         projColor: proj.color || '#FFCB09',
         start_date: a.start_date,
         end_date: a.end_date,
         hasExplicitPeriod: true,
+        budgetH,
+        workedH,
+        pct,
       });
     });
 
@@ -97,15 +108,21 @@ const ProcessOverview = {
       if (hasExplicit) return;
       if (!userBarsMap[m.user_id]) userBarsMap[m.user_id] = [];
       userBarsMap[m.user_id].push({
+        taskId: null,
         taskName: '',
         phaseName: '',
+        phaseId: null,
         projName: proj.name,
+        projId: proj.id,
         projCode: proj.abbreviation || proj.code,
         projColor: proj.color || '#FFCB09',
         start_date: proj.start_date,
         end_date: proj.end_date,
         hasExplicitPeriod: false,
         memberRole: m.role,
+        budgetH: 0,
+        workedH: 0,
+        pct: 0,
       });
     });
 
@@ -188,11 +205,28 @@ const ProcessOverview = {
 
             const opacity = bar.hasExplicitPeriod ? '1' : '0.6';
             const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.25);';
+            const safeTaskName = (bar.taskName || '').replace(/"/g, '&quot;');
+            const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
+            const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
 
             barsHtml += `
-              <div class="gantt-bar"
-                   style="left:${left}px;top:${top}px;width:${width}px;background:${color};color:${textColor};opacity:${opacity};${border}"
-                   title="${tooltip}">
+              <div class="gantt-bar po-bar"
+                   style="left:${left}px;top:${top}px;width:${width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer"
+                   data-task-id="${bar.taskId || ''}"
+                   data-proj-id="${bar.projId || ''}"
+                   data-is-admin="${isAdmin ? '1' : '0'}"
+                   data-task-name="${safeTaskName}"
+                   data-proj-name="${safeProjName}"
+                   data-phase-name="${safePhaseName}"
+                   data-start="${bar.start_date}"
+                   data-end="${bar.end_date}"
+                   data-budget="${bar.budgetH}"
+                   data-worked="${bar.workedH}"
+                   data-pct="${bar.pct}"
+                   data-bar-color="${color}"
+                   onmouseenter="ProcessOverview.showTooltip(event,this)"
+                   onmouseleave="ProcessOverview.hideTooltip()"
+                   onclick="ProcessOverview.handleBarClick(this)">
                 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${barLabel}</span>
               </div>
             `;
@@ -271,7 +305,97 @@ const ProcessOverview = {
           </div>
         </div>
       </div>
+      <!-- Tooltip Gantt -->
+      <div id="po-tooltip" style="display:none;position:fixed;z-index:9999;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:14px 18px;min-width:220px;max-width:320px;pointer-events:none;font-size:13px;line-height:1.6;"></div>
+      <!-- Modal info bar (non-admin) -->
+      <div id="po-info-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.35);align-items:center;justify-content:center">
+        <div style="background:var(--card-bg);border-radius:14px;padding:28px 32px;min-width:340px;max-width:460px;box-shadow:0 16px 48px rgba(0,0,0,0.22)">
+          <div id="po-info-modal-content"></div>
+          <div style="text-align:right;margin-top:20px">
+            <button class="btn-primary" onclick="document.getElementById('po-info-modal').style.display='none'">Închide</button>
+          </div>
+        </div>
+      </div>
     `;
+  },
+
+  showTooltip(e, el) {
+    const tooltip = document.getElementById('po-tooltip');
+    if (!tooltip) return;
+    const projName = el.dataset.projName || '';
+    const phaseName = el.dataset.phaseName || '';
+    const taskName = el.dataset.taskName || '';
+    const start = el.dataset.start || '';
+    const end = el.dataset.end || '';
+    const budget = parseFloat(el.dataset.budget || '0');
+    const worked = parseFloat(el.dataset.worked || '0');
+    const pct = parseInt(el.dataset.pct || '0');
+    const isAdmin = el.dataset.isAdmin === '1';
+    const fmtDate = d => d ? new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    let html = `<div style="font-weight:700;font-size:14px;margin-bottom:6px">${projName}</div>`;
+    if (phaseName) html += `<div style="color:var(--text-muted);font-size:12px;margin-bottom:2px">📁 ${phaseName}</div>`;
+    if (taskName) html += `<div style="font-weight:600;margin-bottom:8px">✅ ${taskName}</div>`;
+    html += `<div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted);margin-bottom:8px"><span>📅 ${fmtDate(start)}</span><span>→</span><span>${fmtDate(end)}</span></div>`;
+    if (budget > 0) {
+      html += `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Progres ore</span><span style="color:${barColor};font-weight:600">${worked}h / ${budget}h (${pct}%)</span></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div></div></div>`;
+    }
+    if (isAdmin && taskName) {
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide task-ul</div>`;
+    } else if (taskName) {
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">🖱 Click pentru detalii</div>`;
+    }
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+    const margin = 14;
+    const tw = tooltip.offsetWidth || 280;
+    const th = tooltip.offsetHeight || 140;
+    let x = e.clientX + margin;
+    let y = e.clientY + margin;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - margin;
+    if (y + th > window.innerHeight - 8) y = e.clientY - th - margin;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  },
+
+  hideTooltip() {
+    const tooltip = document.getElementById('po-tooltip');
+    if (tooltip) tooltip.style.display = 'none';
+  },
+
+  handleBarClick(el) {
+    this.hideTooltip();
+    const isAdmin = el.dataset.isAdmin === '1';
+    const taskId = el.dataset.taskId;
+    const projId = el.dataset.projId;
+    const taskName = el.dataset.taskName || '';
+    const projName = el.dataset.projName || '';
+    const phaseName = el.dataset.phaseName || '';
+    const start = el.dataset.start || '';
+    const end = el.dataset.end || '';
+    const budget = parseFloat(el.dataset.budget || '0');
+    const worked = parseFloat(el.dataset.worked || '0');
+    const pct = parseInt(el.dataset.pct || '0');
+    const barColor2 = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    if (isAdmin && taskId && projId) {
+      if (typeof App !== 'undefined' && App.navigate) {
+        App.navigate('proiecte', { projectId: parseInt(projId), taskId: parseInt(taskId) });
+      } else if (typeof Proiecte !== 'undefined') {
+        Proiecte.render({ projectId: parseInt(projId) });
+      }
+      return;
+    }
+    const fmtDate = d => d ? new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+    let html = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px"><div style="width:14px;height:14px;border-radius:3px;background:${el.dataset.barColor || '#FFCB09'};flex-shrink:0"></div><h3 style="margin:0;font-size:16px;font-weight:700">${projName}</h3></div>`;
+    if (phaseName) html += `<div style="margin-bottom:6px;color:var(--text-muted);font-size:13px">📁 Etapă: <strong style="color:var(--text)">${phaseName}</strong></div>`;
+    if (taskName) html += `<div style="margin-bottom:12px;font-size:14px">✅ Task: <strong>${taskName}</strong></div>`;
+    html += `<div style="display:flex;gap:24px;margin-bottom:12px;font-size:13px"><div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">DATA START</div><strong>${fmtDate(start)}</strong></div><div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">DATA FINAL</div><strong>${fmtDate(end)}</strong></div></div>`;
+    if (budget > 0) {
+      html += `<div style="margin-top:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text-muted)">Progres ore</span><span style="color:${barColor2};font-weight:700">${worked}h / ${budget}h (${pct}%)</span></div><div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor2};border-radius:3px"></div></div></div>`;
+    }
+    const modal = document.getElementById('po-info-modal');
+    document.getElementById('po-info-modal-content').innerHTML = html;
+    modal.style.display = 'flex';
   },
 
   _weekendCells(startDate, days) {
