@@ -340,8 +340,8 @@ const ProcessOverview = {
     if (budget > 0) {
       html += `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Progres ore</span><span style="color:${barColor};font-weight:600">${worked}h / ${budget}h (${pct}%)</span></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div></div></div>`;
     }
-    if (isAdmin && taskName) {
-      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide task-ul</div>`;
+    if (projId) {
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide proiectul</div>`;
     } else if (taskName) {
       html += `<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">🖱 Click pentru detalii</div>`;
     }
@@ -377,12 +377,14 @@ const ProcessOverview = {
     const worked = parseFloat(el.dataset.worked || '0');
     const pct = parseInt(el.dataset.pct || '0');
     const barColor2 = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
-    if (isAdmin && taskId && projId) {
-      if (typeof App !== 'undefined' && App.navigate) {
-        App.navigate('proiecte', { projectId: parseInt(projId), taskId: parseInt(taskId) });
-      } else if (typeof Proiecte !== 'undefined') {
-        Proiecte.render({ projectId: parseInt(projId) });
-      }
+    if (projId) {
+      // Admin/coordonator sau oricine: navighează direct la pagina proiectului
+      navigate('proiecte', null);
+      setTimeout(() => {
+        if (typeof Proiecte !== 'undefined') {
+          Proiecte.openProject(parseInt(projId));
+        }
+      }, 200);
       return;
     }
     const fmtDate = d => d ? new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';

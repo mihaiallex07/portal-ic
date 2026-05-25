@@ -118,6 +118,7 @@ const Proiecte = {
   tasks: [],
   allUsers: [],
   taskAssignments: [],  // cache project_task_assignments pentru proiectul curent
+  editMode: false,  // modul editare blocat implicit
 
   async init() {
     await this.loadData();
@@ -248,16 +249,54 @@ const Proiecte = {
     if (!this.currentProject) return;
     await this.loadProjectDetails(projectId);
     this.currentTab = 'etape';
+    this.editMode = false;  // reset la fiecare deschidere
     this.renderProjectDetail();
   },
 
+  // ── Activează / dezactivează modul editare ────────────────────────────────
+  toggleEditMode() {
+    this.editMode = !this.editMode;
+    this.renderProjectDetail();
+    if (this.editMode) showToast('Mod editare activat — poți modifica bugetele și responsabilii', 'info');
+  },
+
+  // ── Salvează și iese din mod editare ─────────────────────────────────────
+  async saveEditMode() {
+    this.editMode = false;
+    this.renderProjectDetail();
+    showToast('Modificări salvate ✓', 'success');
+  },
+
+  // ── Înregistrează o modificare în project_change_log ─────────────────────
+  async logChange(changeType, entityType, entityName, oldValue, newValue, description) {
+    const sb = getSupabase();
+    if (!sb || !this.currentProject) return;
+    const profile = Auth.currentProfile;
+    if (!profile) return;
+    try {
+      await sb.from('project_change_log').insert({
+        project_id: this.currentProject.id,
+        changed_by: profile.id,
+        changed_by_name: profile.full_name || profile.name || profile.email || 'Necunoscut',
+        change_type: changeType,
+        entity_type: entityType,
+        entity_name: entityName || null,
+        old_value: oldValue != null ? String(oldValue) : null,
+        new_value: newValue != null ? String(newValue) : null,
+        description: description || null,
+      });
+    } catch(e) {
+      console.warn('logChange error:', e.message);
+    }
+  },
   renderProjectDetail() {
     const p = this.currentProject;
     if (!p) return;
     const profile = Auth.currentProfile;
     const isAdmin = profile && profile.role === 'admin';
     const isCoord = this.members.some(m => m.user_id === profile.id && m.role === 'coordonator');
-    const canEdit = isAdmin || isCoord;
+    const canManage = isAdmin || isCoord;  // poate vedea butoanele de editare
+    const canEdit = canManage && this.editMode;  // poate modifica efectiv câmpurile
 
     const container = document.getElementById('page-content');
     if (!container) return;
@@ -286,10 +325,13 @@ const Proiecte = {
               </div>
             </div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             ${p.drive_url ? `<a href="${p.drive_url}" target="_blank" rel="noopener" class="btn-secondary" style="display:flex;align-items:center;gap:6px;text-decoration:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Drive</a>` : ''}
-            ${canEdit ? `<button class="btn-secondary" onclick="Proiecte.openEditProject()">⚙ Setări</button>` : ''}
-            ${canEdit ? `<button class="btn-primary" onclick="Proiecte.openAddPhaseModal()">+ Etapă</button>` : ''}
+            ${canManage ? `<button class="btn-secondary" onclick="Proiecte.openEditProject()">⚙ Setări</button>` : ''}
+            ${canManage && !this.editMode ? `<button class="btn-secondary" onclick="Proiecte.toggleEditMode()" style="display:flex;align-items:center;gap:6px;border-color:var(--primary);color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Editează</button>` : ''}
+            ${canManage && this.editMode ? `<button class="btn-secondary" onclick="Proiecte.toggleEditMode()" style="color:var(--text-muted)">✕ Anulează</button>` : ''}
+            ${canManage && this.editMode ? `<button class="btn-primary" onclick="Proiecte.saveEditMode()" style="display:flex;align-items:center;gap:6px;background:#10B981;border-color:#10B981"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Salvează</button>` : ''}
+            ${canManage && this.editMode ? `<button class="btn-primary" onclick="Proiecte.openAddPhaseModal()">+ Etapă</button>` : ''}
           </div>
         </div>
 
@@ -304,10 +346,11 @@ const Proiecte = {
         </div>
       </div>
 
+      ${canManage && this.editMode ? `<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:13px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span style="color:#92400E"><strong>Mod editare activ</strong> — modifică bugetele și responsabilii, apoi apasă <strong>Salvează</strong>.</span></div>` : ''}
       <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-        ${['etape','echipa','rapoarte'].map(tab => `
+        ${['etape','echipa','rapoarte','jurnal'].map(tab => `
           <button onclick="Proiecte.switchTab('${tab}')" id="tab-${tab}" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:${this.currentTab===tab?'600':'400'};color:${this.currentTab===tab?'var(--primary)':'var(--text-muted)'};border-bottom:${this.currentTab===tab?'2px solid var(--primary)':'2px solid transparent'};margin-bottom:-2px;transition:all 0.2s">
-            ${{etape:'Etape & Sarcini',echipa:'Echipă',rapoarte:'Rapoarte'}[tab]}
+            ${{etape:'Etape & Sarcini',echipa:'Echipă',rapoarte:'Rapoarte',jurnal:'Jurnal modificări'}[tab]}
           </button>
         `).join('')}
       </div>
@@ -322,6 +365,7 @@ const Proiecte = {
     if (tab === 'etape') return this.renderEtapeTab(canEdit);
     if (tab === 'echipa') return this.renderEchipaTab(canEdit);
     if (tab === 'rapoarte') return this.renderRapoarteTab();
+    if (tab === 'jurnal') { this.renderJurnalTab(); return '<div id="jurnal-content"><div style="text-align:center;padding:40px;color:var(--text-muted)">Se încarcă jurnalul...</div></div>'; }
     return '';
   },
 
@@ -663,14 +707,78 @@ const Proiecte = {
     `;
   },
 
+  // ── Tab Jurnal modificări ────────────────────────────────────────────────────
+  async renderJurnalTab() {
+    const container = document.getElementById('jurnal-content');
+    if (!container || !this.currentProject) return;
+    const sb = getSupabase();
+    if (!sb) { container.innerHTML = '<p style="color:var(--text-muted);padding:20px">Nu ești conectat la baza de date.</p>'; return; }
+    const { data, error } = await sb
+      .from('project_change_log')
+      .select('*')
+      .eq('project_id', this.currentProject.id)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) {
+      container.innerHTML = `<p style="color:var(--danger);padding:20px">Eroare la încărcare: ${error.message}</p>`;
+      return;
+    }
+    if (!data || data.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:60px;color:var(--text-muted)">
+          <div style="font-size:48px;margin-bottom:12px">📋</div>
+          <p>Nu există modificări înregistrate încă pentru acest proiect.</p>
+        </div>`;
+      return;
+    }
+    const changeTypeIcon = { update: '✏️', insert: '➕', delete: '🗑️', assign: '👤', budget: '⏱️' };
+    const changeTypeLabel = { update: 'Modificare', insert: 'Adăugare', delete: 'Ștergere', assign: 'Asignare', budget: 'Buget' };
+    const rows = data.map(log => {
+      const dt = new Date(log.created_at);
+      const dateStr = dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
+      const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+      const icon = changeTypeIcon[log.change_type] || '📝';
+      const label = changeTypeLabel[log.change_type] || log.change_type;
+      const entityBadge = log.entity_type ? `<span style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--text-muted)">${log.entity_type}</span>` : '';
+      const valueDiff = (log.old_value != null && log.new_value != null)
+        ? `<span style="color:#EF4444;text-decoration:line-through;margin-right:6px">${log.old_value}</span><span style="color:var(--text-muted);margin-right:6px">→</span><span style="color:#10B981">${log.new_value}</span>`
+        : (log.new_value != null ? `<span style="color:#10B981">${log.new_value}</span>` : '');
+      return `
+        <tr style="border-top:1px solid var(--border);font-size:13px">
+          <td style="padding:10px 12px;white-space:nowrap;color:var(--text-muted)">${dateStr}<br><span style="font-size:11px">${timeStr}</span></td>
+          <td style="padding:10px 12px;font-weight:600">${log.changed_by_name || 'Necunoscut'}</td>
+          <td style="padding:10px 12px">${icon} ${label} ${entityBadge}</td>
+          <td style="padding:10px 12px;color:var(--text-muted)">${log.entity_name || ''}</td>
+          <td style="padding:10px 12px">${valueDiff}</td>
+          <td style="padding:10px 12px;color:var(--text-muted);font-size:12px">${log.description || ''}</td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--bg-secondary)">
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600;white-space:nowrap">Data</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Utilizator</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Tip</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Element</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Valoare</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Detalii</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  },
+
   switchTab(tab) {
     this.currentTab = tab;
     const profile = Auth.currentProfile;
     const isAdmin = profile && profile.role === 'admin';
     const isCoord = this.members.some(m => m.user_id === profile.id && m.role === 'coordonator');
-    const canEdit = isAdmin || isCoord;
+    const canEdit = (isAdmin || isCoord) && this.editMode;
 
-    ['etape', 'echipa', 'rapoarte'].forEach(t => {
+    ['etape', 'echipa', 'rapoarte', 'jurnal'].forEach(t => {
       const btn = document.getElementById('tab-' + t);
       if (btn) {
         btn.style.fontWeight = t === tab ? '600' : '400';
@@ -802,8 +910,12 @@ const Proiecte = {
     const budgetH = parseFloat(newValue) || 0;
     const sb = getSupabase();
     if (!sb) return;
+    const task = this.tasks.find(t => t.id === taskId);
+    const oldBudget = task ? (task.budget_hours || 0) : null;
     const { error } = await sb.from('project_tasks').update({ budget_hours: budgetH }).eq('id', taskId);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    // Log modificare buget
+    this.logChange('budget', 'task', task?.name, oldBudget != null ? oldBudget + 'h' : null, budgetH + 'h', 'Modificare buget ore task');
     // Actualizează bugetul fazei automat (suma task-urilor)
     await this.recalcPhaseBudget(phaseId);
     showToast('Buget task actualizat', 'success');
@@ -841,6 +953,7 @@ const Proiecte = {
     if (!sb) return;
     const { error } = await sb.from('project_tasks').delete().eq('id', taskId);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    this.logChange('delete', 'task', task?.name, null, null, 'Sarcină ștearsă din proiect');
     showToast('Sarcină ștearsă', 'success');
     if (task?.phase_id) await this.recalcPhaseBudget(task.phase_id);
     await this.loadProjectDetails(this.currentProject.id);
@@ -1197,6 +1310,7 @@ const Proiecte = {
         await dbQuery('project_tasks', q => q.insert(tasksToInsert), []);
       }
       closeModalForce();
+      this.logChange('insert', 'etapă', preset.code + '. ' + preset.name, null, null, 'Etapă prestabilită adăugată cu ' + preset.tasks.length + ' sarcini');
       showToast('Etapă ' + preset.code + '. ' + preset.name + ' adăugată cu ' + preset.tasks.length + ' sarcini!', 'success');
     } else {
       // Etapă personalizată
@@ -1215,6 +1329,7 @@ const Proiecte = {
       }).select(), null);
       if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
       closeModalForce();
+      this.logChange('insert', 'etapă', name, null, budgetH > 0 ? budgetH + 'h' : null, 'Etapă personalizată adăugată');
       showToast('Etapă adăugată!', 'success');
     }
     await this.loadProjectDetails(this.currentProject.id);
@@ -1265,6 +1380,7 @@ const Proiecte = {
     }), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
+    this.logChange('insert', 'task', name, null, budgetH > 0 ? budgetH + 'h' : null, 'Sarcină nouă adăugată');
     showToast('Sarcină adăugată!', 'success');
     // Recalculează bugetul etapei din suma task-urilor
     await this.recalcPhaseBudget(phaseId);
@@ -1322,6 +1438,8 @@ const Proiecte = {
     const result = await dbQuery('project_members', q => q.insert(inserts), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
+    const addedNames = userIds.map(uid => this.getUserName(uid)).join(', ');
+    this.logChange('assign', 'echipă', addedNames, null, role, `${userIds.length} ${role === 'coordonator' ? 'coordonator(i)' : 'angajat(i)'} adăugat(i) în proiect`);
     showToast(`${userIds.length} ${userIds.length === 1 ? 'membru adăugat' : 'membri adăugați'}!`, 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.switchTab('echipa');
@@ -1329,7 +1447,10 @@ const Proiecte = {
 
   async removeMember(memberId) {
     if (!confirm('Elimini acest membru din proiect?')) return;
+    const member = this.members.find(m => m.id === memberId);
+    const memberName = member ? this.getUserName(member.user_id) : 'Necunoscut';
     await dbQuery('project_members', q => q.delete().eq('id', memberId), null);
+    this.logChange('delete', 'echipă', memberName, null, null, 'Membru eliminat din proiect');
     showToast('Membru eliminat', 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.switchTab('echipa');
