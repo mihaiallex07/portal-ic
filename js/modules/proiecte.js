@@ -388,7 +388,7 @@ const Proiecte = {
         </div>
 
         <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">
-          <table style="width:100%;border-collapse:collapse">
+          <table style="width:100%;border-collapse:collapse;table-layout:fixed">
             <thead>
               <tr style="background:var(--bg-secondary);font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">
                 <th style="padding:10px 16px;text-align:left">Etapă / Sarcină</th>
