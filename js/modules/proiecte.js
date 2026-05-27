@@ -424,6 +424,8 @@ const Proiecte = {
     const color = phase.color || '#3B82F6';
     const phaseBodyId = 'phasebody-' + phase.id;
 
+    const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
+    const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
     const phaseRow = `
       <tbody>
         <tr style="border-top:2px solid var(--border);background:var(--bg-secondary)">
@@ -435,14 +437,8 @@ const Proiecte = {
               <span style="font-size:11px;color:var(--text-muted)">(${phaseTasks.length} sarcini)</span>
             </div>
           </td>
-          <td style="padding:10px 12px;text-align:center;color:var(--text-muted);font-size:12px">—</td>
-          <td style="padding:10px 12px;text-align:center">
-            ${(() => {
-              const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
-              const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
-              return `<strong>${displayBudget}h</strong>`;
-            })()}
-          </td>
+          <td style="padding:10px 12px;text-align:center;color:var(--text-muted);font-size:12px"></td>
+          <td style="padding:10px 12px;text-align:center"><strong>${displayBudget}h</strong></td>
           <td style="padding:10px 12px;text-align:center;color:#3B82F6;font-weight:600">${workedH}h</td>
           <td style="padding:10px 12px;text-align:center;color:var(--text-muted)">${remainH}h</td>
           <td style="padding:10px 12px">
@@ -453,7 +449,7 @@ const Proiecte = {
               <span style="font-size:11px;color:var(--text-muted);width:30px">${pct}%</span>
             </div>
           </td>
-          <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)">—</td>
+          <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)"></td>
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
@@ -466,7 +462,7 @@ const Proiecte = {
         ${phaseTasks.map((task, idx) => this.renderTaskRow(task, idx + 1, canEdit, budgetH)).join('')}
         ${canEdit ? `
           <tr style="border-top:1px solid var(--border)">
-            <td colspan="9" style="padding:6px 16px 6px 52px">
+            <td colspan="8" style="padding:6px 16px 6px 52px">
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px">＋ Adaugă sarcină</button>
             </td>
           </tr>
