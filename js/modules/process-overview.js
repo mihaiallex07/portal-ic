@@ -81,6 +81,7 @@ const ProcessOverview = {
       const budgetH = task.budget_hours || 0;
       const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
       userBarsMap[a.user_id].push({
+        assignmentId: a.id,
         taskId: task.id,
         taskName: task.name,
         phaseName: phase ? phase.name : '',
@@ -209,9 +210,16 @@ const ProcessOverview = {
             const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
             const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
 
+            // Drag handles vizibili doar pentru admin/coord pe bare cu task explicit
+            const canDrag = isAdmin && bar.hasExplicitPeriod && bar.assignmentId;
+            const dragHandles = canDrag ? `
+                <div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div>
+                <div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>
+              ` : '';
             barsHtml += `
               <div class="gantt-bar po-bar"
-                   style="left:${left}px;top:${top}px;width:${width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer"
+                   style="left:${left}px;top:${top}px;width:${width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute"
+                   data-assignment-id="${bar.assignmentId || ''}"
                    data-task-id="${bar.taskId || ''}"
                    data-proj-id="${bar.projId || ''}"
                    data-is-admin="${isAdmin ? '1' : '0'}"
@@ -226,8 +234,9 @@ const ProcessOverview = {
                    data-bar-color="${color}"
                    onmouseenter="ProcessOverview.showTooltip(event,this)"
                    onmouseleave="ProcessOverview.hideTooltip()"
-                   onclick="ProcessOverview.handleBarClick(this)">
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${barLabel}</span>
+                   onclick="ProcessOverview.handleBarClick(event,this)">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>
+                ${dragHandles}
               </div>
             `;
           });
@@ -340,8 +349,9 @@ const ProcessOverview = {
     if (budget > 0) {
       html += `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Progres ore</span><span style="color:${barColor};font-weight:600">${worked}h / ${budget}h (${pct}%)</span></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div></div></div>`;
     }
+    const projId = el.dataset.projId || '';
     if (projId) {
-      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide proiectul</div>`;
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide proiectul${isAdmin ? ' • Trage marginea pentru perioadă' : ''}</div>`;
     } else if (taskName) {
       html += `<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">🖱 Click pentru detalii</div>`;
     }
@@ -363,7 +373,16 @@ const ProcessOverview = {
     if (tooltip) tooltip.style.display = 'none';
   },
 
-  handleBarClick(el) {
+  handleBarClick(eventOrEl, maybeEl) {
+    // Suportă și semnătura veche (doar el) cât și nouă (event, el)
+    const el = maybeEl || eventOrEl;
+    const event = maybeEl ? eventOrEl : null;
+    // Dacă tocmai s-a terminat un drag, nu deschide pagina proiectului
+    if (this._justDragged) {
+      this._justDragged = false;
+      if (event) { event.stopPropagation(); event.preventDefault(); }
+      return;
+    }
     this.hideTooltip();
     const isAdmin = el.dataset.isAdmin === '1';
     const taskId = el.dataset.taskId;
@@ -418,6 +437,135 @@ const ProcessOverview = {
     if (diff < 0 || diff >= days) return '';
     const left = diff * this.ZOOM_PX + this.ZOOM_PX / 2;
     return `<div class="gantt-today-line" style="left:${left}px"></div>`;
+  },
+
+  // ============================================================
+  // DRAG & DROP pentru extindere/scurtare perioadă task (admin)
+  // ============================================================
+  _dragState: null,
+  _justDragged: false,
+
+  startDrag(e, barEl, edge) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.hideTooltip();
+    const startX = e.clientX;
+    const origLeft = parseInt(barEl.style.left) || 0;
+    const origWidth = parseInt(barEl.style.width) || 0;
+    const origStart = barEl.dataset.start;
+    const origEnd = barEl.dataset.end;
+    const assignmentId = barEl.dataset.assignmentId;
+    const taskName = barEl.dataset.taskName || '';
+    if (!assignmentId) return;
+
+    this._dragState = {
+      barEl, edge, startX, origLeft, origWidth,
+      origStart, origEnd, assignmentId, taskName,
+      newStart: origStart, newEnd: origEnd,
+      moved: false,
+    };
+
+    barEl.style.opacity = '0.7';
+    barEl.style.outline = '2px dashed #FFCB09';
+
+    // Indicator dată
+    let indicator = document.getElementById('po-drag-indicator');
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.id = 'po-drag-indicator';
+      indicator.style.cssText = 'position:fixed;z-index:10001;background:#221F1F;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+      document.body.appendChild(indicator);
+    }
+    indicator.style.display = 'block';
+
+    document.addEventListener('mousemove', this._onDragMove);
+    document.addEventListener('mouseup', this._onDragEnd);
+  },
+
+  _onDragMove(e) {
+    const s = ProcessOverview._dragState;
+    if (!s) return;
+    const dx = e.clientX - s.startX;
+    const ZOOM = ProcessOverview.ZOOM_PX;
+    const days = Math.round(dx / ZOOM);
+    if (days !== 0) s.moved = true;
+
+    const origStartDate = new Date(s.origStart);
+    const origEndDate = new Date(s.origEnd);
+
+    if (s.edge === 'left') {
+      const newStartDate = new Date(origStartDate);
+      newStartDate.setDate(newStartDate.getDate() + days);
+      // Nu permite start după end
+      if (newStartDate >= origEndDate) return;
+      s.newStart = newStartDate.toISOString().split('T')[0];
+      const newWidth = Math.max(ZOOM, s.origWidth - days * ZOOM);
+      const newLeft = s.origLeft + days * ZOOM;
+      s.barEl.style.left = newLeft + 'px';
+      s.barEl.style.width = newWidth + 'px';
+    } else {
+      const newEndDate = new Date(origEndDate);
+      newEndDate.setDate(newEndDate.getDate() + days);
+      if (newEndDate <= origStartDate) return;
+      s.newEnd = newEndDate.toISOString().split('T')[0];
+      const newWidth = Math.max(ZOOM, s.origWidth + days * ZOOM);
+      s.barEl.style.width = newWidth + 'px';
+    }
+
+    // Actualizează indicator
+    const indicator = document.getElementById('po-drag-indicator');
+    if (indicator) {
+      const fmt = d => new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' });
+      indicator.textContent = `${fmt(s.newStart)} → ${fmt(s.newEnd)}`;
+      indicator.style.left = (e.clientX + 14) + 'px';
+      indicator.style.top = (e.clientY - 30) + 'px';
+    }
+  },
+
+  async _onDragEnd(e) {
+    const s = ProcessOverview._dragState;
+    if (!s) return;
+    document.removeEventListener('mousemove', ProcessOverview._onDragMove);
+    document.removeEventListener('mouseup', ProcessOverview._onDragEnd);
+
+    const indicator = document.getElementById('po-drag-indicator');
+    if (indicator) indicator.style.display = 'none';
+    s.barEl.style.opacity = '';
+    s.barEl.style.outline = '';
+
+    if (!s.moved || (s.newStart === s.origStart && s.newEnd === s.origEnd)) {
+      ProcessOverview._dragState = null;
+      return;
+    }
+
+    ProcessOverview._justDragged = true;
+    setTimeout(() => { ProcessOverview._justDragged = false; }, 300);
+
+    // Salvează în DB
+    try {
+      const { error } = await supabase
+        .from('project_task_assignments')
+        .update({ start_date: s.newStart, end_date: s.newEnd })
+        .eq('id', s.assignmentId);
+      if (error) throw error;
+
+      // Actualizează cache local
+      const a = ProcessOverview.taskAssignments.find(x => x.id == s.assignmentId);
+      if (a) {
+        a.start_date = s.newStart;
+        a.end_date = s.newEnd;
+      }
+
+      const fmtDate = d => new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
+      showToast(`Perioadă actualizată: ${fmtDate(s.newStart)} → ${fmtDate(s.newEnd)}`, 'success');
+      ProcessOverview.renderPage();
+    } catch (err) {
+      console.error('Eroare salvare perioadă:', err);
+      showToast('Eroare la salvarea perioadei: ' + err.message, 'error');
+      ProcessOverview.renderPage();
+    }
+
+    ProcessOverview._dragState = null;
   },
 
   shiftDays(n) {
