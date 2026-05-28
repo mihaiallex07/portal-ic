@@ -294,9 +294,12 @@ const Proiecte = {
     if (!p) return;
     const profile = Auth.currentProfile;
     const isAdmin = profile && profile.role === 'admin';
-    const isCoord = this.members.some(m => m.user_id === profile.id && m.role === 'coordonator');
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canManage = isAdmin || isCoord;  // poate vedea butoanele de editare
     const canEdit = canManage && this.editMode;  // poate modifica efectiv câmpurile
+    // DEBUG temporar pentru a diagnostica problemele de permisiuni
+    console.log('[Proiecte] profile.id:', profileIdStr, 'role:', profile?.role, 'isAdmin:', isAdmin, 'isCoord:', isCoord, 'members:', this.members.map(m => ({ user_id: m.user_id, role: m.role })));
 
     const container = document.getElementById('page-content');
     if (!container) return;
@@ -411,7 +414,8 @@ const Proiecte = {
   renderPhaseRows(phase, canEdit) {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
-    const isCoord = this.members.some(m => m.user_id === profile?.id && m.role === 'coordonator');
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     // Admin și coordonatori văd toate task-urile; angajații văd doar task-urile asignate lor
     const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
     const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
@@ -480,7 +484,7 @@ const Proiecte = {
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
     // canManage = admin/coord indiferent de editMode (pentru butoane Start, Asignare vizualizare, Consum manual)
-    const isAdminOrCoord = profile?.role === 'admin' || this.members.some(m => m.user_id === profile?.id && m.role === 'coordonator');
+    const isAdminOrCoord = profile?.role === 'admin' || this.members.some(m => String(m.user_id) === String(profile?.id) && (m.role === 'coordonator' || m.role === 'coord'));
 
     // Perioadă task: din project_task_assignments (prima înregistrare sau interval comun)
     const taskAssigns = (this.taskAssignments || []).filter(a => a.task_id === task.id);
@@ -656,7 +660,8 @@ const Proiecte = {
   renderRapoarteTab() {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
-    const isCoord = this.members.some(m => m.user_id === profile?.id && m.role === 'coordonator');
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const totalBudget = this.phases.reduce((s, p) => s + (p.budget_hours || 0), 0);
     const totalWorked = this.tasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
     const pct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
@@ -771,7 +776,8 @@ const Proiecte = {
     this.currentTab = tab;
     const profile = Auth.currentProfile;
     const isAdmin = profile && profile.role === 'admin';
-    const isCoord = this.members.some(m => m.user_id === profile.id && m.role === 'coordonator');
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canEdit = (isAdmin || isCoord) && this.editMode;
 
     ['etape', 'echipa', 'rapoarte', 'jurnal'].forEach(t => {
