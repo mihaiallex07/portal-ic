@@ -110,7 +110,8 @@ const TimeTracking = {
         .lte('date', dateTo)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true }),
-      sb.from('projects').select('id,name,color,emoji').eq('status', 'activ'),
+      // INCLUDEM TOATE proiectele (activ/arhivat/finalizat) ca să se poată loga ore pe zile din trecut
+      sb.from('projects').select('id,name,color,emoji,status'),
       sb.from('project_members').select('project_id,role').eq('user_id', userId),
     ]);
 
@@ -125,18 +126,40 @@ const TimeTracking = {
       this.projects = allProjects.filter(p => enrolledIds.has(p.id));
     }
 
+    // Sortare: proiecte active primele, apoi celelalte
+    this.projects.sort((a, b) => {
+      const aActive = a.status === 'activ' ? 0 : 1;
+      const bActive = b.status === 'activ' ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
     if (this.projects.length > 0) {
       const projectIds = this.projects.map(p => p.id);
-      const tasksRes = await sb.from('project_tasks')
-        .select('id,name,project_id,phase_id,assigned_user_id,budget_hours,minutes_worked')
-        .in('project_id', projectIds)
-        .order('display_order');
+      // Includem și project_task_assignments pentru a găsi task-urile la care user-ul a fost vreodată alocat
+      const [tasksRes, assignRes] = await Promise.all([
+        sb.from('project_tasks')
+          .select('id,name,project_id,phase_id,assigned_user_id,assigned_users,budget_hours,minutes_worked')
+          .in('project_id', projectIds)
+          .order('display_order'),
+        sb.from('project_task_assignments')
+          .select('task_id')
+          .eq('user_id', userId)
+          .in('project_id', projectIds),
+      ]);
       const allTasks = tasksRes.data || [];
-      // Toți utilizatorii (inclusiv admin) văd doar task-urile alocate lor
+      const assignedTaskIds = new Set((assignRes.data || []).map(a => a.task_id));
       const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => m.project_id));
-      this.tasks = allTasks.filter(t =>
-        coordProjectIds.has(t.project_id) || t.assigned_user_id === userId
-      );
+      // Task-urile vizibile: alocate explicit (assigned_user_id, assigned_users array sau project_task_assignments)
+      // SAU dacă user-ul e admin/coordonator pe proiect
+      this.tasks = allTasks.filter(t => {
+        if (isAdmin) return true;
+        if (coordProjectIds.has(t.project_id)) return true;
+        if (t.assigned_user_id === userId) return true;
+        if (Array.isArray(t.assigned_users) && t.assigned_users.includes(userId)) return true;
+        if (assignedTaskIds.has(t.id)) return true;
+        return false;
+      });
     } else {
       this.tasks = [];
     }

@@ -69,7 +69,8 @@ const GoogleCalendarImport = {
       const userUUID = Auth.currentUser?.id || null;
       const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
       const [projRes, memberRes] = await Promise.all([
-        sb.from('projects').select('id,name,color,emoji').eq('status', 'activ'),
+        // Includem TOATE proiectele (activ/arhivat/finalizat) ca să se poată mapa evenimente vechi
+        sb.from('projects').select('id,name,color,emoji,status'),
         userUUID ? sb.from('project_members').select('project_id,project_role').eq('user_id', userUUID) : Promise.resolve({ data: [] }),
       ]);
       const allProjects = projRes.data || [];
