@@ -119,12 +119,18 @@ const TimeTracking = {
     const allProjects = projectsRes.data || [];
     const memberships = membershipsRes.data || [];
 
+    // DEBUG temporar: vedem ce userId folosim și câte memberships avem
+    console.log('[TT] userId:', userId, 'memberships:', memberships.length, 'allProjects:', allProjects.length);
+
     if (isAdmin) {
       this.projects = allProjects;
     } else {
-      const enrolledIds = new Set(memberships.map(m => m.project_id));
-      this.projects = allProjects.filter(p => enrolledIds.has(p.id));
+      // Comparație string strictă (UUID-urile pot fi compare diferit în unele cazuri)
+      const enrolledIds = new Set(memberships.map(m => String(m.project_id)));
+      this.projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
     }
+
+    console.log('[TT] this.projects after filter:', this.projects.length);
 
     // Sortare: proiecte active primele, apoi celelalte
     this.projects.sort((a, b) => {
@@ -148,18 +154,20 @@ const TimeTracking = {
           .in('project_id', projectIds),
       ]);
       const allTasks = tasksRes.data || [];
-      const assignedTaskIds = new Set((assignRes.data || []).map(a => a.task_id));
-      const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => m.project_id));
+      const assignedTaskIds = new Set((assignRes.data || []).map(a => String(a.task_id)));
+      const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
+      const userIdStr = String(userId);
       // Task-urile vizibile: alocate explicit (assigned_user_id, assigned_users array sau project_task_assignments)
       // SAU dacă user-ul e admin/coordonator pe proiect
       this.tasks = allTasks.filter(t => {
         if (isAdmin) return true;
-        if (coordProjectIds.has(t.project_id)) return true;
-        if (t.assigned_user_id === userId) return true;
-        if (Array.isArray(t.assigned_users) && t.assigned_users.includes(userId)) return true;
-        if (assignedTaskIds.has(t.id)) return true;
+        if (coordProjectIds.has(String(t.project_id))) return true;
+        if (String(t.assigned_user_id) === userIdStr) return true;
+        if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
+        if (assignedTaskIds.has(String(t.id))) return true;
         return false;
       });
+      console.log('[TT] this.tasks after filter:', this.tasks.length, '/', allTasks.length);
     } else {
       this.tasks = [];
     }
@@ -371,35 +379,63 @@ const TimeTracking = {
 
   // ── Modal adăugare activitate ─────────────────────────────────────────────
 
-  openAddModal(prefillDate, prefillHour) {
+  // Construiește opțiuni HH:MM la pas de 15min (fromMin..toMin inclusiv)
+  _buildTimeOptions(fromTotalMin, toTotalMin, selectedTotalMin) {
+    const opts = [];
+    for (let m = fromTotalMin; m <= toTotalMin; m += 15) {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      const label = String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+      const sel = m === selectedTotalMin ? ' selected' : '';
+      opts.push(`<option value="${m}"${sel}>${label}</option>`);
+    }
+    return opts.join('');
+  },
+
+  openAddModal(prefillDate, prefillHour, prefillMinute) {
     const today = prefillDate || this.localDateStr();
     const now = new Date();
-    const hour = prefillHour !== undefined ? prefillHour : now.getHours();
+    const startHour = prefillHour !== undefined ? prefillHour : now.getHours();
+    const startMin = prefillMinute !== undefined ? prefillMinute : 0;
+    const startTotal = startHour * 60 + (Math.floor(startMin / 15) * 15);
+    const endTotal = Math.min(startTotal + 60, 24 * 60);
 
     const projectOptions = this.projects.map(p =>
       `<option value="${p.id}">${p.emoji || ''} ${p.name}</option>`
     ).join('');
 
+    // Opțiuni Ora start: 00:00 → 23:45 (la pas de 15 min)
+    const startOptions = this._buildTimeOptions(0, 23 * 60 + 45, startTotal);
+    // Opțiuni Ora final: 00:15 → 24:00
+    const endOptions = this._buildTimeOptions(15, 24 * 60, endTotal);
+
     openModal('Adaugă activitate', `
       <div class="space-y-3">
-        <div class="flex gap-3">
-          <div style="flex:1">
-            <label class="label">Data *</label>
-            <input type="date" id="tt-date" class="input" value="${today}">
-          </div>
-          <div style="flex:1">
-            <label class="label">Durată *</label>
-            <select id="tt-duration" class="select">${this._buildDurationOptions(60)}</select>
-          </div>
+        <div>
+          <label class="label">Data *</label>
+          <input type="date" id="tt-date" class="input" value="${today}">
         </div>
-        <div class="flex gap-3">
+        <div class="flex gap-3" style="align-items:flex-end">
           <div style="flex:1">
-            <label class="label">Ora start</label>
-            <input type="number" id="tt-hour" class="input" value="${hour}" min="0" max="23">
+            <label class="label">Oră start *</label>
+            <select id="tt-start" class="select" onchange="TimeTracking._onTimeChange()">${startOptions}</select>
           </div>
           <div style="flex:1">
-            <label class="label">Minut start</label>
-            <input type="number" id="tt-min" class="input" value="0" min="0" max="59">
+            <label class="label">Oră final *</label>
+            <select id="tt-end" class="select" onchange="TimeTracking._onTimeChange()">${endOptions}</select>
+          </div>
+          <div style="flex:0 0 auto;min-width:90px">
+            <label class="label">Durată</label>
+            <div id="tt-duration-display" style="
+              padding:8px 12px;
+              background:#f1f5f9;
+              border:1px solid var(--border);
+              border-radius:6px;
+              font-weight:600;
+              text-align:center;
+              color:#0f172a;
+              user-select:none;
+            ">1h</div>
           </div>
         </div>
         <div>
@@ -424,6 +460,32 @@ const TimeTracking = {
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
       <button class="btn-brand" onclick="TimeTracking.saveEntry()">Salvează</button>
     `);
+
+    // Calculează durata inițială
+    setTimeout(() => this._onTimeChange(), 0);
+  },
+
+  _onTimeChange() {
+    const startEl = document.getElementById('tt-start');
+    const endEl = document.getElementById('tt-end');
+    const dispEl = document.getElementById('tt-duration-display');
+    if (!startEl || !endEl || !dispEl) return;
+    const startMin = parseInt(startEl.value);
+    let endMin = parseInt(endEl.value);
+    // Auto-corecție: dacă end <= start, setează end = start + 15
+    if (endMin <= startMin) {
+      endMin = Math.min(startMin + 15, 24 * 60);
+      endEl.value = endMin;
+    }
+    const dur = endMin - startMin;
+    const h = Math.floor(dur / 60);
+    const m = dur % 60;
+    let label;
+    if (h > 0 && m > 0) label = `${h}h ${m}min`;
+    else if (h > 0) label = `${h}h`;
+    else label = `${m}min`;
+    dispEl.textContent = label;
+    dispEl.style.color = dur > 0 ? '#0f172a' : '#dc2626';
   },
 
   onProjectChange(projectId) {
@@ -446,9 +508,16 @@ const TimeTracking = {
     const dateVal = document.getElementById('tt-date')?.value;
     if (!dateVal) { showToast('Selectează data', 'error'); return; }
 
-    const startHour = parseInt(document.getElementById('tt-hour')?.value) || 0;
-    const startMin = parseInt(document.getElementById('tt-min')?.value) || 0;
-    const durationMinutes = parseInt(document.getElementById('tt-duration')?.value) || 60;
+    // Citim Oră start și Oră final din dropdown-uri (valori în minute totale)
+    const startTotalMin = parseInt(document.getElementById('tt-start')?.value);
+    const endTotalMin = parseInt(document.getElementById('tt-end')?.value);
+    if (isNaN(startTotalMin) || isNaN(endTotalMin) || endTotalMin <= startTotalMin) {
+      showToast('Verifică ora de start și ora finală', 'error');
+      return;
+    }
+    const startHour = Math.floor(startTotalMin / 60);
+    const startMin = startTotalMin % 60;
+    const durationMinutes = endTotalMin - startTotalMin;
     const projectId = document.getElementById('tt-project')?.value || null;
     const taskId = document.getElementById('tt-task-id')?.value || null;
     const userId = this.getNumericUserId();
@@ -457,7 +526,6 @@ const TimeTracking = {
 
     // Construiește valorile HH:MM:SS pentru start_time și end_time (tip TIME în Supabase, nu TIMESTAMP)
     const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
-    const endTotalMin = startHour * 60 + startMin + durationMinutes;
     const endH = Math.floor(endTotalMin / 60) % 24;
     const endM = endTotalMin % 60;
     const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
