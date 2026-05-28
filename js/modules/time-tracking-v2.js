@@ -111,7 +111,7 @@ const TimeTracking = {
         .order('date', { ascending: true })
         .order('start_time', { ascending: true }),
       // INCLUDEM TOATE proiectele (activ/arhivat/finalizat) ca să se poată loga ore pe zile din trecut
-      sb.from('projects').select('id,name,color,emoji,status'),
+      sb.from('projects').select('id,name,color,status'),
       sb.from('project_members').select('project_id,role').eq('user_id', userId),
     ]);
 
