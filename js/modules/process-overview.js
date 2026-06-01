@@ -543,7 +543,7 @@ const ProcessOverview = {
 
     // Salvează în DB
     try {
-      const { error } = await supabase
+      const { error } = await getSupabase()
         .from('project_task_assignments')
         .update({ start_date: s.newStart, end_date: s.newEnd })
         .eq('id', s.assignmentId);
