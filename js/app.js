@@ -445,8 +445,25 @@ async function stopActiveTimer() {
 
 // Quick start modal - start rapid task din header
 function openQuickStartModal() {
-  // Colectăm proiectele active disponibile
-  const projects = (typeof Proiecte !== 'undefined' && Proiecte.projects) ? Proiecte.projects.filter(p => p.status === 'activ') : [];
+  // Sursă primară: TimeTracking.projects (filtrat per user, corect pentru toți)
+  // Fallback: Proiecte.projects (admin vede toate)
+  let projects = [];
+  if (typeof TimeTracking !== 'undefined' && TimeTracking.projects?.length) {
+    projects = TimeTracking.projects.filter(p => p.status === 'activ');
+  } else if (typeof Proiecte !== 'undefined' && Proiecte.projects?.length) {
+    const profile = Auth.currentProfile;
+    const isAdmin = profile?.role === 'admin';
+    const userId = String(Auth.currentUser?.id || '');
+    if (isAdmin) {
+      projects = Proiecte.projects.filter(p => p.status === 'activ');
+    } else {
+      // Non-admin: doar proiectele unde e membru
+      const myProjectIds = new Set(
+        (Proiecte.members || []).filter(m => String(m.user_id) === userId).map(m => m.project_id)
+      );
+      projects = Proiecte.projects.filter(p => p.status === 'activ' && myProjectIds.has(p.id));
+    }
+  }
   const projectOptions = projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 
   openModal('Start rapid task', `

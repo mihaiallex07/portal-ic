@@ -4,16 +4,36 @@
 
 const Dashboard = {
   async render() {
-    const [projectsRes, timeRes, newsRes, notifRes, profilesRes] = await Promise.all([
+    const [projectsRes, timeRes, newsRes, notifRes, profilesRes, tasksRes] = await Promise.all([
       DB.getProjects(),
       DB.getTimeEntries(Auth.currentUser?.id, getDateStr(-7), getTodayStr()),
       DB.getNews(),
       DB.getNotifications(Auth.currentUser?.id),
       DB.getUsers(),
+      // Toate task-urile pentru a calcula ore lucrate per proiect din minutes_worked
+      APP_CONFIG.demoMode ? Promise.resolve({ data: [] }) :
+        (async () => { try { const sb = getSupabase(); const { data } = await sb.from('project_tasks').select('project_id,minutes_worked,budget_hours'); return { data: data || [] }; } catch(e) { return { data: [] }; } })()
     ]);
 
     const projects = projectsRes.data || [];
     const timeEntries = timeRes.data || [];
+    // Calculează ore lucrate și bugetate per proiect din project_tasks (date reale)
+    const allTasks = tasksRes.data || [];
+    const workedByProject = {};
+    const budgetByProject = {};
+    allTasks.forEach(t => {
+      const pid = t.project_id;
+      if (!pid) return;
+      workedByProject[pid] = (workedByProject[pid] || 0) + Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+      budgetByProject[pid] = (budgetByProject[pid] || 0) + (t.budget_hours || 0);
+    });
+    // Injectăm valorile calculate în proiecte
+    projects.forEach(p => {
+      if (allTasks.length > 0) {
+        p.used_hours = workedByProject[p.id] || 0;
+        if (budgetByProject[p.id] > 0) p.budget_hours = budgetByProject[p.id];
+      }
+    });
     const news = (newsRes.data || []).slice(0, 3);
     const notifications = (notifRes.data || []).filter(n => !n.read).slice(0, 5);
     const allProfiles = profilesRes.data || [];
