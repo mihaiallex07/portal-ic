@@ -33,6 +33,15 @@ const DriveViewer = {
 
   _setupTokenClient() {
     if (!google?.accounts?.oauth2) return;
+    // Restaurăm token din localStorage dacă e valid
+    try {
+      const saved = JSON.parse(localStorage.getItem('ic_drive_token') || 'null');
+      if (saved && saved.token && saved.expiry && Date.now() < saved.expiry) {
+        this._accessToken = saved.token;
+        this._tokenExpiry = saved.expiry;
+      }
+    } catch(e) {}
+
     this._tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: this.CLIENT_ID,
       scope: this.SCOPE,
@@ -44,6 +53,13 @@ const DriveViewer = {
         }
         this._accessToken = resp.access_token;
         this._tokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
+        // Salvăm token în localStorage pentru persistență între refresh-uri
+        try {
+          localStorage.setItem('ic_drive_token', JSON.stringify({
+            token: this._accessToken,
+            expiry: this._tokenExpiry
+          }));
+        } catch(e) {}
         if (this._pendingResolve) { this._pendingResolve(this._accessToken); this._pendingResolve = null; }
       }
     });
