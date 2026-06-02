@@ -56,18 +56,20 @@ const DocumenteMele = {
     const email = profile?.email || '';
     const savedFolders = this.getSavedFolders();
 
-    // Admin vede toate folderele
-    if (isAdmin) {
-      this.renderAdminView(contentEl, savedFolders);
-      return;
-    }
-
-    // Angajat — caută folderul lui
+     // Toți utilizatorii (inclusiv admin) văd mai întâi documentele proprii
     const myFolder = savedFolders[email];
     if (myFolder) {
       this.myFolderId = myFolder.id;
       this.renderMyDocuments(contentEl, myFolder.name);
-    } else {
+      return;
+    }
+    // Admin fără folder propriu configurat — vede direct panoul de configurare
+    if (isAdmin) {
+      this.renderAdminView(contentEl, savedFolders);
+      return;
+    }
+    // Angajat fără folder configurat
+    {
       // Nu există folder configurat
       contentEl.innerHTML = `
         <div style="padding:60px;text-align:center;color:var(--text-muted)">
