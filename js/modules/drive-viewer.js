@@ -88,7 +88,7 @@ const DriveViewer = {
       const token = await this.getToken();
       if (!token) return null;
 
-      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,size,modifiedTime)&orderBy=name&pageSize=100`;
+      const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,size,modifiedTime)&orderBy=name&pageSize=100&includeItemsFromAllDrives=true&supportsAllDrives=true`;
       const resp = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
