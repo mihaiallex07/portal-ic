@@ -95,19 +95,35 @@ const DocumenteMele = {
   renderMyDocuments(container, folderName) {
     const folderUrl = `https://drive.google.com/drive/folders/${this.myFolderId}`;
     container.innerHTML = `
-      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:32px;text-align:center;max-width:480px;margin:0 auto">
-        <div style="font-size:56px;margin-bottom:16px">📁</div>
-        <h3 style="font-size:18px;font-weight:700;margin:0 0 8px;color:var(--text)">${folderName}</h3>
-        <p style="font-size:14px;color:var(--text-muted);margin:0 0 24px;line-height:1.6">
-          Documentele tale personale (contracte, fișă post, evaluări) sunt disponibile în Google Drive.
-        </p>
-        <a href="${folderUrl}" target="_blank"
-          style="display:inline-flex;align-items:center;gap:8px;background:var(--brand);color:#000;font-weight:700;font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          Deschide în Google Drive
-        </a>
+      <div style="display:flex;gap:0;height:calc(100vh - 220px);min-height:500px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <div style="width:240px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface)">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px">${folderName}</div>
+              <div style="font-size:11px;color:var(--text-muted)">Documentele mele</div>
+            </div>
+            <a href="${folderUrl}" target="_blank" title="Deschide în Drive"
+               style="color:var(--text-muted);text-decoration:none;display:flex;align-items:center;padding:4px;border-radius:4px;flex-shrink:0"
+               onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--text-muted)'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+          <div id="docmele-file-list" style="flex:1;overflow-y:auto;padding:8px">
+            <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">
+              <div style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--brand);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 8px"></div>
+              Se încarcă...
+            </div>
+          </div>
+        </div>
+        <div id="docmele-viewer" style="flex:1;display:flex;align-items:center;justify-content:center;background:var(--surface-2,var(--bg-secondary));color:var(--text-muted);font-size:14px">
+          <div style="text-align:center">
+            <div style="font-size:40px;margin-bottom:12px">📄</div>
+            <p style="margin:0">Selectează un document din stânga</p>
+          </div>
+        </div>
       </div>
     `;
+    this.loadMyFiles();
   },
 
   async loadMyFiles() {

@@ -1,17 +1,109 @@
 /* ============================================================
-   Regulament Intern — Markdown viewer styles
+   Regulament Intern — Taburi + Viewer Google Drive
    ============================================================ */
-.regulament-content { color: var(--text); line-height: 1.75; font-size: 14px; }
-.regulament-content h1 { font-size: 22px; font-weight: 800; margin: 0 0 20px; color: var(--text); border-bottom: 2px solid var(--brand); padding-bottom: 10px; }
-.regulament-content h2 { font-size: 17px; font-weight: 700; margin: 28px 0 10px; color: var(--text); padding-left: 10px; border-left: 3px solid var(--brand); }
-.regulament-content h3 { font-size: 15px; font-weight: 700; margin: 20px 0 8px; color: var(--text); }
-.regulament-content h4, .regulament-content h5, .regulament-content h6 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; color: var(--text); }
-.regulament-content p { margin: 0 0 14px; }
-.regulament-content ul, .regulament-content ol { margin: 0 0 14px; padding-left: 24px; }
-.regulament-content li { margin-bottom: 5px; }
-.regulament-content ul li { list-style: disc; }
-.regulament-content ol li { list-style: decimal; }
-.regulament-content strong { font-weight: 700; color: var(--text); }
-.regulament-content em { font-style: italic; }
-.regulament-content code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-family: 'Courier New', monospace; font-size: 12px; color: var(--text); }
-.regulament-content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+/* Wrapper taburi + buton Drive */
+.reg-tabs-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-bottom: 2px solid var(--border);
+}
+
+/* Scroll orizontal dacă sunt multe taburi */
+.reg-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.reg-tabs::-webkit-scrollbar { display: none; }
+
+/* Tab individual */
+.reg-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  white-space: nowrap;
+  border-radius: 6px 6px 0 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  max-width: 220px;
+}
+.reg-tab:hover {
+  color: var(--text);
+  background: var(--surface-2, rgba(0,0,0,0.04));
+}
+.reg-tab.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--brand);
+  background: var(--surface-2, rgba(0,0,0,0.04));
+}
+
+/* Label tab — trunchiată dacă e prea lung */
+.reg-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buton link Drive */
+.reg-drive-link {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+  margin-bottom: 2px;
+}
+.reg-drive-link:hover {
+  color: var(--primary);
+  background: var(--surface-2, rgba(0,0,0,0.04));
+}
+
+/* Viewer iframe */
+.reg-viewer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg, 10px) var(--radius-lg, 10px);
+  height: calc(100vh - 240px);
+  min-height: 500px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Bara de info deasupra iframe-ului */
+.reg-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2, var(--card-bg));
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+/* Animație spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
