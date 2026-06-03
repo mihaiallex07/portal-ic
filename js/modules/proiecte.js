@@ -128,14 +128,27 @@ const Proiecte = {
   async loadData() {
     const userId = Auth.currentUser?.id;
     const isAdmin = Auth.currentProfile?.role === 'admin';
-    const [projRes, usersRes, membershipsRes] = await Promise.all([
+    const [projRes, usersRes, membershipsRes, allTasksRes] = await Promise.all([
       DB.getProjects(),
       DB.getUsers(),
       dbQuery('project_members', q => q.select('project_id,role').eq('user_id', userId), []),
+      // Fetchăm toate task-urile pentru a calcula consumed_hours pe fiecare proiect
+      dbQuery('project_tasks', q => q.select('project_id,minutes_worked'), []),
     ]);
     const allProjects = projRes.data || [];
     this.allUsers = usersRes.data || [];
     this.userMemberships = membershipsRes.data || [];
+    // Calculăm consumed_hours din suma minutes_worked a task-urilor fiecărui proiect
+    const allTasks = allTasksRes.data || [];
+    const minutesByProject = {};
+    allTasks.forEach(t => {
+      if (t.project_id && t.minutes_worked) {
+        minutesByProject[t.project_id] = (minutesByProject[t.project_id] || 0) + t.minutes_worked;
+      }
+    });
+    allProjects.forEach(p => {
+      p.consumed_hours = Math.round((minutesByProject[p.id] || 0) / 60 * 10) / 10;
+    });
     if (isAdmin) {
       this.projects = allProjects;
     } else {
@@ -304,7 +317,11 @@ const Proiecte = {
     const container = document.getElementById('page-content');
     if (!container) return;
 
-    const consumed = p.consumed_hours || 0;
+    // Calculăm consumed_hours din suma task-urilor (dacă task-urile sunt deja încărcate)
+    const consumedFromTasks = this.tasks.length > 0
+      ? Math.round(this.tasks.reduce((s, t) => s + (t.minutes_worked || 0), 0) / 60 * 10) / 10
+      : (p.consumed_hours || 0);
+    const consumed = consumedFromTasks;
     const budget = p.budget_hours || 0;
     const pct = budget > 0 ? Math.min(100, Math.round((consumed / budget) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
@@ -1344,8 +1361,25 @@ const Proiecte = {
     const phaseBudget = phase ? (phase.budget_hours || 0) : 0;
     const allocated = this.tasks.filter(t => t.phase_id === phaseId).reduce((s, t) => s + (t.budget_hours || 0), 0);
     const remaining = Math.max(0, phaseBudget - allocated);
+    // Găsim task-urile prestabilite pentru etapa curentă (după cod)
+    const phaseCode = phase ? (phase.code || '') : '';
+    const presetPhase = PRESET_PHASES.find(pp => pp.code === phaseCode);
+    const presetTasks = presetPhase ? presetPhase.tasks : [];
+    // Excludem task-urile deja existente în etapă
+    const existingNames = new Set(this.tasks.filter(t => t.phase_id === phaseId).map(t => t.name.toLowerCase()));
+    const availablePresets = presetTasks.filter(t => !existingNames.has(t.toLowerCase()));
+    const presetSection = availablePresets.length > 0 ? `
+      <div>
+        <label class="form-label">Sarcini prestabilite pentru etapa ${phaseCode ? '"' + phaseCode + ' — ' + (presetPhase ? presetPhase.name : '') + '"' : phaseName}</label>
+        <select id="new-task-preset" class="form-input" onchange="const v=this.value; if(v){document.getElementById('new-task-name').value=v;}">
+          <option value="">— Selectează o sarcină prestabilită —</option>
+          ${availablePresets.map(t => `<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sau scrie un nume personalizat mai jos.</div>
+      </div>` : '';
     openModal('Adaugă sarcină în ' + phaseName, `
       <div style="display:grid;gap:12px">
+        ${presetSection}
         <div>
           <label class="form-label">Nume sarcină *</label>
           <input id="new-task-name" class="form-input" placeholder="Ex: Modelare 3D Draft 1" autofocus>
