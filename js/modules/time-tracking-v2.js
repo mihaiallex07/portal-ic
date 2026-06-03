@@ -142,8 +142,8 @@ const TimeTracking = {
 
     if (this.projects.length > 0) {
       const projectIds = this.projects.map(p => p.id);
-      // Includem și project_task_assignments pentru a găsi task-urile la care user-ul a fost vreodată alocat
-      const [tasksRes, assignRes] = await Promise.all([
+      // Includem și project_task_assignments și project_phases pentru dropdown etapă
+      const [tasksRes, assignRes, phasesRes] = await Promise.all([
         sb.from('project_tasks')
           .select('id,name,project_id,phase_id,assigned_user_id,assigned_users,budget_hours,minutes_worked')
           .in('project_id', projectIds)
@@ -152,6 +152,10 @@ const TimeTracking = {
           .select('task_id')
           .eq('user_id', userId)
           .in('project_id', projectIds),
+        sb.from('project_phases')
+          .select('id,name,project_id,code,color,display_order')
+          .in('project_id', projectIds)
+          .order('display_order'),
       ]);
       const allTasks = tasksRes.data || [];
       const assignedTaskIds = new Set((assignRes.data || []).map(a => String(a.task_id)));
@@ -167,9 +171,12 @@ const TimeTracking = {
         if (assignedTaskIds.has(String(t.id))) return true;
         return false;
       });
-      console.log('[TT] this.tasks after filter:', this.tasks.length, '/', allTasks.length);
+      // Stocăm etapele pentru dropdown
+      this.phases = phasesRes.data || [];
+      console.log('[TT] this.tasks after filter:', this.tasks.length, '/', allTasks.length, '| phases:', this.phases.length);
     } else {
       this.tasks = [];
+      this.phases = [];
     }
   },
 
@@ -449,6 +456,12 @@ const TimeTracking = {
             ${projectOptions}
           </select>
         </div>
+        <div id="tt-phase-wrapper" style="display:none">
+          <label class="label">Etapă</label>
+          <select id="tt-phase" class="select" onchange="TimeTracking.onPhaseChange(this.value)">
+            <option value="">— Toate etapele —</option>
+          </select>
+        </div>
         <div>
           <label class="label">Task proiect</label>
           <select id="tt-task-id" class="select">
@@ -490,14 +503,55 @@ const TimeTracking = {
 
   onProjectChange(projectId) {
     const taskSelect = document.getElementById('tt-task-id');
+    const phaseSelect = document.getElementById('tt-phase');
+    const phaseWrapper = document.getElementById('tt-phase-wrapper');
     if (!taskSelect) return;
     const pid = parseInt(projectId);
+    if (!pid) {
+      // Niciun proiect selectat — ascunde etapa, golește task-urile
+      if (phaseWrapper) phaseWrapper.style.display = 'none';
+      taskSelect.innerHTML = `<option value="">— Selectează task —</option>`;
+      return;
+    }
+    // Populează dropdown-ul de etapă
+    const phases = (this.phases || []).filter(ph => ph.project_id === pid);
+    if (phaseSelect && phaseWrapper) {
+      if (phases.length > 0) {
+        phaseWrapper.style.display = 'block';
+        phaseSelect.innerHTML = `<option value="">— Toate etapele —</option>` +
+          phases.map(ph => `<option value="${ph.id}">${ph.code ? ph.code + ' — ' : ''}${ph.name}</option>`).join('');
+      } else {
+        phaseWrapper.style.display = 'none';
+      }
+    }
+    // Populează task-urile (toate etapele inițial)
     const tasks = this.tasks.filter(t => t.project_id === pid);
     taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
       tasks.map(t => {
+        const phase = phases.find(ph => ph.id === t.phase_id);
+        const phaseLabel = phase ? `[${phase.code || phase.name}] ` : '';
         const budgetH = Math.round((t.budget_hours || 0) * 10) / 10;
         const workedH = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
-        return `<option value="${t.id}">${t.name} (${workedH}h / ${budgetH}h buget)</option>`;
+        return `<option value="${t.id}">${phaseLabel}${t.name} (${workedH}h / ${budgetH}h)</option>`;
+      }).join('');
+  },
+
+  onPhaseChange(phaseId) {
+    const taskSelect = document.getElementById('tt-task-id');
+    if (!taskSelect) return;
+    const pid = parseInt(document.getElementById('tt-project')?.value);
+    if (!pid) return;
+    const phases = (this.phases || []).filter(ph => ph.project_id === pid);
+    const tasks = phaseId
+      ? this.tasks.filter(t => t.project_id === pid && String(t.phase_id) === String(phaseId))
+      : this.tasks.filter(t => t.project_id === pid);
+    taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
+      tasks.map(t => {
+        const phase = phases.find(ph => ph.id === t.phase_id);
+        const phaseLabel = !phaseId && phase ? `[${phase.code || phase.name}] ` : '';
+        const budgetH = Math.round((t.budget_hours || 0) * 10) / 10;
+        const workedH = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+        return `<option value="${t.id}">${phaseLabel}${t.name} (${workedH}h / ${budgetH}h)</option>`;
       }).join('');
   },
 

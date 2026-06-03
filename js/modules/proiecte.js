@@ -132,22 +132,25 @@ const Proiecte = {
       DB.getProjects(),
       DB.getUsers(),
       dbQuery('project_members', q => q.select('project_id,role').eq('user_id', userId), []),
-      // Fetchăm toate task-urile pentru a calcula consumed_hours pe fiecare proiect
-      dbQuery('project_tasks', q => q.select('project_id,minutes_worked'), []),
+      // Fetchăm toate task-urile pentru a calcula consumed_hours și budget_hours pe fiecare proiect
+      dbQuery('project_tasks', q => q.select('project_id,minutes_worked,budget_hours'), []),
     ]);
     const allProjects = projRes.data || [];
     this.allUsers = usersRes.data || [];
     this.userMemberships = membershipsRes.data || [];
-    // Calculăm consumed_hours din suma minutes_worked a task-urilor fiecărui proiect
+    // Calculăm consumed_hours și budget_hours din suma task-urilor fiecărui proiect
     const allTasks = allTasksRes.data || [];
     const minutesByProject = {};
+    const budgetByProject = {};
     allTasks.forEach(t => {
-      if (t.project_id && t.minutes_worked) {
-        minutesByProject[t.project_id] = (minutesByProject[t.project_id] || 0) + t.minutes_worked;
-      }
+      if (!t.project_id) return;
+      if (t.minutes_worked) minutesByProject[t.project_id] = (minutesByProject[t.project_id] || 0) + t.minutes_worked;
+      if (t.budget_hours) budgetByProject[t.project_id] = (budgetByProject[t.project_id] || 0) + t.budget_hours;
     });
     allProjects.forEach(p => {
       p.consumed_hours = Math.round((minutesByProject[p.id] || 0) / 60 * 10) / 10;
+      // Suprascrie budget_hours cu suma reală din task-uri (câmpul din DB poate fi 0/neactualizat)
+      if (budgetByProject[p.id] !== undefined) p.budget_hours = budgetByProject[p.id];
     });
     if (isAdmin) {
       this.projects = allProjects;
@@ -317,12 +320,15 @@ const Proiecte = {
     const container = document.getElementById('page-content');
     if (!container) return;
 
-    // Calculăm consumed_hours din suma task-urilor (dacă task-urile sunt deja încărcate)
+    // Calculăm consumed_hours și budget_hours din suma task-urilor (dacă task-urile sunt deja încărcate)
     const consumedFromTasks = this.tasks.length > 0
       ? Math.round(this.tasks.reduce((s, t) => s + (t.minutes_worked || 0), 0) / 60 * 10) / 10
       : (p.consumed_hours || 0);
+    const budgetFromTasks = this.tasks.length > 0
+      ? this.tasks.reduce((s, t) => s + (t.budget_hours || 0), 0)
+      : (p.budget_hours || 0);
     const consumed = consumedFromTasks;
-    const budget = p.budget_hours || 0;
+    const budget = budgetFromTasks;
     const pct = budget > 0 ? Math.min(100, Math.round((consumed / budget) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const color = p.color || '#3B82F6';

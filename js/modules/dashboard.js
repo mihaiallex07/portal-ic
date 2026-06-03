@@ -4,18 +4,26 @@
 
 const Dashboard = {
   async render() {
-    const [projectsRes, timeRes, newsRes, notifRes, profilesRes, tasksRes] = await Promise.all([
+    const userId = Auth.currentUser?.id;
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const [projectsRes, timeRes, newsRes, notifRes, profilesRes, tasksRes, membershipsRes] = await Promise.all([
       DB.getProjects(),
-      DB.getTimeEntries(Auth.currentUser?.id, getDateStr(-7), getTodayStr()),
+      DB.getTimeEntries(userId, getDateStr(-7), getTodayStr()),
       DB.getNews(),
-      DB.getNotifications(Auth.currentUser?.id),
+      DB.getNotifications(userId),
       DB.getUsers(),
       // Toate task-urile pentru a calcula ore lucrate per proiect din minutes_worked
       APP_CONFIG.demoMode ? Promise.resolve({ data: [] }) :
-        (async () => { try { const sb = getSupabase(); const { data } = await sb.from('project_tasks').select('project_id,minutes_worked,budget_hours'); return { data: data || [] }; } catch(e) { return { data: [] }; } })()
+        (async () => { try { const sb = getSupabase(); const { data } = await sb.from('project_tasks').select('project_id,minutes_worked,budget_hours'); return { data: data || [] }; } catch(e) { return { data: [] }; } })(),
+      // Memberships pentru a filtra proiectele după înrolare
+      APP_CONFIG.demoMode ? Promise.resolve({ data: [] }) :
+        (async () => { try { const sb = getSupabase(); const { data } = await sb.from('project_members').select('project_id').eq('user_id', userId); return { data: data || [] }; } catch(e) { return { data: [] }; } })()
     ]);
 
-    const projects = projectsRes.data || [];
+    const allProjects = projectsRes.data || [];
+    // Filtrează proiectele după înrolare (non-admini văd doar proiectele lor)
+    const enrolledIds = new Set((membershipsRes.data || []).map(m => String(m.project_id)));
+    const projects = isAdmin ? allProjects : allProjects.filter(p => enrolledIds.has(String(p.id)));
     const timeEntries = timeRes.data || [];
     // Calculează ore lucrate și bugetate per proiect din project_tasks (date reale)
     const allTasks = tasksRes.data || [];
