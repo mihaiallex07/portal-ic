@@ -21,9 +21,10 @@ const Dashboard = {
     ]);
 
     const allProjects = projectsRes.data || [];
-    // Filtrează proiectele după înrolare (non-admini văd doar proiectele lor)
+    // Dashboard personal: toți utilizatorii (inclusiv admini) văd doar proiectele lor
+    // Adminii văd toate proiectele în modulul Proiecte, dar dashboard-ul e personal
     const enrolledIds = new Set((membershipsRes.data || []).map(m => String(m.project_id)));
-    const projects = isAdmin ? allProjects : allProjects.filter(p => enrolledIds.has(String(p.id)));
+    const projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
     const timeEntries = timeRes.data || [];
     // Calculează ore lucrate și bugetate per proiect din project_tasks (date reale)
     const allTasks = tasksRes.data || [];
