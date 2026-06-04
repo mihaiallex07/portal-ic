@@ -828,7 +828,7 @@ const Proiecte = {
     });
     const content = document.getElementById('tab-content');
     if (content) content.innerHTML = this.renderTab(tab, canEdit);
-  }
+  },
 
   togglePhase(phaseBodyId) {
     const tbody = document.getElementById(phaseBodyId);
