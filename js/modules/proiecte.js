@@ -1118,18 +1118,22 @@ const Proiecte = {
       <button class="btn-brand" onclick="Proiecte.saveManualConsume(${taskId})">Adaugă ore</button>
     `);
   },
-  // Şterge o înregistrare din time_entries și actualizează minutes_worked
+  // Șterge o înregistrare din time_entries și actualizează minutes_worked
   async deleteTimeEntry(entryId, durationMinutes, taskId) {
     if (!confirm('Sigur vrei să ștergi această înregistrare de timp? Acțiunea nu poate fi anulată.')) return;
     const sb = getSupabase();
     if (!sb) return;
+    console.log('🗑️ deleteTimeEntry:', { entryId, durationMinutes, taskId });
     const { error } = await sb.from('time_entries').delete().eq('id', entryId);
-    if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    if (error) { console.error('❌ Eroare ștergere time_entry:', error); showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    console.log('✅ time_entry șters din DB');
     // Actualizează minutes_worked pe task
     const task = this.tasks.find(t => t.id === taskId);
     if (task) {
       const newMin = Math.max(0, (task.minutes_worked || 0) - durationMinutes);
-      await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', taskId);
+      console.log('📊 Actualizare minutes_worked:', { oldMin: task.minutes_worked, newMin, durationMinutes });
+      const { error: updateErr } = await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', taskId);
+      if (updateErr) { console.error('❌ Eroare update minutes_worked:', updateErr); } else { console.log('✅ minutes_worked actualizat în DB'); }
       task.minutes_worked = newMin;
     }
     showToast('✅ Înregistrare de timp ștearsă', 'success');
@@ -1259,15 +1263,17 @@ const Proiecte = {
     if (!confirm('Ștergi această înregistrare de consum manual? Orele vor fi scăzute din totalul sarcinii.')) return;
     const sb = getSupabase();
     if (!sb) return;
-
+    console.log('🗑️ deleteManualLog:', { logId, minutes, taskId });
     const { error } = await sb.from('manual_hours_log').delete().eq('id', logId);
-    if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
-
+    if (error) { console.error('❌ Eroare ștergere manual_log:', error); showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    console.log('✅ manual_log șters din DB');
     // Scade orele din minutes_worked
     const task = this.tasks.find(t => t.id === taskId);
     if (task) {
       const updatedMin = Math.max(0, (task.minutes_worked || 0) - minutes);
-      await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
+      console.log('📊 Actualizare minutes_worked:', { oldMin: task.minutes_worked, updatedMin, minutes });
+      const { error: updateErr } = await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
+      if (updateErr) { console.error('❌ Eroare update minutes_worked:', updateErr); } else { console.log('✅ minutes_worked actualizat în DB'); }
       task.minutes_worked = updatedMin;
     }
     showToast('✅ Consum manual șters', 'success');
