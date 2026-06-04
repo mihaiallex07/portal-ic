@@ -601,8 +601,8 @@ const Proiecte = {
           </div>
         </td>
         <td style="padding:8px 12px;font-size:12px">
-          ${isAdminOrCoord ? `
-            <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="${canEdit ? 'Asignează responsabili' : 'Vizualizează responsabili'}">
+          ${canEdit && isAdminOrCoord ? `
+            <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="Asignează responsabili">
               ${avatarsHtml}
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
@@ -1277,10 +1277,6 @@ const Proiecte = {
   openEditTaskModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
-    const phase = this.phases.find(p => p.id === task.phase_id);
-    const phaseBudget = phase ? (phase.budget_hours || 0) : 0;
-    const phaseAllocated = this.tasks.filter(t => t.phase_id === task.phase_id).reduce((s, t) => s + (t.budget_hours || 0), 0);
-    const phaseRemain = Math.max(0, phaseBudget - phaseAllocated + (task.budget_hours || 0));
     const nameEsc = (task.name || '').replace(/"/g, '&quot;');
 
     openModal('Editează sarcină', `
@@ -1289,37 +1285,32 @@ const Proiecte = {
           <label class="form-label">Nume sarcină *</label>
           <input id="edit-task-name" class="form-input" value="${nameEsc}">
         </div>
-        <div>
-          <label class="form-label">Buget ore ${phaseBudget > 0 ? '(max ' + phaseRemain + 'h disponibil)' : ''}</label>
-          <input id="edit-task-budget" type="number" class="form-input" value="${task.budget_hours || 0}" min="0">
-        </div>
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-primary" onclick="Proiecte.saveEditTask(${taskId},${phaseBudget},${phaseAllocated})">Salvează</button>
+      <button class="btn-primary" onclick="Proiecte.saveEditTask(${taskId})">Salvează</button>
     `);
   },
 
-  async saveEditTask(taskId, phaseBudget, phaseAllocated) {
+  async saveEditTask(taskId) {
     const name = document.getElementById('edit-task-name')?.value?.trim();
     if (!name) { showToast('Completează numele sarcinii', 'error'); return; }
-    const budgetH = parseFloat(document.getElementById('edit-task-budget')?.value) || 0;
-    const task = this.tasks.find(t => t.id === taskId);
-    const oldBudget = task ? (task.budget_hours || 0) : 0;
-    const otherBudget = phaseAllocated - oldBudget;
-    if (phaseBudget > 0 && (otherBudget + budgetH) > phaseBudget) {
-      showToast('Depășești bugetul etapei! Disponibil: ' + Math.max(0, phaseBudget - otherBudget) + 'h', 'error');
-      return;
-    }    const result = await dbQuery('project_tasks', q => q.update({ name, budget_hours: budgetH }).eq('id', taskId), null);
+    const result = await dbQuery('project_tasks', q => q.update({ name }).eq('id', taskId), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     closeModalForce();
-    showToast('Sarcin\u0103 actualizat\u0103!', 'success');
-    // Recalculeaz\u0103 bugetul etapei din suma task-urilor
-    const editedTask = this.tasks.find(t => t.id === taskId);
-    if (editedTask?.phase_id) await this.recalcPhaseBudget(editedTask.phase_id);
+    showToast('Sarcină actualizată!', 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
+  async deleteTask(taskId) {
+    if (!confirm('Sigur vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
+    const result = await dbQuery('project_tasks', q => q.delete().eq('id', taskId), null);
+    if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
+    showToast('Sarcină ștearsă!', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
+  },
+
   openAddPhaseModal() {
     // Determină etapele prestabilite care lipsesc din proiect
     const existingCodes = new Set(this.phases.map(p => p.code).filter(Boolean));
