@@ -987,17 +987,26 @@ const Proiecte = {
 
   // ── Ștergere task ─────────────────────────────────────────────────────────
   async deleteTask(taskId) {
-    if (!confirm('Ești sigur că vrei să ștergi această sarcină?')) return;
+    if (!confirm('Ești sigur că vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
     const task = this.tasks.find(t => t.id === taskId);
     const sb = getSupabase();
     if (!sb) return;
-    const { error } = await sb.from('project_tasks').delete().eq('id', taskId);
-    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
-    this.logChange('delete', 'task', task?.name, null, null, 'Sarcină ștearsă din proiect');
-    showToast('Sarcină ștearsă', 'success');
-    if (task?.phase_id) await this.recalcPhaseBudget(task.phase_id);
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    try {
+      // 1. Șterge time_entries asociate
+      await sb.from('time_entries').delete().eq('task_id', taskId);
+      // 2. Șterge manual_hours_log asociate
+      await sb.from('manual_hours_log').delete().eq('task_id', taskId);
+      // 3. Șterge task-ul
+      const { error } = await sb.from('project_tasks').delete().eq('id', taskId);
+      if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+      this.logChange('delete', 'task', task?.name, null, null, 'Sarcină ștearsă din proiect');
+      showToast('Sarcină ștearsă', 'success');
+      if (task?.phase_id) await this.recalcPhaseBudget(task.phase_id);
+      await this.loadProjectDetails(this.currentProject.id);
+      this.renderProjectDetail();
+    } catch (err) {
+      showToast('Eroare la ștergere: ' + err.message, 'error');
+    }
   },
   // ── Modal consum manual ore (admin/coordonator) ───────────────────────────────────────────────
   async openManualConsumeModal(taskId) {
