@@ -274,6 +274,16 @@ const Proiecte = {
     this.editMode = !this.editMode;
     console.log('🔄 toggleEditMode:', { editMode: this.editMode });
     this.renderProjectDetail();
+    // Re-renderizează tab-ul curent pentru a reflecta schimbarea canEdit
+    setTimeout(() => {
+      const tabContent = document.getElementById('tab-content');
+      if (tabContent) {
+        const canManage = (Auth.currentProfile?.role === 'admin') || this.members.some(m => String(m.user_id) === String(Auth.currentProfile?.id) && (m.role === 'coordonator' || m.role === 'coord'));
+        const canEdit = canManage && this.editMode;
+        console.log('🔄 Re-rendering tab after editMode change:', { canEdit, currentTab: this.currentTab });
+        tabContent.innerHTML = this.renderTab(this.currentTab, canEdit);
+      }
+    }, 0);
     if (this.editMode) showToast('Mod editare activat — poți modifica bugetele și responsabilii', 'info');
   },
 
@@ -807,7 +817,7 @@ const Proiecte = {
     const profileIdStr = String(profile?.id || '');
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canEdit = (isAdmin || isCoord) && this.editMode;
-
+    console.log('📑 switchTab:', { tab, canEdit, editMode: this.editMode });
     ['etape', 'echipa', 'rapoarte', 'jurnal'].forEach(t => {
       const btn = document.getElementById('tab-' + t);
       if (btn) {
@@ -818,7 +828,7 @@ const Proiecte = {
     });
     const content = document.getElementById('tab-content');
     if (content) content.innerHTML = this.renderTab(tab, canEdit);
-  },
+  }
 
   togglePhase(phaseBodyId) {
     const tbody = document.getElementById(phaseBodyId);
