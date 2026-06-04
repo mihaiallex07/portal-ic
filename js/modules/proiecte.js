@@ -984,17 +984,29 @@ const Proiecte = {
     await this.loadProjectDetails(this.currentProject.id);
     this.renderProjectDetail();
   },
-
-  // ── Modal consum manual ore (admin/coordonator) ───────────────────────────
+  // ── Modal consum manual ore (admin/coordonator) ───────────────────────────────────────────────
   async openManualConsumeModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
-    const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
     const budgetH = task.budget_hours || 0;
-
-    // Încărcă istoricul consumului manual
     const sb = getSupabase();
     let logHtml = '';
+    // Recalculează minutes_worked din manual_hours_log + time_entries pentru a corecta orice inconsistență
+    if (sb) {
+      const [logsCheck, timeCheck] = await Promise.all([
+        sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
+        sb.from('time_entries').select('duration_minutes').eq('project_task_id', taskId),
+      ]);
+      const manualMin = (logsCheck.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
+      const timeMin = (timeCheck.data || []).reduce((s, r) => s + (r.duration_minutes || 0), 0);
+      const realMinutes = manualMin + timeMin;
+      // Dacă valoarea din DB diferă, sincronizează
+      if (realMinutes !== (task.minutes_worked || 0)) {
+        await sb.from('project_tasks').update({ minutes_worked: realMinutes }).eq('id', taskId);
+        task.minutes_worked = realMinutes;
+      }
+    }
+    const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
     if (sb) {
       const { data: logs } = await sb.from('manual_hours_log')
         .select('id,minutes,note,created_at,added_by_profile_id,profiles!manual_hours_log_added_by_profile_id_fkey(full_name,employee_code)')
