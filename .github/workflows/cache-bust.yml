@@ -1,13 +1,8 @@
 name: Cache-Bust & Deploy
-
+# Dezactivat - cache-bust se ruleaza local inainte de fiecare push
+# Activeaza manual din GitHub Actions daca e necesar
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'js/**'
-      - 'css/**'
-      - 'index.html'
-      - 'scripts/build-cache-bust.js'
+  workflow_dispatch:
 
 permissions:
   contents: write
