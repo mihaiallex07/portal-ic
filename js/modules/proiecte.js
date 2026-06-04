@@ -272,6 +272,7 @@ const Proiecte = {
   // ── Activează / dezactivează modul editare ────────────────────────────────
   toggleEditMode() {
     this.editMode = !this.editMode;
+    console.log('🔄 toggleEditMode:', { editMode: this.editMode });
     this.renderProjectDetail();
     if (this.editMode) showToast('Mod editare activat — poți modifica bugetele și responsabilii', 'info');
   },
@@ -315,7 +316,7 @@ const Proiecte = {
     const canManage = isAdmin || isCoord;  // poate vedea butoanele de editare
     const canEdit = canManage && this.editMode;  // poate modifica efectiv câmpurile
     // DEBUG temporar pentru a diagnostica problemele de permisiuni
-    console.log('[Proiecte] profile.id:', profileIdStr, 'role:', profile?.role, 'isAdmin:', isAdmin, 'isCoord:', isCoord, 'members:', this.members.map(m => ({ user_id: m.user_id, role: m.role })));
+    console.log('[Proiecte] renderProjectDetail:', { profileId: profileIdStr, role: profile?.role, isAdmin, isCoord, canManage, editMode: this.editMode, canEdit, membersCount: this.members.length });
 
     const container = document.getElementById('page-content');
     if (!container) return;
@@ -388,6 +389,7 @@ const Proiecte = {
   },
 
   renderTab(tab, canEdit) {
+    console.log('📑 renderTab:', { tab, canEdit });
     if (tab === 'etape') return this.renderEtapeTab(canEdit);
     if (tab === 'echipa') return this.renderEchipaTab(canEdit);
     if (tab === 'rapoarte') return this.renderRapoarteTab();
@@ -396,6 +398,7 @@ const Proiecte = {
   },
 
   renderEtapeTab(canEdit) {
+    console.log('📊 renderEtapeTab:', { canEdit, phasesCount: this.phases.length });
     if (this.phases.length === 0) {
       return `
         <div style="text-align:center;padding:60px;color:var(--text-muted)">
