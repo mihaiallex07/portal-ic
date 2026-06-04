@@ -994,18 +994,46 @@ const Proiecte = {
     const sb = getSupabase();
     let logHtml = '';
     // Recalculează minutes_worked din manual_hours_log + time_entries pentru a corecta orice inconsistență
+    let timeEntriesHtml = '';
     if (sb) {
       const [logsCheck, timeCheck] = await Promise.all([
         sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
-        sb.from('time_entries').select('duration_minutes').eq('project_task_id', taskId),
+        sb.from('time_entries').select('id,duration_minutes,description,start_time,profiles!time_entries_user_id_fkey(full_name,employee_code)').eq('project_task_id', taskId).order('start_time', { ascending: false }).limit(50),
       ]);
       const manualMin = (logsCheck.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
-      const timeMin = (timeCheck.data || []).reduce((s, r) => s + (r.duration_minutes || 0), 0);
+      const timeEntries = timeCheck.data || [];
+      const timeMin = timeEntries.reduce((s, r) => s + (r.duration_minutes || 0), 0);
       const realMinutes = manualMin + timeMin;
       // Dacă valoarea din DB diferă, sincronizează
       if (realMinutes !== (task.minutes_worked || 0)) {
         await sb.from('project_tasks').update({ minutes_worked: realMinutes }).eq('id', taskId);
         task.minutes_worked = realMinutes;
+      }
+      // Generează HTML pentru time_entries
+      if (timeEntries.length > 0) {
+        timeEntriesHtml = `
+          <div style="margin-top:4px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Înregistrări Time-Tracking (${timeEntries.length})</div>
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+              ${timeEntries.map(te => {
+                const h = Math.floor((te.duration_minutes || 0) / 60);
+                const m = (te.duration_minutes || 0) % 60;
+                const durStr = h > 0 ? (m > 0 ? h + 'h ' + m + 'min' : h + 'h') : m + 'min';
+                const dateStr = te.start_time ? new Date(te.start_time).toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+                const who = te.profiles?.full_name || te.profiles?.employee_code || 'Necunoscut';
+                return `<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-weight:600;font-size:13px;color:#3B82F6">${durStr}</span>
+                      <span style="font-size:11px;color:var(--text-muted)">${who} · ${dateStr}</span>
+                    </div>
+                    ${te.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;font-style:italic">&quot;${te.description}&quot;</div>` : ''}
+                  </div>
+                  <button onclick="Proiecte.deleteTimeEntry(${te.id},${te.duration_minutes || 0},${taskId})" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:13px;padding:2px 4px;flex-shrink:0" title="Şterge înregistrare">🗑</button>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
       }
     }
     const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
@@ -1079,6 +1107,7 @@ const Proiecte = {
         <div style="font-size:12px;color:var(--text-muted)">
           ⚠️ Aceste ore vor fi adăugate direct la contorul de ore consumate al sarcinii, fără a crea o înregistrare în Time-Tracking.
         </div>
+        ${timeEntriesHtml}
         ${logHtml}
       </div>
     `, `
@@ -1086,6 +1115,25 @@ const Proiecte = {
       <button onclick="Proiecte.resetTaskHours(${taskId})" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:auto" title="Recalculează din jurnal">↺ Recalculează</button>
       <button class="btn-brand" onclick="Proiecte.saveManualConsume(${taskId})">Adaugă ore</button>
     `);
+  },
+  // Şterge o înregistrare din time_entries și actualizează minutes_worked
+  async deleteTimeEntry(entryId, durationMinutes, taskId) {
+    if (!confirm('Sigur vrei să ștergi această înregistrare de timp? Acțiunea nu poate fi anulată.')) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from('time_entries').delete().eq('id', entryId);
+    if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    // Actualizează minutes_worked pe task
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) {
+      const newMin = Math.max(0, (task.minutes_worked || 0) - durationMinutes);
+      await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', taskId);
+      task.minutes_worked = newMin;
+    }
+    closeModalForce();
+    showToast('✅ Înregistrare de timp ștearsă', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
   },
   // Recalculează și sincronizează minutes_worked din manual_hours_log + time_entries
   async resetTaskHours(taskId) {
