@@ -507,7 +507,9 @@ const Proiecte = {
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
     // canManage = admin/coord indiferent de editMode (pentru butoane Start, Asignare vizualizare, Consum manual)
-    const isAdminOrCoord = profile?.role === 'admin' || this.members.some(m => String(m.user_id) === String(profile?.id) && (m.role === 'coordonator' || m.role === 'coord'));
+    // Verifică atât rolul global (profiles.role) cât și rolul în proiect (project_members.role)
+    const isAdminOrCoord = profile?.role === 'admin' || profile?.role === 'coordonator' || profile?.role === 'coord' ||
+      this.members.some(m => String(m.user_id) === String(profile?.id) && (m.role === 'coordonator' || m.role === 'coord' || m.role === 'admin'));
 
     // Perioadă task: din project_task_assignments (prima înregistrare sau interval comun)
     const taskAssigns = (this.taskAssignments || []).filter(a => a.task_id === task.id);
@@ -607,7 +609,7 @@ const Proiecte = {
         </td>
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           ${canStart ? this.renderTimerBtn(task) : ''}
-          ${isAdminOrCoord ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
+          ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
           ${canEdit ? `
             <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
             <button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>
@@ -1081,8 +1083,34 @@ const Proiecte = {
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button onclick="Proiecte.resetTaskHours(${taskId})" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;margin-right:auto" title="Recalculează din jurnal">↺ Recalculează</button>
       <button class="btn-brand" onclick="Proiecte.saveManualConsume(${taskId})">Adaugă ore</button>
     `);
+  },
+  // Recalculează și sincronizează minutes_worked din manual_hours_log + time_entries
+  async resetTaskHours(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    const [logsRes, timeRes] = await Promise.all([
+      sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
+      sb.from('time_entries').select('duration_minutes').eq('project_task_id', taskId),
+    ]);
+    const manualMin = (logsRes.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
+    const timeMin = (timeRes.data || []).reduce((s, r) => s + (r.duration_minutes || 0), 0);
+    const realMinutes = manualMin + timeMin;
+    const { error } = await sb.from('project_tasks').update({ minutes_worked: realMinutes }).eq('id', taskId);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    task.minutes_worked = realMinutes;
+    closeModalForce();
+    const h = Math.floor(realMinutes / 60);
+    const m = realMinutes % 60;
+    const hStr = h > 0 ? h + 'h ' : '';
+    const mStr = m > 0 ? m + 'min' : '';
+    showToast(`✅ Ore recalculate: ${hStr}${mStr || '0min'} (manual: ${Math.round(manualMin/60*10)/10}h + time-tracking: ${Math.round(timeMin/60*10)/10}h)`, 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.renderProjectDetail();
   },
 
   async saveManualConsume(taskId) {
