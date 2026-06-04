@@ -998,7 +998,7 @@ const Proiecte = {
     if (sb) {
       const [logsCheck, timeCheck] = await Promise.all([
         sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
-        sb.from('time_entries').select('id,duration_minutes,description,start_time,profiles!time_entries_user_id_fkey(full_name,employee_code)').eq('project_task_id', taskId).order('start_time', { ascending: false }).limit(50),
+        sb.from('time_entries').select('id,duration_minutes,description,start_time,date,created_at,profiles!time_entries_user_id_fkey(full_name,employee_code)').eq('project_task_id', taskId).order('created_at', { ascending: false }).limit(50),
       ]);
       const manualMin = (logsCheck.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
       const timeEntries = timeCheck.data || [];
@@ -1019,7 +1019,9 @@ const Proiecte = {
                 const h = Math.floor((te.duration_minutes || 0) / 60);
                 const m = (te.duration_minutes || 0) % 60;
                 const durStr = h > 0 ? (m > 0 ? h + 'h ' + m + 'min' : h + 'h') : m + 'min';
-                const dateStr = te.start_time ? new Date(te.start_time).toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+                const rawDate = te.start_time || te.date || te.created_at;
+                const parsedDate = rawDate ? new Date(rawDate) : null;
+                const dateStr = (parsedDate && !isNaN(parsedDate)) ? parsedDate.toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
                 const who = te.profiles?.full_name || te.profiles?.employee_code || 'Necunoscut';
                 return `<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
                   <div style="flex:1;min-width:0">
@@ -1130,10 +1132,9 @@ const Proiecte = {
       await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', taskId);
       task.minutes_worked = newMin;
     }
-    closeModalForce();
     showToast('✅ Înregistrare de timp ștearsă', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    // Redeschide modalul cu datele actualizate (nu închide fereastra)
+    await this.openManualConsumeModal(taskId);
   },
   // Recalculează și sincronizează minutes_worked din manual_hours_log + time_entries
   async resetTaskHours(taskId) {
@@ -1270,10 +1271,9 @@ const Proiecte = {
       task.minutes_worked = updatedMin;
     }
     showToast('✅ Consum manual șters', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    // Redeschide modalul cu datele actualizate (nu închide fereastra)
+    await this.openManualConsumeModal(taskId);
   },
-
   openEditTaskModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
