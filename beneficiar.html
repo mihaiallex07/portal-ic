@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Progres Proiect — Inginerie Creativă</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #FFCB09;
+      --brand-dark: #e6b800;
+      --bg: #f5f5f5;
+      --card-bg: #fff;
+      --text: #1a1a1a;
+      --text-muted: #6b7280;
+      --border: #e5e5e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    body {
+      font-family: 'Barlow', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    /* HEADER */
+    .ph-header {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .ph-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .ph-logo img { width: 36px; height: 36px; object-fit: contain; }
+    .ph-logo-text { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
+    .ph-logo-sub { font-size: 11px; color: #aaa; font-weight: 400; }
+    .ph-badge {
+      background: var(--brand);
+      color: #1a1a1a;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    /* HERO */
+    .ph-hero {
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #fff;
+      padding: 48px 32px 40px;
+      border-bottom: 3px solid var(--brand);
+    }
+    .ph-hero-inner { max-width: 960px; margin: 0 auto; }
+    .ph-project-code {
+      display: inline-block;
+      background: var(--brand);
+      color: #1a1a1a;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      letter-spacing: 0.05em;
+    }
+    .ph-project-name {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+    .ph-project-meta {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 24px;
+    }
+    .ph-stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .ph-stat {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 16px 20px;
+    }
+    .ph-stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--brand);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .ph-stat-label {
+      font-size: 12px;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    /* PROGRESS BAR */
+    .ph-progress-bar {
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      height: 10px;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+    .ph-progress-fill {
+      height: 100%;
+      background: var(--brand);
+      border-radius: 8px;
+      transition: width 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    .ph-progress-label {
+      font-size: 13px;
+      color: #aaa;
+      margin-top: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    /* MAIN CONTENT */
+    .ph-main { max-width: 960px; margin: 0 auto; padding: 32px 32px 64px; }
+    .ph-section { margin-bottom: 32px; }
+    .ph-section-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    /* PHASE CARD */
+    .ph-phase-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .ph-phase-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .ph-phase-header:hover { background: #fafafa; }
+    .ph-phase-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .ph-phase-name {
+      font-size: 14px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .ph-phase-pct {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      min-width: 40px;
+      text-align: right;
+    }
+    .ph-phase-bar {
+      height: 4px;
+      background: var(--border);
+      margin: 0 20px 0;
+    }
+    .ph-phase-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    .ph-tasks-list {
+      padding: 8px 20px 16px;
+      display: none;
+    }
+    .ph-tasks-list.open { display: block; }
+    .ph-task-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .ph-task-row:last-child { border-bottom: none; }
+    .ph-task-status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .ph-task-name { flex: 1; color: var(--text); }
+    .ph-task-pct {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      min-width: 36px;
+      text-align: right;
+    }
+    .ph-task-mini-bar {
+      width: 80px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .ph-task-mini-fill {
+      height: 100%;
+      border-radius: 2px;
+    }
+    /* STATUS BADGE */
+    .ph-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ph-status-activ { background: #d1fae5; color: #065f46; }
+    .ph-status-in_progress { background: #dbeafe; color: #1e40af; }
+    .ph-status-finalizat { background: #f3f4f6; color: #374151; }
+    /* LOADING */
+    .ph-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      gap: 16px;
+    }
+    .ph-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* ERROR */
+    .ph-error {
+      max-width: 480px;
+      margin: 80px auto;
+      text-align: center;
+      padding: 40px;
+      background: var(--card-bg);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+    .ph-error-icon { font-size: 48px; margin-bottom: 16px; }
+    .ph-error-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .ph-error-msg { font-size: 14px; color: var(--text-muted); }
+    /* FOOTER */
+    .ph-footer {
+      background: #1a1a1a;
+      color: #aaa;
+      text-align: center;
+      padding: 20px;
+      font-size: 12px;
+      margin-top: 40px;
+    }
+    .ph-footer a { color: var(--brand); text-decoration: none; }
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      .ph-header { padding: 0 16px; }
+      .ph-hero { padding: 32px 16px 28px; }
+      .ph-main { padding: 20px 16px 48px; }
+      .ph-project-name { font-size: 24px; }
+      .ph-stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    /* CHEVRON */
+    .ph-chevron {
+      width: 16px;
+      height: 16px;
+      transition: transform 0.2s;
+      color: var(--text-muted);
+    }
+    .ph-phase-header.open .ph-chevron { transform: rotate(90deg); }
+  </style>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="ph-header">
+    <div class="ph-logo">
+      <img src="assets/logo.png" alt="Inginerie Creativă" />
+      <div>
+        <div class="ph-logo-text">Inginerie Creativă</div>
+        <div class="ph-logo-sub">Design &amp; Build</div>
+      </div>
+    </div>
+    <span class="ph-badge">Portal Beneficiar</span>
+  </header>
+
+  <!-- CONTENT -->
+  <div id="ph-content">
+    <div class="ph-loading">
+      <div class="ph-spinner"></div>
+      <p style="color:var(--text-muted);font-size:14px">Se încarcă proiectul...</p>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="ph-footer">
+    <p>© 2025 Inginerie Creativă · Design &amp; Build · <a href="https://ingineriecreativa.ro" target="_blank">ingineriecreativa.ro</a></p>
+  </footer>
+
+  <!-- SCRIPTS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // ============================================================
+    // CONFIG
+    // ============================================================
+    const SUPABASE_URL = 'https://ofknvxwcqwgnthnvslfl.supabase.co';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ma252eHdjcXdnbnRobnZzbGZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MDIwNTcsImV4cCI6MjA5NDE3ODA1N30.HhI-MAeGlmFIIEfL1mDWxQhKBbCPDn3qgaSKBS9otS8';
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function getStatusColor(pct) {
+      if (pct >= 80) return '#10b981';
+      if (pct >= 40) return '#f59e0b';
+      return '#6b7280';
+    }
+
+    function formatDate(d) {
+      if (!d) return '—';
+      return new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' });
+    }
+
+    function getStatusLabel(status) {
+      const map = { activ: 'Activ', in_progress: 'În lucru', finalizat: 'Finalizat', arhivat: 'Arhivat' };
+      return map[status] || status;
+    }
+
+    // ============================================================
+    // RENDER ERROR
+    // ============================================================
+    function renderError(title, msg) {
+      document.getElementById('ph-content').innerHTML = `
+        <div class="ph-error">
+          <div class="ph-error-icon">🔒</div>
+          <div class="ph-error-title">${title}</div>
+          <p class="ph-error-msg">${msg}</p>
+        </div>
+      `;
+    }
+
+    // ============================================================
+    // TOGGLE PHASE
+    // ============================================================
+    function togglePhase(id) {
+      const header = document.getElementById('ph-phase-header-' + id);
+      const list = document.getElementById('ph-tasks-' + id);
+      if (!list) return;
+      const isOpen = list.classList.contains('open');
+      list.classList.toggle('open', !isOpen);
+      if (header) header.classList.toggle('open', !isOpen);
+    }
+
+    // ============================================================
+    // MAIN LOAD
+    // ============================================================
+    async function loadProject() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+
+      if (!token) {
+        renderError('Link invalid', 'Acest link nu conține un token de acces valid. Contactați echipa de proiect.');
+        return;
+      }
+
+      // Fetch beneficiary record
+      const { data: benef, error: bErr } = await sb
+        .from('project_beneficiaries')
+        .select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name, description)')
+        .eq('access_token', token)
+        .single();
+
+      if (bErr || !benef) {
+        renderError('Link invalid', 'Token-ul de acces nu a fost găsit. Contactați echipa de proiect.');
+        return;
+      }
+
+      if (benef.status === 'expired' || (benef.token_expires_at && new Date(benef.token_expires_at) < new Date())) {
+        renderError('Link expirat', 'Acest link de acces a expirat. Contactați echipa de proiect pentru un nou link.');
+        return;
+      }
+
+      // Update last accessed
+      await sb.from('project_beneficiaries')
+        .update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: benef.accepted_at || new Date().toISOString() })
+        .eq('access_token', token);
+
+      const proj = benef.projects;
+      if (!proj) {
+        renderError('Proiect negăsit', 'Proiectul asociat acestui link nu a fost găsit.');
+        return;
+      }
+
+      // Fetch phases + tasks
+      const [phasesRes, tasksRes] = await Promise.all([
+        sb.from('project_phases').select('id, name, order_index').eq('project_id', proj.id).order('order_index'),
+        sb.from('project_tasks').select('id, name, phase_id, budget_hours, minutes_worked, start_date, end_date').eq('project_id', proj.id),
+      ]);
+
+      const phases = phasesRes.data || [];
+      const tasks = tasksRes.data || [];
+
+      // Compute stats
+      const totalBudget = tasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
+      const totalWorked = tasks.reduce((s, t) => s + (t.minutes_worked || 0) / 60, 0);
+      const totalPct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
+      const doneTasks = tasks.filter(t => (t.minutes_worked || 0) > 0).length;
+
+      // Build phases HTML
+      const phaseColors = ['#FFCB09', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+      let phasesHtml = '';
+
+      phases.forEach((phase, pi) => {
+        const phaseTasks = tasks.filter(t => t.phase_id === phase.id);
+        const pBudget = phaseTasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
+        const pWorked = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0) / 60, 0);
+        const pPct = pBudget > 0 ? Math.min(100, Math.round((pWorked / pBudget) * 100)) : 0;
+        const color = phaseColors[pi % phaseColors.length];
+
+        const tasksHtml = phaseTasks.map(task => {
+          const tBudget = task.budget_hours || 0;
+          const tWorked = (task.minutes_worked || 0) / 60;
+          const tPct = tBudget > 0 ? Math.min(100, Math.round((tWorked / tBudget) * 100)) : 0;
+          const dotColor = tPct >= 80 ? '#10b981' : tPct >= 40 ? '#f59e0b' : '#d1d5db';
+          return `
+            <div class="ph-task-row">
+              <div class="ph-task-status" style="background:${dotColor}"></div>
+              <div class="ph-task-name">${task.name}</div>
+              <div class="ph-task-mini-bar">
+                <div class="ph-task-mini-fill" style="width:${tPct}%;background:${color}"></div>
+              </div>
+              <div class="ph-task-pct">${tPct}%</div>
+            </div>
+          `;
+        }).join('');
+
+        phasesHtml += `
+          <div class="ph-phase-card">
+            <div class="ph-phase-header" id="ph-phase-header-${phase.id}" onclick="togglePhase('${phase.id}')">
+              <div class="ph-phase-dot" style="background:${color}"></div>
+              <div class="ph-phase-name">${phase.name}</div>
+              <div class="ph-phase-pct">${pPct}%</div>
+              <svg class="ph-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </div>
+            <div class="ph-phase-bar">
+              <div class="ph-phase-bar-fill" style="width:${pPct}%;background:${color}"></div>
+            </div>
+            <div class="ph-tasks-list" id="ph-tasks-${phase.id}">
+              ${phaseTasks.length > 0 ? tasksHtml : '<p style="font-size:13px;color:var(--text-muted);padding:8px 0">Nicio sarcină în această etapă.</p>'}
+            </div>
+          </div>
+        `;
+      });
+
+      // Render full page
+      document.getElementById('ph-content').innerHTML = `
+        <!-- HERO -->
+        <div class="ph-hero">
+          <div class="ph-hero-inner">
+            <div class="ph-project-code">${proj.abbreviation || proj.code || 'IC'}</div>
+            <h1 class="ph-project-name">${proj.name}</h1>
+            <div class="ph-project-meta">
+              ${proj.client_name ? `<strong>${proj.client_name}</strong> &nbsp;·&nbsp; ` : ''}
+              ${formatDate(proj.start_date)} — ${formatDate(proj.end_date)}
+              &nbsp;·&nbsp;
+              <span class="ph-status-badge ph-status-${proj.status}">${getStatusLabel(proj.status)}</span>
+            </div>
+            <div class="ph-progress-bar">
+              <div class="ph-progress-fill" style="width:${totalPct}%"></div>
+            </div>
+            <div class="ph-progress-label">
+              <span>Progres total</span>
+              <span><strong style="color:var(--brand)">${totalPct}%</strong> finalizat</span>
+            </div>
+            <div class="ph-stats-row">
+              <div class="ph-stat">
+                <div class="ph-stat-value">${totalPct}%</div>
+                <div class="ph-stat-label">Progres</div>
+              </div>
+              <div class="ph-stat">
+                <div class="ph-stat-value">${phases.length}</div>
+                <div class="ph-stat-label">Etape</div>
+              </div>
+              <div class="ph-stat">
+                <div class="ph-stat-value">${doneTasks}/${tasks.length}</div>
+                <div class="ph-stat-label">Sarcini active</div>
+              </div>
+              <div class="ph-stat">
+                <div class="ph-stat-value">${Math.round(totalWorked)}h</div>
+                <div class="ph-stat-label">Ore lucrate</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MAIN -->
+        <div class="ph-main">
+          <div class="ph-section">
+            <div class="ph-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+                <line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>
+              </svg>
+              Etape și sarcini
+            </div>
+            ${phases.length > 0 ? phasesHtml : '<p style="color:var(--text-muted);font-size:14px">Nu există etape definite pentru acest proiect.</p>'}
+          </div>
+
+          ${proj.description ? `
+          <div class="ph-section">
+            <div class="ph-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              Descriere proiect
+            </div>
+            <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;font-size:14px;line-height:1.7;color:var(--text)">
+              ${proj.description}
+            </div>
+          </div>
+          ` : ''}
+
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px 20px;font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:10px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>Această pagină este vizualizată de <strong>${benef.name || benef.email}</strong>. Datele se actualizează în timp real.</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // START
+    loadProject();
+  </script>
+</body>
+</html>

@@ -51,6 +51,11 @@ const Backup = {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
               Export CSV proiecte
             </button>
+            <label class="btn-secondary" style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(16,185,129,0.08);border-color:#10b981;color:#065f46">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Import JSON
+              <input type="file" accept=".json" style="display:none" onchange="Backup.importJSON(event)" />
+            </label>
           </div>
         </div>
 
@@ -199,6 +204,50 @@ const Backup = {
       this.render();
     } catch (e) {
       showToast('Eroare la export: ' + e.message, 'error');
+    }
+  },
+
+  async importJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    // Reset input so same file can be re-selected
+    event.target.value = '';
+    const confirmed = confirm(
+      '⚠️ ATENȞIE: Importul JSON va restaura datele exportate anterior.\n\n' +
+      'Procesul adaugă date noi în baza de date (nu şterge datele existente).\n\n' +
+      'Continuă?'
+    );
+    if (!confirmed) return;
+    showToast('Se importă datele...', 'info');
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if (!backup.version || !backup.data) {
+        showToast('Fişierul JSON nu este un backup valid al portalului!', 'error');
+        return;
+      }
+      const sb = getSupabase();
+      let importedProjects = 0;
+      // Import proiecte (skip duplicate code)
+      for (const proj of (backup.data.projects || [])) {
+        const { data: existing } = await sb.from('projects').select('id').eq('code', proj.code).single();
+        if (!existing) {
+          const { id, created_at, updated_at, ...projData } = proj;
+          const { error } = await sb.from('projects').insert(projData);
+          if (!error) importedProjects++;
+        }
+      }
+      await DB.createBackupLog({
+        backup_type: 'import-json',
+        status: 'completed',
+        file_size_bytes: text.length,
+        created_by: Auth.currentUser?.id,
+        completed_at: new Date().toISOString(),
+      });
+      showToast(`Import finalizat! ${importedProjects} proiecte noi importate.`, 'success');
+      this.render();
+    } catch (e) {
+      showToast('Eroare la import: ' + e.message, 'error');
     }
   },
 

@@ -6,8 +6,8 @@
 const ProcessOverview = {
   ZOOM_PX: 28,
   LABEL_W: 240,
-  ROW_H: 52,
-  BAR_H: 20,
+  ROW_H: 60,
+  BAR_H: 22,
   DEPT_H: 32,
   DAYS: 90,
   offsetDays: 0,
@@ -179,7 +179,10 @@ const ProcessOverview = {
           const bars = userBarsMap[user.id] || [];
           let barsHtml = '';
 
-          bars.forEach((bar, idx) => {
+          // Afișăm maxim 2 bare vizibile, restul ca indicator
+          const visibleBars = bars.slice(0, 2);
+          const hiddenCount = bars.length - visibleBars.length;
+          visibleBars.forEach((bar, idx) => {
             const ps = new Date(bar.start_date);
             const pe = new Date(bar.end_date);
             const gs = new Date(startDate);
@@ -248,7 +251,7 @@ const ProcessOverview = {
                 <div class="gantt-user-avatar">${Auth.getInitials(user.full_name)}</div>
                 <div class="gantt-user-info">
                   <div class="gantt-user-name">${user.full_name}</div>
-                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}${bars.length > 2 ? ` <span style="color:var(--brand);font-weight:600">(+${bars.length - 2})</span>` : ''}</div>
+                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}${hiddenCount > 0 ? ` <span style="color:var(--brand);font-weight:600" title="${hiddenCount} proiecte suplimentare">(+${hiddenCount})</span>` : ''}</div>
                 </div>
               </div>
               <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${FIXED_ROW_H}px;overflow:hidden">
