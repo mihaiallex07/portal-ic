@@ -111,12 +111,9 @@ const TimeTracking = {
     const allProjects = projectsRes.data || [];
     const memberships = membershipsRes.data || [];
 
-    if (isAdmin) {
-      this.projects = allProjects;
-    } else {
-      const enrolledIds = new Set(memberships.map(m => m.project_id));
-      this.projects = allProjects.filter(p => enrolledIds.has(p.id));
-    }
+    // Toți utilizatorii (inclusiv admin/coordonator) văd DOAR proiectele la care sunt membri
+    const enrolledIds = new Set(memberships.map(m => m.project_id));
+    this.projects = allProjects.filter(p => enrolledIds.has(p.id));
 
     if (this.projects.length > 0) {
       const projectIds = this.projects.map(p => p.id);

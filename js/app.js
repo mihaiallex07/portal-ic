@@ -446,24 +446,18 @@ async function stopActiveTimer() {
 
 // Quick start modal - start rapid task din header
 function openQuickStartModal() {
-  // Sursă primară: TimeTracking.projects (filtrat per user, corect pentru toți)
-  // Fallback: Proiecte.projects (admin vede toate)
+  // Toți utilizatorii (inclusiv admin/coordonator) văd DOAR proiectele la care sunt membri
   let projects = [];
   if (typeof TimeTracking !== 'undefined' && TimeTracking.projects?.length) {
-    projects = TimeTracking.projects.filter(p => p.status === 'activ');
+    // TimeTracking.projects este deja filtrat per membership pentru toți utilizatorii
+    projects = TimeTracking.projects;
   } else if (typeof Proiecte !== 'undefined' && Proiecte.projects?.length) {
-    const profile = Auth.currentProfile;
-    const isAdmin = profile?.role === 'admin';
+    // Fallback: filtrăm strict după project_members indiferent de rol
     const userId = String(Auth.currentUser?.id || '');
-    if (isAdmin) {
-      projects = Proiecte.projects.filter(p => p.status === 'activ');
-    } else {
-      // Non-admin: doar proiectele unde e membru
-      const myProjectIds = new Set(
-        (Proiecte.members || []).filter(m => String(m.user_id) === userId).map(m => m.project_id)
-      );
-      projects = Proiecte.projects.filter(p => p.status === 'activ' && myProjectIds.has(p.id));
-    }
+    const myProjectIds = new Set(
+      (Proiecte.members || []).filter(m => String(m.user_id) === userId).map(m => m.project_id)
+    );
+    projects = Proiecte.projects.filter(p => p.status === 'activ' && myProjectIds.has(p.id));
   }
   const projectOptions = projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 

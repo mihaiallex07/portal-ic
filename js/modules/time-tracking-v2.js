@@ -94,8 +94,6 @@ const TimeTracking = {
     const weekEnd = new Date(this.currentWeekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
     const userId = this.getNumericUserId();
-    const isAdmin = Auth.currentProfile?.role === 'admin';
-
     const sb = getSupabase();
     if (!sb) { this.entries = []; this.projects = []; this.tasks = []; return; }
 
@@ -119,16 +117,9 @@ const TimeTracking = {
     const allProjects = projectsRes.data || [];
     const memberships = membershipsRes.data || [];
 
-    // DEBUG temporar: vedem ce userId folosim și câte memberships avem
-    console.log('[TT] userId:', userId, 'memberships:', memberships.length, 'allProjects:', allProjects.length);
-
-    if (isAdmin) {
-      this.projects = allProjects;
-    } else {
-      // Comparație string strictă (UUID-urile pot fi compare diferit în unele cazuri)
-      const enrolledIds = new Set(memberships.map(m => String(m.project_id)));
-      this.projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
-    }
+    // Toți utilizatorii văd DOAR proiectele la care sunt membri (indiferent de rol)
+    const enrolledIds = new Set(memberships.map(m => String(m.project_id)));
+    this.projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
 
     console.log('[TT] this.projects after filter:', this.projects.length);
 
@@ -162,9 +153,8 @@ const TimeTracking = {
       const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
       const userIdStr = String(userId);
       // Task-urile vizibile: alocate explicit (assigned_user_id, assigned_users array sau project_task_assignments)
-      // SAU dacă user-ul e admin/coordonator pe proiect
+      // SAU dacă user-ul e coordonator pe proiect (coordonatorii văd toate task-urile din proiectele lor)
       this.tasks = allTasks.filter(t => {
-        if (isAdmin) return true;
         if (coordProjectIds.has(String(t.project_id))) return true;
         if (String(t.assigned_user_id) === userIdStr) return true;
         if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
