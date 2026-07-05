@@ -6,8 +6,8 @@
 const ProcessOverview = {
   ZOOM_PX: 28,
   LABEL_W: 240,
-  ROW_H: 40,
-  BAR_H: 22,
+  ROW_H: 52,
+  BAR_H: 20,
   DEPT_H: 32,
   DAYS: 90,
   offsetDays: 0,
@@ -191,7 +191,7 @@ const ProcessOverview = {
 
             const left = Math.round((barStart - gs) / 86400000) * this.ZOOM_PX;
             const width = Math.max(this.ZOOM_PX, Math.round((barEnd - barStart) / 86400000 + 1) * this.ZOOM_PX);
-            const top = idx * (this.BAR_H + 4);
+            const top = idx * (this.BAR_H + 3);
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
 
@@ -241,17 +241,17 @@ const ProcessOverview = {
             `;
           });
 
-          const rowHeight = Math.max(this.ROW_H, bars.length * (this.BAR_H + 4) + 12);
+          const FIXED_ROW_H = this.ROW_H;
           rowsHtml += `
-            <div class="gantt-row" style="height:${rowHeight}px">
-              <div class="gantt-label" style="width:${LW}px;height:${rowHeight}px">
+            <div class="gantt-row" style="height:${FIXED_ROW_H}px;overflow:hidden">
+              <div class="gantt-label" style="width:${LW}px;height:${FIXED_ROW_H}px;overflow:hidden">
                 <div class="gantt-user-avatar">${Auth.getInitials(user.full_name)}</div>
                 <div class="gantt-user-info">
                   <div class="gantt-user-name">${user.full_name}</div>
-                  <div class="gantt-user-pos">${user.position || user.job_title || ''}</div>
+                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}${bars.length > 2 ? ` <span style="color:var(--brand);font-weight:600">(+${bars.length - 2})</span>` : ''}</div>
                 </div>
               </div>
-              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${rowHeight}px">
+              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${FIXED_ROW_H}px;overflow:hidden">
                 ${this._weekendCells(startDate, days)}
                 ${this._todayLine(startDate, days)}
                 ${barsHtml}

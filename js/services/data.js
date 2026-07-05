@@ -284,19 +284,76 @@ const DB = {
     return dbQuery('events', q => q.insert(event).select().single(), null);
   },
 
-  async getNotifications(userId) {
+    async getNotifications(userId) {
     if (APP_CONFIG.demoMode) return { data: this.demo.notifications };
     return dbQuery('notifications', q => q.select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(50), this.demo.notifications);
   },
-
   async markNotificationRead(id) {
     if (APP_CONFIG.demoMode) {
       const n = this.demo.notifications.find(n => n.id === id);
-      if (n) n.read = true;
+      if (n) { n.read = true; n.is_read = true; }
       return { error: null };
     }
     const sb = getSupabase();
-    return sb.from('notifications').update({ read: true }).eq('id', id);
+    return sb.from('notifications').update({ is_read: true }).eq('id', id);
+  },
+  async markAllNotificationsRead(userId) {
+    if (APP_CONFIG.demoMode) {
+      this.demo.notifications.forEach(n => { n.read = true; n.is_read = true; });
+      return { error: null };
+    }
+    const sb = getSupabase();
+    return sb.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
+  },
+  // Budget Requests
+  async getBudgetRequests(filters = {}) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    return dbQuery('budget_requests', q => {
+      let query = q.select('*, project_tasks(name, project_id, budget_hours, minutes_worked), profiles!budget_requests_user_id_fkey(full_name, email)');
+      if (filters.userId) query = query.eq('user_id', filters.userId);
+      if (filters.taskId) query = query.eq('task_id', filters.taskId);
+      if (filters.status) query = query.eq('status', filters.status);
+      return query.order('created_at', { ascending: false });
+    }, []);
+  },
+  async createBudgetRequest(req) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('budget_requests').insert(req).select().single();
+  },
+  async updateBudgetRequest(id, updates) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('budget_requests').update(updates).eq('id', id).select().single();
+  },
+  // Beneficiari
+  async getProjectBeneficiaries(projectId) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    return dbQuery('project_beneficiaries', q => q.select('*').eq('project_id', projectId).order('created_at', { ascending: false }), []);
+  },
+  async inviteBeneficiary(data) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('project_beneficiaries').insert(data).select().single();
+  },
+  async getBeneficiaryByToken(token) {
+    if (APP_CONFIG.demoMode) return { data: null };
+    return dbQuery('project_beneficiaries', q => q.select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name)').eq('access_token', token).single(), null);
+  },
+  async updateBeneficiaryAccess(token) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('project_beneficiaries').update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: new Date().toISOString() }).eq('access_token', token);
+  },
+  // Backup
+  async getBackupLogs() {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    return dbQuery('backup_logs', q => q.select('*').order('created_at', { ascending: false }).limit(20), []);
+  },
+  async createBackupLog(log) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('backup_logs').insert(log).select().single();
   },
 
   async getProfile(userId) {
