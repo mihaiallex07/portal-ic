@@ -1034,6 +1034,7 @@ const Proiecte = {
     }
 
     if (typeof _timerClear === 'function') _timerClear();
+    if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
     this.renderProjectDetail();
   },
 

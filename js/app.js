@@ -429,7 +429,14 @@ async function stopActiveTimer() {
   if (!data) return;
   // Dacă suntem în pagina Proiecte, delegăm stopTask pentru a salva time_entry
   if (typeof Proiecte !== 'undefined' && Proiecte.stopTask) {
-    Proiecte.stopTask(data.taskId);
+    await Proiecte.stopTask(data.taskId);
+    // Fallback: dacă stopTask nu a curatat starea (ex: taskId nepotrivit), curatăm noi
+    if (window.activeTimerData || window.pausedTimerData) {
+      window.activeTimerData = null;
+      window.pausedTimerData = null;
+      _timerClear();
+      updateHeaderTimer();
+    }
   } else {
     // Stop din altă pagină — salvăm direct via TimeTracking.saveFromTimer
     stopGlobalTimerInterval();
