@@ -167,7 +167,7 @@ const Evenimente = {
               <button onclick="Evenimente.openDeclineModal(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#ef4444;border:none;cursor:pointer;font-weight:600">✗ Nu pot</button>
             ` : ''}
             ${canManage ? `
-              <button onclick="Evenimente.openEditModal(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);cursor:pointer;margin-left:auto">Editează</button>
+              <button onclick="Evenimente.openEditModal(Number('${ev.id}'))" style="font-size:12px;padding:4px 10px;border-radius:6px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);cursor:pointer;margin-left:auto">Editează</button>
               <button onclick="Evenimente.openParticipantsModal(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);cursor:pointer">Participanți</button>
               <button onclick="Evenimente.confirmCancel(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#ef4444;border:1px solid #fca5a5;cursor:pointer">Anulează</button>
             ` : ''}
@@ -187,8 +187,10 @@ const Evenimente = {
     this._openEventModal(null);
   },
   async openEditModal(id) {
-    const { data } = await DB.getCompanyEventById(id);
-    if (data) this._openEventModal(data);
+    const { data, error } = await DB.getCompanyEventById(id);
+    if (error) { showToast('Eroare la încărcare: ' + error.message, 'error'); return; }
+    if (!data) { showToast('Evenimentul nu a fost găsit', 'error'); return; }
+    this._openEventModal(data);
   },
 
   _openEventModal(ev) {
@@ -394,8 +396,8 @@ const Evenimente = {
     const payload = {
       title,
       event_date: eventDate,
-      start_time: `${eventDate}T${startTime}:00`,
-      end_time: `${eventDate}T${endTime}:00`,
+      start_time: `${eventDate}T${startTime}:00+03:00`,
+      end_time: `${eventDate}T${endTime}:00+03:00`,
       location: document.getElementById('ev-location')?.value?.trim() || null,
       meeting_link: document.getElementById('ev-link')?.value?.trim() || null,
       description: document.getElementById('ev-desc')?.value?.trim() || null,

@@ -353,7 +353,7 @@ const MiniCalendar = {
           ${upcoming.slice(0, 7).map(ev => {
             const cfg = typeConfig[ev.type] || typeConfig.birthday;
             return `
-              <div class="flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border)${ev.type === 'company' ? ';cursor:pointer' : ''}" ${ev.type === 'company' ? 'onclick="navigate('evenimente',null)"' : ''}>
+              <div class="flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border)${ev.type === 'company' ? ';cursor:pointer' : ''}" ${ev.type === 'company' ? 'onclick="navigate(&quot;evenimente&quot;,null)"' : ''}>
                 <div style="width:36px;height:36px;border-radius:8px;background:${cfg.bg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${cfg.icon}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:13px;font-weight:600;color:var(--text)">${ev.name}</div>

@@ -411,7 +411,7 @@ const DB = {
     if (APP_CONFIG.demoMode) return { data: null };
     const sb = getSupabase();
     return sb.from('company_events')
-      .select('*, event_participants(id, user_id, status, decline_reason, profiles(full_name, employee_code))')
+      .select('*')
       .eq('id', id)
       .single();
   },
@@ -439,7 +439,7 @@ const DB = {
     if (APP_CONFIG.demoMode) return { data: [] };
     const sb = getSupabase();
     return sb.from('event_participants')
-      .select('*, profiles(full_name, employee_code, department)')
+      .select('*')
       .eq('event_id', eventId);
   },
   async upsertEventParticipant(eventId, userId, status, declineReason) {
