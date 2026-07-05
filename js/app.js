@@ -366,6 +366,10 @@ function updateHeaderTimer() {
     if (paused) paused.style.display = 'none';
     const elapsed = Date.now() - window.activeTimerData.startTime - (window.activeTimerData.pausedMs || 0);
     if (display) display.textContent = _fmtTime(elapsed);
+    // Indicator tab browser: ● (verde) + timp + nume task
+    const taskName = window.activeTimerData.taskName || 'Task activ';
+    const shortName = taskName.length > 22 ? taskName.substring(0, 22) + '…' : taskName;
+    document.title = '● ' + _fmtTime(elapsed) + ' — ' + shortName;
   } else if (window.pausedTimerData) {
     // PAUSED state
     if (idle) idle.style.display = 'none';
@@ -373,11 +377,17 @@ function updateHeaderTimer() {
     if (paused) paused.style.display = 'flex';
     const elapsed = (window.pausedTimerData.pausedAt || Date.now()) - window.pausedTimerData.startTime - (window.pausedTimerData.pausedMs || 0);
     if (displayPaused) displayPaused.textContent = _fmtTime(elapsed);
+    // Indicator tab browser: ⏸ (pauza) + timp + nume task
+    const taskNameP = window.pausedTimerData.taskName || 'Task';
+    const shortNameP = taskNameP.length > 22 ? taskNameP.substring(0, 22) + '…' : taskNameP;
+    document.title = '⏸ ' + _fmtTime(elapsed) + ' — ' + shortNameP;
   } else {
     // IDLE state
     if (idle) idle.style.display = 'flex';
     if (running) running.style.display = 'none';
     if (paused) paused.style.display = 'none';
+    // Restaureaza titlul normal
+    document.title = 'Inginerie Creativă — Portal Intern';
     stopGlobalTimerInterval();
   }
 }

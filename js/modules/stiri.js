@@ -231,10 +231,17 @@ const Stiri = {
   async doDelete(id) {
     const sb = getSupabase();
     if (!sb) { showToast('Nu ești conectat', 'error'); return; }
+    // Sterge notificarile asociate acestei stiri (type='news' cu reference_id sau link catre stire)
+    try {
+      await sb.from('notifications').delete().eq('type', 'news').like('link', '%stiri%');
+      // Sterge si dupa reference_id daca exista
+      await sb.from('notifications').delete().eq('type', 'news').eq('reference_id', id);
+      await sb.from('notifications').delete().eq('type', 'news').eq('reference_id', String(id));
+    } catch(e) { console.warn('Eroare stergere notificari stire:', e); }
     const { error } = await sb.from('news').delete().eq('id', id);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
     closeModalForce();
-    showToast('Știre ștearsă.', 'success');
+    showToast('Știre și notificările asociate au fost șterse.', 'success');
     await this.render();
   },
 

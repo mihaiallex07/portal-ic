@@ -703,47 +703,139 @@ const Proiecte = {
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const totalBudget = this.phases.reduce((s, p) => s + (p.budget_hours || 0), 0);
     const totalWorked = this.tasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
+    const totalRemaining = Math.max(0, totalBudget - totalWorked);
     const pct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
+    const pctColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    const totalTasks = this.tasks.length;
+    const doneTasks = this.tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
+    const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+    // Calcul ore pe etapa
+    const phaseRows = this.phases.map(phase => {
+      const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
+      const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
+      const worked = phaseTasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
+      const budget = phase.budget_hours || 0;
+      const p = budget > 0 ? Math.min(100, Math.round((worked / budget) * 100)) : 0;
+      const barColor = p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
+      const statusDot = p > 90 ? '🔴' : p > 70 ? '🟡' : '🟢';
+      return { phase, worked, budget, p, barColor, statusDot };
+    });
+
+    // Calcul ore pe membru (doar pentru admin/coord)
+    const memberStats = (isAdmin || isCoord) ? (() => {
+      const map = {};
+      this.tasks.forEach(t => {
+        const uid = t.assigned_user_id;
+        if (!uid) return;
+        const member = this.members.find(m => String(m.user_id) === String(uid));
+        const name = member?.profiles?.full_name || t.assigned_user_name || 'Necunoscut';
+        if (!map[uid]) map[uid] = { name, worked: 0, tasks: 0 };
+        map[uid].worked += Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+        map[uid].tasks++;
+      });
+      return Object.values(map).sort((a, b) => b.worked - a.worked);
+    })() : [];
+
+    const maxMemberWorked = memberStats.length > 0 ? Math.max(...memberStats.map(m => m.worked)) : 1;
 
     return `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-        <div style="padding:20px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;text-align:center">
-          <div style="font-size:28px;font-weight:700;color:var(--primary)">${totalBudget}h</div>
-          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">Ore bugetate total</div>
+      <!-- KPI Cards -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px">
+        <div style="padding:18px 20px;background:linear-gradient(135deg,#1e3a5f 0%,#1a4a8a 100%);border-radius:12px;color:#fff;position:relative;overflow:hidden">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Ore bugetate</div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${totalBudget}<span style="font-size:16px;font-weight:500;opacity:0.8">h</span></div>
+          <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">⏱</div>
         </div>
-        <div style="padding:20px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;text-align:center">
-          <div style="font-size:28px;font-weight:700;color:#10B981">${totalWorked}h</div>
-          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">Ore lucrate</div>
+        <div style="padding:18px 20px;background:linear-gradient(135deg,#065f46 0%,#059669 100%);border-radius:12px;color:#fff;position:relative;overflow:hidden">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Ore lucrate</div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${totalWorked}<span style="font-size:16px;font-weight:500;opacity:0.8">h</span></div>
+          <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">✅</div>
         </div>
-        <div style="padding:20px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;text-align:center">
-          <div style="font-size:28px;font-weight:700;color:${pct > 90 ? '#EF4444' : '#F59E0B'}">${pct}%</div>
-          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">Progres</div>
+        <div style="padding:18px 20px;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);border-radius:12px;color:#fff;position:relative;overflow:hidden">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Rămase</div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${totalRemaining}<span style="font-size:16px;font-weight:500;opacity:0.8">h</span></div>
+          <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">📅</div>
+        </div>
+        <div style="padding:18px 20px;background:${pct > 90 ? 'linear-gradient(135deg,#7f1d1d 0%,#ef4444 100%)' : 'linear-gradient(135deg,#78350f 0%,#f59e0b 100%)'};border-radius:12px;color:#fff;position:relative;overflow:hidden">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Consum buget</div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${pct}<span style="font-size:16px;font-weight:500;opacity:0.8">%</span></div>
+          <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">📊</div>
+        </div>
+        <div style="padding:18px 20px;background:linear-gradient(135deg,#1e3a5f 0%,#0ea5e9 100%);border-radius:12px;color:#fff;position:relative;overflow:hidden">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Task-uri</div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${doneTasks}<span style="font-size:16px;font-weight:500;opacity:0.8">/${totalTasks}</span></div>
+          <div style="font-size:11px;opacity:0.8;margin-top:4px">${taskPct}% finalizate</div>
+          <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">✔</div>
         </div>
       </div>
 
-      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:20px">
-        <h3 style="font-size:15px;font-weight:600;margin:0 0 16px">Ore pe etapă</h3>
-        ${this.phases.map(phase => {
-          // Admin și coordonatori văd toate task-urile; angajații văd doar task-urile asignate lor
-    const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
-    const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
-          const worked = phaseTasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
-          const budget = phase.budget_hours || 0;
-          const p = budget > 0 ? Math.min(100, Math.round((worked / budget) * 100)) : 0;
-          const barColor = p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
-          return `
-            <div style="margin-bottom:12px">
-              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-                <span>${phase.code ? phase.code + '. ' : ''}${phase.name}</span>
-                <span style="color:var(--text-muted)">${worked}h / ${budget}h</span>
+      <!-- Bara progres generala -->
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:14px;font-weight:700">Progres general buget</div>
+          <div style="font-size:13px;color:${pctColor};font-weight:700">${totalWorked}h din ${totalBudget}h (${pct}%)</div>
+        </div>
+        <div style="height:14px;background:var(--border);border-radius:7px;overflow:hidden;position:relative">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${pctColor},${pctColor}cc);border-radius:7px;transition:width 0.6s ease"></div>
+        </div>
+        ${pct > 80 ? `<div style="margin-top:8px;font-size:12px;color:${pctColor};font-weight:600">⚠️ ${pct > 100 ? 'Buget depășit!' : 'Atenție: buget aproape epuizat'}</div>` : ''}
+      </div>
+
+      <!-- Ore pe etapa -->
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px">
+        <h3 style="font-size:14px;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:8px">
+          <span style="width:4px;height:16px;background:var(--brand);border-radius:2px;display:inline-block"></span>
+          Ore pe etapă
+        </h3>
+        ${phaseRows.length === 0 ? '<p style="color:var(--text-muted);font-size:13px">Nu există etape definite.</p>' : phaseRows.map(({phase, worked, budget, p, barColor, statusDot}) => `
+          <div style="margin-bottom:16px;padding:14px;background:var(--bg-secondary);border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span>${statusDot}</span>
+                <span style="font-size:13px;font-weight:600">${phase.code ? phase.code + '. ' : ''}${phase.name}</span>
               </div>
-              <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
-                <div style="height:100%;width:${p}%;background:${barColor};border-radius:4px"></div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <span style="font-size:12px;color:var(--text-muted)">${worked}h lucrate</span>
+                <span style="font-size:12px;font-weight:700;color:${barColor}">${p}%</span>
+                <span style="font-size:12px;color:var(--text-muted);background:var(--border);padding:2px 8px;border-radius:4px">${budget}h buget</span>
+              </div>
+            </div>
+            <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+              <div style="height:100%;width:${p}%;background:linear-gradient(90deg,${barColor},${barColor}bb);border-radius:5px;transition:width 0.5s ease"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Ore pe membru (doar admin/coord) -->
+      ${(isAdmin || isCoord) && memberStats.length > 0 ? `
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <h3 style="font-size:14px;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:8px">
+          <span style="width:4px;height:16px;background:#a855f7;border-radius:2px;display:inline-block"></span>
+          Ore pe membru
+        </h3>
+        ${memberStats.map((m, i) => {
+          const barW = maxMemberWorked > 0 ? Math.round((m.worked / maxMemberWorked) * 100) : 0;
+          const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316'];
+          const c = colors[i % colors.length];
+          return `
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:${c};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${m.name.charAt(0).toUpperCase()}</div>
+              <div style="flex:1">
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+                  <span style="font-weight:600">${m.name}</span>
+                  <span style="color:var(--text-muted)">${m.worked}h &bull; ${m.tasks} task-uri</span>
+                </div>
+                <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+                  <div style="height:100%;width:${barW}%;background:${c};border-radius:4px;opacity:0.85"></div>
+                </div>
               </div>
             </div>
           `;
         }).join('')}
       </div>
+      ` : ''}
     `;
   },
 
