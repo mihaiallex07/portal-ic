@@ -394,6 +394,81 @@ const DB = {
     return dbQuery('profiles', q => q.select('*').eq('id', userId).single(), Auth.demoProfile);
   },
 
+  // ── COMPANY EVENTS ─────────────────────────────────────────
+  async getCompanyEvents(dateFrom, dateTo) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    const sb = getSupabase();
+    let q = sb.from('company_events')
+      .select('*, event_participants(id, user_id, status)')
+      .eq('status', 'active')
+      .order('event_date', { ascending: true })
+      .order('start_time', { ascending: true });
+    if (dateFrom) q = q.gte('event_date', dateFrom);
+    if (dateTo) q = q.lte('event_date', dateTo);
+    return q;
+  },
+  async getCompanyEventById(id) {
+    if (APP_CONFIG.demoMode) return { data: null };
+    const sb = getSupabase();
+    return sb.from('company_events')
+      .select('*, event_participants(id, user_id, status, decline_reason, profiles(full_name, employee_code))')
+      .eq('id', id)
+      .single();
+  },
+  async createCompanyEvent(event) {
+    if (APP_CONFIG.demoMode) return { data: null, error: null };
+    const sb = getSupabase();
+    return sb.from('company_events').insert(event).select().single();
+  },
+  async updateCompanyEvent(id, updates) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('company_events').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
+  },
+  async cancelCompanyEvent(id) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('company_events').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id);
+  },
+  async deleteCompanyEventHard(id) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('company_events').delete().eq('id', id);
+  },
+  async getEventParticipants(eventId) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    const sb = getSupabase();
+    return sb.from('event_participants')
+      .select('*, profiles(full_name, employee_code, department)')
+      .eq('event_id', eventId);
+  },
+  async upsertEventParticipant(eventId, userId, status, declineReason) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('event_participants').upsert({
+      event_id: eventId,
+      user_id: userId,
+      status,
+      decline_reason: declineReason || null,
+      responded_at: new Date().toISOString(),
+    }, { onConflict: 'event_id,user_id' });
+  },
+  async addEventParticipants(eventId, userIds) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    const rows = userIds.map(uid => ({ event_id: eventId, user_id: uid, status: 'pending' }));
+    return sb.from('event_participants').upsert(rows, { onConflict: 'event_id,user_id', ignoreDuplicates: true });
+  },
+  async markEventAttended(eventId, userId, timeEntryId) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('event_participants').update({
+      status: 'attended',
+      time_entry_id: timeEntryId || null,
+      responded_at: new Date().toISOString(),
+    }).eq('event_id', eventId).eq('user_id', userId);
+  },
+
   async updateProfile(userId, updates) {
     if (APP_CONFIG.demoMode) {
       const u = this.demo.users.find(u => u.id === userId);

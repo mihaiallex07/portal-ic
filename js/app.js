@@ -24,7 +24,7 @@ const ROUTES = {
   'notificari':        { label: 'Notificări',            module: () => Notificari.render() },
   'profil':            { label: 'Profilul meu',          module: () => Profil.render() },
   'admin-utilizatori': { label: 'Utilizatori',           module: () => Admin.render(), adminOnly: true },
-  'evenimente':        { label: 'Evenimente Firmă',      module: () => Placeholder.render('Evenimente Firmă', 'Calendarul evenimentelor companiei va fi disponibil în curând.', 'calendar') },
+  'evenimente':        { label: 'Evenimente Firmă',      module: () => Evenimente.render() },
   'backup':            { label: 'Backup Date',           module: () => Backup.render(), adminOnly: true },
 };
 

@@ -49,6 +49,14 @@ const Dashboard = {
 
     // Calculează evenimentele (zile de naștere + aniversări angajare) pentru luna curentă și viitoare
     MiniCalendar.setEvents(allProfiles);
+    // Încarcă evenimentele firmă pentru calendar
+    const _evFrom = new Date(); _evFrom.setMonth(_evFrom.getMonth() - 1);
+    const _evTo = new Date(); _evTo.setMonth(_evTo.getMonth() + 3);
+    const _compEvRes = await DB.getCompanyEvents(
+      _evFrom.toISOString().split('T')[0],
+      _evTo.toISOString().split('T')[0]
+    );
+    MiniCalendar.setCompanyEvents(_compEvRes.data || [], Auth.currentUser?.id);
 
     const activeProjects = projects.filter(p => p.status === 'activ');
     const todayEntries = timeEntries.filter(e => e.date === getTodayStr());
@@ -246,8 +254,21 @@ const MiniCalendar = {
     }
   },
 
+  companyEvents: [],
+
+  setCompanyEvents(events, userId) {
+    this.companyEvents = (events || []).map(ev => {
+      const d = new Date(ev.event_date + 'T00:00:00');
+      const myPart = (ev.event_participants || []).find(p => p.user_id === userId);
+      return { day: d.getDate(), month: d.getMonth(), year: d.getFullYear(), type: 'company', name: ev.title, ev, myStatus: myPart?.status || null };
+    });
+  },
+
   getEventsForDay(day, month) {
-    return this.events.filter(e => e.day === day && e.month === month);
+    const personal = this.events.filter(e => e.day === day && e.month === month);
+    const yr = this.currentDate.getFullYear();
+    const company = this.companyEvents.filter(e => e.day === day && e.month === month && e.year === yr);
+    return [...personal, ...company];
   },
 
   render() {
@@ -271,7 +292,8 @@ const MiniCalendar = {
       const dayEvents = this.getEventsForDay(day, month);
       const hasBirthday = dayEvents.some(e => e.type === 'birthday');
       const hasAnniversary = dayEvents.some(e => e.type === 'anniversary');
-      const dots = dayEvents.length > 0 ? `<div style="display:flex;gap:2px;justify-content:center;margin-top:1px">${hasBirthday ? '<span style="width:4px;height:4px;border-radius:50%;background:#e91e63;display:inline-block"></span>' : ''}${hasAnniversary ? '<span style="width:4px;height:4px;border-radius:50%;background:var(--brand-dark);display:inline-block"></span>' : ''}</div>` : '';
+      const hasCompany = dayEvents.some(e => e.type === 'company');
+      const dots = dayEvents.length > 0 ? `<div style="display:flex;gap:2px;justify-content:center;margin-top:1px">${hasBirthday ? '<span style="width:4px;height:4px;border-radius:50%;background:#e91e63;display:inline-block"></span>' : ''}${hasAnniversary ? '<span style="width:4px;height:4px;border-radius:50%;background:var(--brand-dark);display:inline-block"></span>' : ''}${hasCompany ? '<span style="width:4px;height:4px;border-radius:50%;background:#6366f1;display:inline-block"></span>' : ''}</div>` : '';
        const clickHandler = dayEvents.length > 0
         ? `onclick="MiniCalendar.showDayPopup(this, ${day}, ${month})" style="cursor:pointer;position:relative;padding-bottom:2px"`
         : `style="cursor:default;position:relative;padding-bottom:2px"`;
@@ -295,7 +317,8 @@ const MiniCalendar = {
         </div>
         <div style="display:flex;gap:12px;padding:8px 4px 2px;font-size:10px;color:var(--text-muted)">
           <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#e91e63;margin-right:3px;vertical-align:middle"></span>Zi de naștere</span>
-          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-dark);margin-right:3px;vertical-align:middle"></span>Aniversare angajare</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--brand-dark);margin-right:3px;vertical-align:middle"></span>Aniversare</span>
+          <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#6366f1;margin-right:3px;vertical-align:middle"></span>Eveniment</span>
         </div>
       </div>
     `;
@@ -315,25 +338,34 @@ const MiniCalendar = {
     }
     if (upcoming.length === 0) return '';
     const monthNames = ['ian','feb','mar','apr','mai','iun','iul','aug','sep','oct','nov','dec'];
+    const typeConfig = {
+      birthday: { bg: '#fce4ec', icon: '🎂', label: ev => 'Zi de naștere', color: '#e91e63' },
+      anniversary: { bg: '#fff9e6', icon: '🎉', label: ev => `Aniversare angajare (${ev.years} an${ev.years > 1 ? 'i' : ''})`, color: 'var(--brand-dark)' },
+      company: { bg: '#e0e7ff', icon: '📅', label: ev => { const st = ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''; const et = ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''; return `${st}${et?' – '+et:''}${ev.ev?.location?' • '+ev.ev.location:''}`; }, color: '#6366f1' },
+    };
     return `
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Evenimente viitoare</span>
+          <span class="card-title">Urmează</span>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="navigate('evenimente',null)">Toate</button>
         </div>
         <div style="padding:0">
-          ${upcoming.slice(0, 6).map(ev => `
-            <div class="flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border)">
-              <div style="width:36px;height:36px;border-radius:8px;background:${ev.type === 'birthday' ? '#fce4ec' : '#fff9e6'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${ev.type === 'birthday' ? '🎂' : '🎉'}</div>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:600;color:var(--text)">${ev.name}</div>
-                <div class="text-xs text-muted">${ev.type === 'birthday' ? 'Zi de naștere' : `Aniversare angajare (${ev.years} an${ev.years > 1 ? 'i' : ''})`}</div>
+          ${upcoming.slice(0, 7).map(ev => {
+            const cfg = typeConfig[ev.type] || typeConfig.birthday;
+            return `
+              <div class="flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border)${ev.type === 'company' ? ';cursor:pointer' : ''}" ${ev.type === 'company' ? 'onclick="navigate('evenimente',null)"' : ''}>
+                <div style="width:36px;height:36px;border-radius:8px;background:${cfg.bg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${cfg.icon}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;color:var(--text)">${ev.name}</div>
+                  <div class="text-xs text-muted">${cfg.label(ev)}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-size:12px;font-weight:700;color:${ev.daysUntil === 0 ? cfg.color : 'var(--brand-dark)'}">${ev.daysUntil === 0 ? 'Azi!' : ev.daysUntil === 1 ? 'Mâine' : `${ev.date.getDate()} ${monthNames[ev.date.getMonth()]}`}</div>
+                  ${ev.daysUntil > 1 ? `<div class="text-xs text-muted">în ${ev.daysUntil} zile</div>` : ''}
+                </div>
               </div>
-              <div style="text-align:right;flex-shrink:0">
-                <div style="font-size:12px;font-weight:700;color:${ev.daysUntil === 0 ? '#e91e63' : 'var(--brand-dark)'}">${ev.daysUntil === 0 ? 'Azi!' : ev.daysUntil === 1 ? 'Mâine' : `${ev.date.getDate()} ${monthNames[ev.date.getMonth()]}`}</div>
-                ${ev.daysUntil > 1 ? `<div class="text-xs text-muted">în ${ev.daysUntil} zile</div>` : ''}
-              </div>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       </div>
     `;
@@ -350,15 +382,33 @@ const MiniCalendar = {
     if (!dayEvents.length) return;
 
     const monthNames = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
-    const rows = dayEvents.map(ev => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0">
-        <div style="font-size:20px;flex-shrink:0">${ev.type === 'birthday' ? '🎂' : '🎉'}</div>
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#111">${ev.name}</div>
-          <div style="font-size:11px;color:#888">${ev.type === 'birthday' ? 'Zi de naștere' : `Aniversare angajare — ${ev.years} an${ev.years > 1 ? 'i' : ''}`}</div>
+    const rows = dayEvents.map(ev => {
+      if (ev.type === 'company') {
+        const statusColors = { pending: '#f59e0b', accepted: '#10b981', declined: '#ef4444', attended: '#6366f1' };
+        const statusLabels = { pending: 'Neconfirmat', accepted: 'Particip', declined: 'Absent', attended: 'Prezent' };
+        const sc = statusColors[ev.myStatus] || '#6366f1';
+        const sl = statusLabels[ev.myStatus] || '';
+        return `
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;cursor:pointer" onclick="navigate('evenimente',null)">
+            <div style="width:28px;height:28px;border-radius:6px;background:#e0e7ff;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">📅</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:#111">${ev.name}</div>
+              <div style="font-size:11px;color:#888">${ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''} – ${ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''}${ev.ev?.location ? ' • ' + ev.ev.location : ''}</div>
+              ${ev.myStatus ? `<span style="font-size:10px;font-weight:600;color:${sc}">${sl}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+          <div style="font-size:20px;flex-shrink:0">${ev.type === 'birthday' ? '🎂' : '🎉'}</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#111">${ev.name}</div>
+            <div style="font-size:11px;color:#888">${ev.type === 'birthday' ? 'Zi de naștere' : `Aniversare angajare — ${ev.years} an${ev.years > 1 ? 'i' : ''}`}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     const popup = document.createElement('div');
     popup.id = 'cal-day-popup';
