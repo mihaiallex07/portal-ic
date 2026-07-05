@@ -77,11 +77,22 @@ const Beneficiari = {
     const name = document.getElementById('benef-name')?.value?.trim();
     if (!email || !email.includes('@')) { showToast('Email invalid', 'error'); return; }
 
+    // Generează UUID pentru access_token
+    const access_token = crypto.randomUUID ? crypto.randomUUID() :
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+    const token_expires_at = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await DB.inviteBeneficiary({
       project_id: this.projectId,
       email,
       name: name || null,
       invited_by: Auth.currentUser?.id,
+      access_token,
+      token_expires_at,
+      status: 'pending',
+      invited_at: new Date().toISOString(),
     });
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
 
