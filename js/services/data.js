@@ -338,12 +338,26 @@ const DB = {
   },
   async getBeneficiaryByToken(token) {
     if (APP_CONFIG.demoMode) return { data: null };
-    return dbQuery('project_beneficiaries', q => q.select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name)').eq('access_token', token).single(), null);
+    return dbQuery('project_beneficiaries', q => q.select('*, projects(id, name, code, color, status, start_date, end_date, client_name)').eq('access_token', token).single(), null);
   },
   async updateBeneficiaryAccess(token) {
     if (APP_CONFIG.demoMode) return { error: null };
     const sb = getSupabase();
     return sb.from('project_beneficiaries').update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: new Date().toISOString() }).eq('access_token', token);
+  },
+  async deleteBeneficiary(id) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('project_beneficiaries').delete().eq('id', id);
+  },
+  async updateBeneficiary(id, updates) {
+    if (APP_CONFIG.demoMode) return { error: null };
+    const sb = getSupabase();
+    return sb.from('project_beneficiaries').update(updates).eq('id', id).select().single();
+  },
+  async getBeneficiaryByEmail(email) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    return dbQuery('project_beneficiaries', q => q.select('*, projects(id, name, code, color, status, start_date, end_date, client_name)').eq('email', email).order('created_at', { ascending: false }), []);
   },
   // Backup
   async getBackupLogs() {
