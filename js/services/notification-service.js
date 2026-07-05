@@ -54,7 +54,7 @@ const NotificationService = {
       if (error) throw error;
 
       this.notifications = data || [];
-      this.unreadCount = this.notifications.filter(n => !n.read).length;
+      this.unreadCount = this.notifications.filter(n => !(n.is_read ?? n.read)).length;
       this.notifyListeners();
 
       console.log(`[NotificationService] Încarcate ${this.notifications.length} notificări (${this.unreadCount} necitite)`);
@@ -81,7 +81,7 @@ const NotificationService = {
         (payload) => {
           console.log('[NotificationService] Notificare nouă:', payload.new);
           this.notifications.unshift(payload.new);
-          if (!payload.new.read) this.unreadCount++;
+          if (!(payload.new.is_read ?? payload.new.read)) this.unreadCount++;
           this.notifyListeners();
           this.playSound();
         }
@@ -97,8 +97,8 @@ const NotificationService = {
         (payload) => {
           const idx = this.notifications.findIndex(n => n.id === payload.new.id);
           if (idx >= 0) {
-            const wasUnread = !this.notifications[idx].read;
-            const isUnread = !payload.new.read;
+            const wasUnread = !(this.notifications[idx].is_read ?? this.notifications[idx].read);
+            const isUnread = !(payload.new.is_read ?? payload.new.read);
             if (wasUnread && !isUnread) this.unreadCount--;
             if (!wasUnread && isUnread) this.unreadCount++;
             this.notifications[idx] = payload.new;
@@ -126,14 +126,14 @@ const NotificationService = {
     try {
       const { error } = await sb
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true, read: true })
         .eq('id', notificationId);
 
       if (error) throw error;
 
       const idx = this.notifications.findIndex(n => n.id === notificationId);
       if (idx >= 0) {
-        this.notifications[idx].read = true;
+        this.notifications[idx].read = true; this.notifications[idx].is_read = true;
         this.unreadCount = Math.max(0, this.unreadCount - 1);
         this.notifyListeners();
       }
@@ -149,13 +149,13 @@ const NotificationService = {
     try {
       const { error } = await sb
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true, read: true })
         .eq('user_id', Auth.currentProfile?.id)
-        .eq('read', false);
+        .eq('is_read', false);
 
       if (error) throw error;
 
-      this.notifications.forEach(n => n.read = true);
+      this.notifications.forEach(n => { n.read = true; n.is_read = true; });
       this.unreadCount = 0;
       this.notifyListeners();
     } catch (err) {

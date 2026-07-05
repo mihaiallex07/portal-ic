@@ -433,7 +433,7 @@
 
       const { data: records, error } = await sb
         .from('project_beneficiaries')
-        .select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name, description)')
+        .select('*, projects(id, name, code, color, status, start_date, end_date, client_name, description)')
         .eq('email', email)
         .neq('status', 'expired');
 
@@ -463,6 +463,28 @@
       renderProjectList(valid, email);
     }
 
+    async function confirmEmailAccess(token, expectedEmail) {
+      const input = document.getElementById('confirm-email-input');
+      const errorDiv = document.getElementById('confirm-email-error');
+      const enteredEmail = input?.value?.trim().toLowerCase();
+      const expected = expectedEmail.toLowerCase();
+      if (!enteredEmail) {
+        errorDiv.textContent = 'Introduceți adresa de email.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      if (enteredEmail !== expected) {
+        errorDiv.textContent = 'Adresa de email nu corespunde invitației. Verificați adresa sau contactați echipa de proiect.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      // Email corect — marcăm ca acceptat și redirectăm
+      await sb.from('project_beneficiaries')
+        .update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: new Date().toISOString() })
+        .eq('access_token', token);
+      window.location.reload();
+    }
+
     function renderProjectList(records, email) {
       const main = document.getElementById('ph-content');
       if (!main) return;
@@ -474,7 +496,7 @@
             onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
             <div style="display:flex;align-items:center;gap:12px">
               <div style="width:40px;height:40px;border-radius:8px;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#1a1a1a;flex-shrink:0">
-                ${p.abbreviation || p.code || '?'}
+                ${p.code || '?'}
               </div>
               <div>
                 <div style="font-weight:700;font-size:15px;color:var(--text)">${p.name || 'Proiect'}</div>
@@ -513,7 +535,7 @@
       // Fetch beneficiary record
       const { data: benef, error: bErr } = await sb
         .from('project_beneficiaries')
-        .select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name, description)')
+        .select('*, projects(id, name, code, color, status, start_date, end_date, client_name, description)')
         .eq('access_token', token)
         .single();
 
@@ -524,6 +546,38 @@
 
       if (benef.status === 'expired' || (benef.token_expires_at && new Date(benef.token_expires_at) < new Date())) {
         renderError('Link expirat', 'Acest link de acces a expirat. Contactați echipa de proiect pentru un nou link.');
+        return;
+      }
+
+      // Verificare email: daca beneficiarul a accesat inainte (status=accepted), nu cerem email
+      // Daca e prima accesare (pending), cerem confirmarea emailului
+      const needsEmailConfirm = benef.status === 'pending' && !benef.accepted_at;
+      if (needsEmailConfirm) {
+        // Afisam formular de confirmare email
+        const main = document.getElementById('ph-content');
+        if (main) main.innerHTML = `
+          <div style="max-width:480px;margin:80px auto;padding:0 16px">
+            <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+              <div style="text-align:center;margin-bottom:32px">
+                <div style="width:64px;height:64px;background:var(--brand);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">📌</div>
+                <h2 style="font-size:22px;font-weight:700;margin-bottom:8px">Confirmă identitatea</h2>
+                <p style="color:var(--text-muted);font-size:14px">Introduței adresa de email cu care ați fost invitat pentru a confirma accesul.</p>
+              </div>
+              <div id="email-confirm-form">
+                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Adresă email</label>
+                <input id="confirm-email-input" type="email" placeholder="exemplu@email.com"
+                  style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s"
+                  onkeydown="if(event.key==='Enter') confirmEmailAccess('${token}', '${benef.email}')"
+                  onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--border)'" />
+                <div id="confirm-email-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>
+                <button onclick="confirmEmailAccess('${token}', '${benef.email}')"
+                  style="width:100%;margin-top:16px;padding:12px;background:var(--brand);color:#1a1a1a;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer">
+                  Confirmă accesul
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
         return;
       }
 
@@ -540,7 +594,7 @@
 
       // Fetch phases + tasks
       const [phasesRes, tasksRes] = await Promise.all([
-        sb.from('project_phases').select('id, name, order_index').eq('project_id', proj.id).order('order_index'),
+        sb.from('project_phases').select('id, name, display_order').eq('project_id', proj.id).order('display_order'),
         sb.from('project_tasks').select('id, name, phase_id, budget_hours, minutes_worked, start_date, end_date').eq('project_id', proj.id),
       ]);
 
@@ -606,7 +660,7 @@
         <!-- HERO -->
         <div class="ph-hero">
           <div class="ph-hero-inner">
-            <div class="ph-project-code">${proj.abbreviation || proj.code || 'IC'}</div>
+            <div class="ph-project-code">${proj.code || 'IC'}</div>
             <h1 class="ph-project-name">${proj.name}</h1>
             <div class="ph-project-meta">
               ${proj.client_name ? `<strong>${proj.client_name}</strong> &nbsp;·&nbsp; ` : ''}

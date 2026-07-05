@@ -85,6 +85,7 @@ const Backup = {
                   <th style="text-align:left;padding:8px 12px;font-weight:600">Data</th>
                   <th style="text-align:left;padding:8px 12px;font-weight:600">Status</th>
                   <th style="text-align:left;padding:8px 12px;font-weight:600">Dimensiune</th>
+                  <th style="text-align:left;padding:8px 12px;font-weight:600">Acțiuni</th>
                 </tr>
               </thead>
               <tbody>
@@ -94,6 +95,9 @@ const Backup = {
                     <td style="padding:8px 12px">${formatDate(l.created_at)} ${new Date(l.created_at).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})}</td>
                     <td style="padding:8px 12px">${badge(l.status, l.status === 'completed' ? 'green' : 'red')}</td>
                     <td style="padding:8px 12px">${l.file_size_bytes ? Math.round(l.file_size_bytes/1024) + ' KB' : '—'}</td>
+                    <td style="padding:8px 12px">
+                      <button onclick="Backup.deleteLog('${l.id}')" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--danger)';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='var(--danger)'">🗑 Șterge</button>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -299,6 +303,19 @@ const Backup = {
       this.render();
     } catch (e) {
       showToast('Eroare la export: ' + e.message, 'error');
+    }
+  },
+
+  async deleteLog(id) {
+    if (!confirm('Ștergi acest backup din istoric? Acțiunea nu poate fi anulată.')) return;
+    try {
+      const sb = getSupabase();
+      const { error } = await sb.from('backup_logs').delete().eq('id', id);
+      if (error) throw error;
+      showToast('Backup șters din istoric.', 'success');
+      this.render();
+    } catch (e) {
+      showToast('Eroare la ștergere: ' + e.message, 'error');
     }
   },
 };

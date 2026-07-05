@@ -24,7 +24,7 @@ const Stiri = {
   },
 
   renderPage() {
-    const canCreate = Auth.isAdmin();
+    const canCreate = !!Auth.currentUser;  // orice utilizator autentificat poate crea/edita stiri
     let filtered = this.news;
     if (this.search) filtered = filtered.filter(n =>
       n.title.toLowerCase().includes(this.search.toLowerCase()) ||
@@ -78,7 +78,7 @@ const Stiri = {
   },
 
   renderCard(n) {
-    const canEdit = Auth.isAdmin();
+    const canEdit = !!Auth.currentUser;  // orice utilizator autentificat poate edita/sterge
     return `
       <div class="news-card ${n.is_pinned ? 'pinned' : ''}" style="position:relative">
         <div onclick="Stiri.openDetail(${n.id})" style="cursor:pointer">
@@ -113,7 +113,7 @@ const Stiri = {
   openDetail(id) {
     const n = this.news.find(n => n.id === id);
     if (!n) return;
-    const canEdit = Auth.isAdmin();
+    const canEdit = !!Auth.currentUser;
     openModal(n.title, `
       <div class="space-y-3">
         <div class="flex items-center gap-2">

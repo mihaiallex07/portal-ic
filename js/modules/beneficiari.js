@@ -67,8 +67,8 @@ const Beneficiari = {
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
                       ${badge(statusLabel, statusColor)}
                       <button title="Copiază link" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Link copiat!','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
-                      <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry(${b.id}, '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
-                      <button onclick="Beneficiari.revoke(${b.id})" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>
+                      <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry('${b.id}', '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
+                      <button onclick="Beneficiari.revoke('${b.id}')" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>
                     </div>
                   </div>
                 </div>`;

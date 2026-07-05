@@ -44,7 +44,7 @@ const Dashboard = {
       }
     });
     const news = (newsRes.data || []).slice(0, 3);
-    const notifications = (notifRes.data || []).filter(n => !n.read).slice(0, 5);
+    const notifications = (notifRes.data || []).filter(n => !(n.is_read ?? n.read)).slice(0, 5);
     const allProfiles = profilesRes.data || [];
 
     // Calculează evenimentele (zile de naștere + aniversări angajare) pentru luna curentă și viitoare
@@ -95,7 +95,7 @@ const Dashboard = {
           <div class="metric-card">
             <div class="metric-label">Notificări noi</div>
             <div class="metric-value" style="color:${unreadNotifs > 0 ? 'var(--brand-dark)' : 'var(--text)'}">${unreadNotifs}</div>
-            <div class="metric-sub">necitite</div>
+            <div class="metric-sub">${unreadNotifs === 1 ? 'necitită' : 'necitite'}</div>
           </div>
         </div>
 
