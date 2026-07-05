@@ -148,7 +148,7 @@ const Evenimente = {
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
             <span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              ${ev.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''} – ${ev.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''}
+              ${ev.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''} – ${ev.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''}
             </span>
             ${ev.location ? `<span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>${ev.location}</span>` : ''}
             <span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px">
@@ -222,11 +222,11 @@ const Evenimente = {
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora start *</label>
-              <input id="ev-start" type="time" value="${ev?.start_time ? new Date(ev.start_time).toTimeString().slice(0,5) : '09:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
+              <input id="ev-start" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="${ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box" oninput="this.value=this.value.replace(/[^0-9:]/g,'')">
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora final *</label>
-              <input id="ev-end" type="time" value="${ev?.end_time ? new Date(ev.end_time).toTimeString().slice(0,5) : '10:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
+              <input id="ev-end" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="${ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box" oninput="this.value=this.value.replace(/[^0-9:]/g,'')">
             </div>
           </div>
 

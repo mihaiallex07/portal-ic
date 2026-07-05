@@ -341,7 +341,7 @@ const MiniCalendar = {
     const typeConfig = {
       birthday: { bg: '#fce4ec', icon: '🎂', label: ev => 'Zi de naștere', color: '#e91e63' },
       anniversary: { bg: '#fff9e6', icon: '🎉', label: ev => `Aniversare angajare (${ev.years} an${ev.years > 1 ? 'i' : ''})`, color: 'var(--brand-dark)' },
-      company: { bg: '#e0e7ff', icon: '📅', label: ev => { const st = ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''; const et = ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''; return `${st}${et?' – '+et:''}${ev.ev?.location?' • '+ev.ev.location:''}`; }, color: '#6366f1' },
+      company: { bg: '#e0e7ff', icon: '📅', label: ev => { const st = ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''; const et = ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''; return `${st}${et?' – '+et:''}${ev.ev?.location?' • '+ev.ev.location:''}`; }, color: '#6366f1' },
     };
     return `
       <div class="card">
@@ -393,7 +393,7 @@ const MiniCalendar = {
             <div style="width:28px;height:28px;border-radius:6px;background:#e0e7ff;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">📅</div>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:700;color:#111">${ev.name}</div>
-              <div style="font-size:11px;color:#888">${ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''} – ${ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}) : ''}${ev.ev?.location ? ' • ' + ev.ev.location : ''}</div>
+              <div style="font-size:11px;color:#888">${ev.ev?.start_time ? new Date(ev.ev.start_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''} – ${ev.ev?.end_time ? new Date(ev.ev.end_time).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',hour12:false}) : ''}${ev.ev?.location ? ' • ' + ev.ev.location : ''}</div>
               ${ev.myStatus ? `<span style="font-size:10px;font-weight:600;color:${sc}">${sl}</span>` : ''}
             </div>
           </div>
