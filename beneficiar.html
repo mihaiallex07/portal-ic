@@ -47,7 +47,7 @@
       align-items: center;
       gap: 12px;
     }
-    .ph-logo img { width: 36px; height: 36px; object-fit: contain; }
+    .ph-logo img { height: 32px; width: auto; object-fit: contain; }
     .ph-logo-text { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
     .ph-logo-sub { font-size: 11px; color: #aaa; font-weight: 400; }
     .ph-badge {
@@ -314,11 +314,7 @@
   <!-- HEADER -->
   <header class="ph-header">
     <div class="ph-logo">
-      <img src="assets/logo.png" alt="Inginerie Creativă" />
-      <div>
-        <div class="ph-logo-text">Inginerie Creativă</div>
-        <div class="ph-logo-sub">Design &amp; Build</div>
-      </div>
+      <img src="assets/logo-full.png" alt="Inginerie Creativă" />
     </div>
     <span class="ph-badge">Portal Beneficiar</span>
   </header>
@@ -394,7 +390,7 @@
     // EMAIL LOGIN (fără token în URL)
     // ============================================================
     function renderEmailLogin() {
-      const main = document.getElementById('main-content');
+      const main = document.getElementById('ph-content');
       if (!main) return;
       main.innerHTML = `
         <div style="max-width:480px;margin:80px auto;padding:0 16px">
@@ -468,7 +464,7 @@
     }
 
     function renderProjectList(records, email) {
-      const main = document.getElementById('main-content');
+      const main = document.getElementById('ph-content');
       if (!main) return;
       const projectsHtml = records.map(r => {
         const p = r.projects || {};

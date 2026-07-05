@@ -78,19 +78,34 @@ const Stiri = {
   },
 
   renderCard(n) {
+    const canEdit = Auth.isAdmin();
     return `
-      <div class="news-card ${n.is_pinned ? 'pinned' : ''}" onclick="Stiri.openDetail(${n.id})">
-        <div class="flex items-center gap-2 mb-2">
-          ${categoryBadge(n.category)}
-          ${n.is_pinned ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="var(--brand-dark)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>' : ''}
+      <div class="news-card ${n.is_pinned ? 'pinned' : ''}" style="position:relative">
+        <div onclick="Stiri.openDetail(${n.id})" style="cursor:pointer">
+          <div class="flex items-center gap-2 mb-2">
+            ${categoryBadge(n.category)}
+            ${n.is_pinned ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="var(--brand-dark)" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>' : ''}
+          </div>
+          <div class="news-title">${n.title}</div>
+          <div class="news-excerpt">${n.excerpt || ''}</div>
+          <div class="news-meta">
+            <span>${n.author_name || 'Redacție IC'}</span>
+            <span>·</span>
+            <span>${timeAgo(n.created_at)}</span>
+          </div>
         </div>
-        <div class="news-title">${n.title}</div>
-        <div class="news-excerpt">${n.excerpt || ''}</div>
-        <div class="news-meta">
-          <span>${n.author_name || 'Redacție IC'}</span>
-          <span>·</span>
-          <span>${timeAgo(n.created_at)}</span>
+        ${canEdit ? `
+        <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+          <button onclick="event.stopPropagation();Stiri.openEditModal(${n.id})" title="Editează"
+            style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;color:var(--text-muted);transition:all 0.15s"
+            onmouseover="this.style.borderColor='var(--brand)';this.style.color='var(--brand)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">✏️</button>
+          <button onclick="event.stopPropagation();Stiri.confirmDelete(${n.id})" title="Șterge"
+            style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;color:var(--text-muted);transition:all 0.15s"
+            onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">🗑️</button>
         </div>
+        ` : ''}
       </div>
     `;
   },
@@ -98,6 +113,7 @@ const Stiri = {
   openDetail(id) {
     const n = this.news.find(n => n.id === id);
     if (!n) return;
+    const canEdit = Auth.isAdmin();
     openModal(n.title, `
       <div class="space-y-3">
         <div class="flex items-center gap-2">
@@ -107,7 +123,10 @@ const Stiri = {
         <div class="text-xs text-muted">${n.author_name || 'Redacție IC'} · ${formatDateTime(n.created_at)}</div>
         <div style="font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap">${n.content || n.excerpt || ''}</div>
       </div>
-    `, `<button class="btn-secondary" onclick="closeModalForce()">Închide</button>`);
+    `, `
+      ${canEdit ? `<button class="btn-secondary" onclick="closeModalForce();Stiri.openEditModal(${n.id})">✏️ Editează</button>` : ''}
+      <button class="btn-secondary" onclick="closeModalForce()">Închide</button>
+    `);
   },
 
   openNewModal() {
@@ -140,6 +159,83 @@ const Stiri = {
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
       <button class="btn-brand" onclick="Stiri.saveNew()">Publică</button>
     `);
+  },
+
+  openEditModal(id) {
+    const n = this.news.find(n => n.id === id);
+    if (!n) return;
+    openModal('Editează știrea', `
+      <div class="space-y-3">
+        <div>
+          <label class="label">Titlu *</label>
+          <input type="text" id="edit-news-title" class="input" value="${(n.title || '').replace(/"/g, '&quot;')}" />
+        </div>
+        <div>
+          <label class="label">Categorie</label>
+          <select id="edit-news-cat" class="select">
+            ${this.CATEGORIES.filter(c => c.value !== 'toate').map(c =>
+              `<option value="${c.value}" ${n.category === c.value ? 'selected' : ''}>${c.label}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="label">Rezumat</label>
+          <textarea id="edit-news-excerpt" class="textarea" style="min-height:60px">${n.excerpt || ''}</textarea>
+        </div>
+        <div>
+          <label class="label">Conținut complet</label>
+          <textarea id="edit-news-content" class="textarea">${n.content || ''}</textarea>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="checkbox" id="edit-news-pinned" style="width:16px;height:16px;accent-color:var(--brand)" ${n.is_pinned ? 'checked' : ''} />
+          <label for="edit-news-pinned" style="font-size:13px;cursor:pointer">Anunț important (pinned)</label>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" onclick="Stiri.saveEdit(${id})">Salvează</button>
+    `);
+  },
+
+  async saveEdit(id) {
+    const title = document.getElementById('edit-news-title')?.value?.trim();
+    if (!title) { showToast('Completează titlul', 'error'); return; }
+    const updates = {
+      title,
+      category: document.getElementById('edit-news-cat')?.value,
+      excerpt: document.getElementById('edit-news-excerpt')?.value?.trim(),
+      content: document.getElementById('edit-news-content')?.value?.trim(),
+      is_pinned: document.getElementById('edit-news-pinned')?.checked || false,
+      updated_at: new Date().toISOString(),
+    };
+    const sb = getSupabase();
+    if (!sb) { showToast('Nu ești conectat', 'error'); return; }
+    const { error } = await sb.from('news').update(updates).eq('id', id);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    closeModalForce();
+    showToast('Știre actualizată!', 'success');
+    await this.render();
+  },
+
+  confirmDelete(id) {
+    const n = this.news.find(n => n.id === id);
+    if (!n) return;
+    openModal('Șterge știrea', `
+      <p style="font-size:14px;color:var(--text)">Ești sigur că vrei să ștergi știrea <strong>"${n.title}"</strong>? Această acțiune nu poate fi anulată.</p>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button style="background:#ef4444;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer" onclick="Stiri.doDelete(${id})">Șterge definitiv</button>
+    `);
+  },
+
+  async doDelete(id) {
+    const sb = getSupabase();
+    if (!sb) { showToast('Nu ești conectat', 'error'); return; }
+    const { error } = await sb.from('news').delete().eq('id', id);
+    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    closeModalForce();
+    showToast('Știre ștearsă.', 'success');
+    await this.render();
   },
 
   async saveNew() {

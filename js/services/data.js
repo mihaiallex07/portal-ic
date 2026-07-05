@@ -204,6 +204,23 @@ const DB = {
     return dbQuery('news', q => q.insert(item).select().single(), null);
   },
 
+  async updateNews(id, updates) {
+    if (APP_CONFIG.demoMode) {
+      const idx = this.demo.news.findIndex(n => n.id === id);
+      if (idx !== -1) Object.assign(this.demo.news[idx], updates);
+      return { error: null };
+    }
+    return dbQuery('news', q => q.update(updates).eq('id', id), null);
+  },
+
+  async deleteNews(id) {
+    if (APP_CONFIG.demoMode) {
+      this.demo.news = this.demo.news.filter(n => n.id !== id);
+      return { error: null };
+    }
+    return dbQuery('news', q => q.delete().eq('id', id), null);
+  },
+
   async getDocuments(category) {
     if (APP_CONFIG.demoMode) {
       let docs = [...this.demo.documents];

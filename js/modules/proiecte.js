@@ -404,7 +404,7 @@ const Proiecte = {
     if (tab === 'etape') return this.renderEtapeTab(canEdit);
     if (tab === 'echipa') return this.renderEchipaTab(canEdit);
     if (tab === 'rapoarte') return this.renderRapoarteTab();
-    if (tab === 'jurnal') { this.renderJurnalTab(); return '<div id="jurnal-content"><div style="text-align:center;padding:40px;color:var(--text-muted)">Se încarcă jurnalul...</div></div>'; }
+    if (tab === 'jurnal') { setTimeout(() => this.renderJurnalTab(), 80); return '<div id="jurnal-content"><div style="text-align:center;padding:40px;color:var(--text-muted)">Se încarcă jurnalul...</div></div>'; }
     return '';
   },
 
