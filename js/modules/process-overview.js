@@ -6,8 +6,9 @@
 const ProcessOverview = {
   ZOOM_PX: 28,
   LABEL_W: 240,
-  ROW_H: 60,
-  BAR_H: 22,
+  ROW_H: 44,
+  BAR_H: 14,
+  MAX_BARS: 3,
   DEPT_H: 32,
   DAYS: 90,
   offsetDays: 0,
@@ -179,8 +180,9 @@ const ProcessOverview = {
           const bars = userBarsMap[user.id] || [];
           let barsHtml = '';
 
-          // Afișăm TOATE barele — înălțimea rândului se calculează dinamic
-          const visibleBars = bars;
+          // Afișăm max MAX_BARS bare, restul ca indicator "+N"
+          const visibleBars = bars.slice(0, this.MAX_BARS);
+          const hiddenCount = bars.length - visibleBars.length;
           visibleBars.forEach((bar, idx) => {
             const ps = new Date(bar.start_date);
             const pe = new Date(bar.end_date);
@@ -193,7 +195,7 @@ const ProcessOverview = {
 
             const left = Math.round((barStart - gs) / 86400000) * this.ZOOM_PX;
             const width = Math.max(this.ZOOM_PX, Math.round((barEnd - barStart) / 86400000 + 1) * this.ZOOM_PX);
-            const top = idx * (this.BAR_H + 3);
+            const top = idx * (this.BAR_H + 2);
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
 
@@ -243,15 +245,16 @@ const ProcessOverview = {
             `;
           });
 
-          // Înălțime dinamică: fiecare bară ocupă BAR_H + 3px, minim ROW_H
-          const FIXED_ROW_H = Math.max(this.ROW_H, bars.length * (this.BAR_H + 3) + 12);
+          // Înălțime dinamică: max MAX_BARS bare vizibile, minim ROW_H
+          const visibleCount = Math.min(visibleBars.length, this.MAX_BARS);
+          const FIXED_ROW_H = Math.max(this.ROW_H, visibleCount * (this.BAR_H + 2) + 12);
           rowsHtml += `
             <div class="gantt-row" style="height:${FIXED_ROW_H}px">
               <div class="gantt-label" style="width:${LW}px;height:${FIXED_ROW_H}px">
                 <div class="gantt-user-avatar">${Auth.getInitials(user.full_name)}</div>
                 <div class="gantt-user-info">
                   <div class="gantt-user-name">${user.full_name}</div>
-                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}</div>
+                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}${hiddenCount > 0 ? ` <span style="color:var(--brand);font-weight:700;font-size:10px" title="${hiddenCount} task-uri suplimentare">+${hiddenCount}</span>` : ''}</div>
                 </div>
               </div>
               <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${FIXED_ROW_H}px">

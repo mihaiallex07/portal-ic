@@ -391,6 +391,117 @@
     }
 
     // ============================================================
+    // EMAIL LOGIN (fără token în URL)
+    // ============================================================
+    function renderEmailLogin() {
+      const main = document.getElementById('main-content');
+      if (!main) return;
+      main.innerHTML = `
+        <div style="max-width:480px;margin:80px auto;padding:0 16px">
+          <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+            <div style="text-align:center;margin-bottom:32px">
+              <div style="width:64px;height:64px;background:var(--brand);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">📋</div>
+              <h2 style="font-size:22px;font-weight:700;margin-bottom:8px">Acces Portal Proiecte</h2>
+              <p style="color:var(--text-muted);font-size:14px">Introduceți adresa de email cu care ați fost invitat pentru a vedea proiectele dumneavoastră.</p>
+            </div>
+            <div id="email-login-form">
+              <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Adresă email</label>
+              <input id="beneficiar-email" type="email" placeholder="exemplu@email.com"
+                style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s"
+                onkeydown="if(event.key==='Enter') lookupByEmail()"
+                onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--border)'" />
+              <div id="email-login-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>
+              <button onclick="lookupByEmail()"
+                style="width:100%;margin-top:16px;padding:12px;background:var(--brand);color:#1a1a1a;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s"
+                onmouseover="this.style.background='var(--brand-dark)'" onmouseout="this.style.background='var(--brand)'">
+                Accesează proiectele mele
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function lookupByEmail() {
+      const emailInput = document.getElementById('beneficiar-email');
+      const errorDiv = document.getElementById('email-login-error');
+      const email = emailInput?.value?.trim().toLowerCase();
+      if (!email) {
+        errorDiv.textContent = 'Introduceți o adresă de email validă.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      errorDiv.style.display = 'none';
+      const btn = document.querySelector('#email-login-form button');
+      if (btn) { btn.textContent = 'Se caută...'; btn.disabled = true; }
+
+      const { data: records, error } = await sb
+        .from('project_beneficiaries')
+        .select('*, projects(id, name, code, abbreviation, color, status, start_date, end_date, client_name, description)')
+        .eq('email', email)
+        .neq('status', 'expired');
+
+      if (btn) { btn.textContent = 'Accesează proiectele mele'; btn.disabled = false; }
+
+      if (error || !records || records.length === 0) {
+        errorDiv.textContent = 'Nu am găsit nicio invitație pentru această adresă de email. Verificați adresa sau contactați echipa de proiect.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      // Filtrăm recordurile cu token valid (neexpirat)
+      const valid = records.filter(r => !r.token_expires_at || new Date(r.token_expires_at) > new Date());
+      if (valid.length === 0) {
+        errorDiv.textContent = 'Toate invitațiile dumneavoastră au expirat. Contactați echipa de proiect.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      if (valid.length === 1) {
+        // Un singur proiect: redirect cu token
+        window.location.href = '?token=' + valid[0].access_token;
+        return;
+      }
+
+      // Mai multe proiecte: afișăm lista
+      renderProjectList(valid, email);
+    }
+
+    function renderProjectList(records, email) {
+      const main = document.getElementById('main-content');
+      if (!main) return;
+      const projectsHtml = records.map(r => {
+        const p = r.projects || {};
+        const color = p.color || '#FFCB09';
+        return `
+          <a href="?token=${r.access_token}" style="display:block;text-decoration:none;padding:16px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:12px;transition:border-color 0.2s;background:#fff"
+            onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:40px;height:40px;border-radius:8px;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#1a1a1a;flex-shrink:0">
+                ${p.abbreviation || p.code || '?'}
+              </div>
+              <div>
+                <div style="font-weight:700;font-size:15px;color:var(--text)">${p.name || 'Proiect'}</div>
+                <div style="font-size:12px;color:var(--text-muted)">${p.code ? 'Cod: ' + p.code : ''} ${p.status ? '· ' + p.status : ''}</div>
+              </div>
+              <div style="margin-left:auto;color:var(--brand);font-size:20px">→</div>
+            </div>
+          </a>
+        `;
+      }).join('');
+      main.innerHTML = `
+        <div style="max-width:560px;margin:60px auto;padding:0 16px">
+          <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+            <h2 style="font-size:20px;font-weight:700;margin-bottom:4px">Proiectele tale</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px">Ai acces la ${records.length} proiect${records.length > 1 ? 'e' : ''} ca beneficiar.</p>
+            ${projectsHtml}
+            <button onclick="renderEmailLogin()" style="margin-top:16px;background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;text-decoration:underline">← Caută cu alt email</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============================================================
     // MAIN LOAD
     // ============================================================
     async function loadProject() {
@@ -398,7 +509,8 @@
       const token = params.get('token');
 
       if (!token) {
-        renderError('Link invalid', 'Acest link nu conține un token de acces valid. Contactați echipa de proiect.');
+        // Fără token: afișăm formular de login pe email
+        renderEmailLogin();
         return;
       }
 

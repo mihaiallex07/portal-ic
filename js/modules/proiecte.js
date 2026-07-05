@@ -969,8 +969,14 @@ const Proiecte = {
     const budgetH = parseFloat(newValue) || 0;
     const sb = getSupabase();
     if (!sb) return;
+    const phase = this.phases.find(p => p.id === phaseId);
+    const oldBudget = phase?.budget_hours ?? null;
     const { error } = await sb.from('project_phases').update({ budget_hours: budgetH }).eq('id', phaseId);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    if (phase) phase.budget_hours = budgetH;
+    if (oldBudget !== budgetH) {
+      this.logChange('budget', 'etapă', phase?.name || 'etapă', oldBudget != null ? oldBudget + 'h' : null, budgetH + 'h', 'Modificare buget ore etapă');
+    }
     showToast('Buget etapă actualizat', 'success');
     // Nu re-render complet pentru a nu pierde focus
   },
@@ -1324,8 +1330,13 @@ const Proiecte = {
   async saveEditTask(taskId) {
     const name = document.getElementById('edit-task-name')?.value?.trim();
     if (!name) { showToast('Completează numele sarcinii', 'error'); return; }
+    const oldTask = this.tasks.find(t => t.id === taskId);
+    const oldName = oldTask?.name || null;
     const result = await dbQuery('project_tasks', q => q.update({ name }).eq('id', taskId), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
+    if (oldName && oldName !== name) {
+      this.logChange('rename', 'task', name, oldName, name, `Sarcină redenumită: "${oldName}" → "${name}"`);
+    }
     closeModalForce();
     showToast('Sarcină actualizată!', 'success');
     await this.loadProjectDetails(this.currentProject.id);
