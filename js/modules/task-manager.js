@@ -174,8 +174,27 @@ const TaskManager = {
     const filtered = this.getFilteredTasks();
     const stats = this.calcStats();
 
+    // Banner debug temporar
+    const debugInfo = {
+      userId: Auth.currentUser?.id || 'N/A',
+      role: Auth.currentProfile?.role || 'N/A',
+      projects: this.projects.length,
+      tasks: this.tasks.length,
+      sbOk: !!getSupabase(),
+    };
+
     container.innerHTML = `
       <div class="tm-wrapper">
+        <!-- DEBUG BANNER -->
+        <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:12px;font-family:monospace">
+          <strong>🔍 Debug:</strong>
+          userId=${debugInfo.userId} |
+          role=${debugInfo.role} |
+          projects=${debugInfo.projects} |
+          tasks=${debugInfo.tasks} |
+          supabase=${debugInfo.sbOk}
+          <button onclick="this.parentElement.remove()" style="float:right;border:none;background:none;cursor:pointer">✕</button>
+        </div>
         <!-- Header -->
         <div class="tm-header">
           <div>
