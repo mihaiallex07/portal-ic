@@ -13,6 +13,7 @@ const TimeTracking = {
   entries: [],
   projects: [],
   tasks: [],
+  phases: [],
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -129,6 +130,17 @@ const TimeTracking = {
       );
     } else {
       this.tasks = [];
+    }
+    // Încărcă etapele pentru proiectele la care utilizatorul este membru
+    if (this.projects.length > 0) {
+      const projectIds = this.projects.map(p => p.id);
+      const phasesRes = await sb.from('project_phases')
+        .select('id,name,project_id,display_order,color')
+        .in('project_id', projectIds)
+        .order('display_order');
+      this.phases = phasesRes.data || [];
+    } else {
+      this.phases = [];
     }
   },
 

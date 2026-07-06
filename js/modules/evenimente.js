@@ -222,11 +222,35 @@ const Evenimente = {
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora start *</label>
-              <input id="ev-start" type="time" value="${ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
+              \${(() => {
+                const _st = ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00';
+                const startH = _st.split(':')[0]; const startM = _st.split(':')[1];
+                return \`<div style="display:flex;gap:4px;align-items:center">
+                  <select id="ev-start-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
+                    \${Array.from({length:24},(_,h)=>\`<option value="\${String(h).padStart(2,'0')}" \${startH===String(h).padStart(2,'0')?'selected':''}>\${String(h).padStart(2,'0')}</option>\`).join('')}
+                  </select>
+                  <span style="font-weight:700;color:var(--text-muted)">:</span>
+                  <select id="ev-start-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
+                    \${[0,5,10,15,20,25,30,35,40,45,50,55].map(m=>\`<option value="\${String(m).padStart(2,'0')}" \${startM===String(m).padStart(2,'0')?'selected':''}>\${String(m).padStart(2,'0')}</option>\`).join('')}
+                  </select>
+                </div>\`;
+              })()}
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora final *</label>
-              <input id="ev-end" type="time" value="${ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
+              \${(() => {
+                const _et = ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00';
+                const endH = _et.split(':')[0]; const endM = _et.split(':')[1];
+                return \`<div style="display:flex;gap:4px;align-items:center">
+                  <select id="ev-end-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
+                    \${Array.from({length:24},(_,h)=>\`<option value="\${String(h).padStart(2,'0')}" \${endH===String(h).padStart(2,'0')?'selected':''}>\${String(h).padStart(2,'0')}</option>\`).join('')}
+                  </select>
+                  <span style="font-weight:700;color:var(--text-muted)">:</span>
+                  <select id="ev-end-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
+                    \${[0,5,10,15,20,25,30,35,40,45,50,55].map(m=>\`<option value="\${String(m).padStart(2,'0')}" \${endM===String(m).padStart(2,'0')?'selected':''}>\${String(m).padStart(2,'0')}</option>\`).join('')}
+                  </select>
+                </div>\`;
+              })()}
             </div>
           </div>
 
@@ -373,8 +397,12 @@ const Evenimente = {
   async saveEvent(editId) {
     const title = document.getElementById('ev-title')?.value?.trim();
     const eventDate = document.getElementById('ev-date')?.value;
-    const startTime = document.getElementById('ev-start')?.value;
-    const endTime = document.getElementById('ev-end')?.value;
+    const _sh = document.getElementById('ev-start-h')?.value || '09';
+    const _sm = document.getElementById('ev-start-m')?.value || '00';
+    const startTime = _sh + ':' + _sm;
+    const _eh = document.getElementById('ev-end-h')?.value || '10';
+    const _em = document.getElementById('ev-end-m')?.value || '00';
+    const endTime = _eh + ':' + _em;
     if (!title || !eventDate || !startTime || !endTime) {
       showToast('Completează câmpurile obligatorii: titlu, dată, ore', 'error');
       return;

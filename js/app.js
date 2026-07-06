@@ -473,40 +473,43 @@ async function stopActiveTimer() {
 }
 
 // Quick start modal - start rapid task din header
+// 3 dropdown-uri: Proiect → Etapă → Task (filtrate strict după arondare)
 function openQuickStartModal() {
-  // Toți utilizatorii (inclusiv admin/coordonator) văd DOAR proiectele la care sunt membri
   let projects = [];
   if (typeof TimeTracking !== 'undefined' && TimeTracking.projects?.length) {
-    // TimeTracking.projects este deja filtrat per membership pentru toți utilizatorii
     projects = TimeTracking.projects;
   } else if (typeof Proiecte !== 'undefined' && Proiecte.projects?.length) {
-    // Fallback: filtrăm strict după project_members indiferent de rol
     const userId = String(Auth.currentUser?.id || '');
     const myProjectIds = new Set(
       (Proiecte.members || []).filter(m => String(m.user_id) === userId).map(m => m.project_id)
     );
     projects = Proiecte.projects.filter(p => p.status === 'activ' && myProjectIds.has(p.id));
   }
-  const projectOptions = projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-
-  openModal('Start rapid task', `
+  const projectOptions = projects.map(p => `<option value="${p.id}">${p.emoji || ''} ${p.name}</option>`).join('');
+  openModal('▶ Start rapid task', `
     <div class="space-y-3">
       <div>
-        <label class="label">Proiect</label>
-        <select id="qs-project" class="select" onchange="quickStartLoadTasks(this.value)">
+        <label class="label">Proiect *</label>
+        <select id="qs-project" class="select" onchange="quickStartLoadPhases(this.value)">
           <option value="">— Selectează proiect —</option>
           ${projectOptions}
         </select>
       </div>
       <div>
-        <label class="label">Task</label>
-        <select id="qs-task" class="select">
-          <option value="">— Selectează task —</option>
+        <label class="label">Etapă</label>
+        <select id="qs-phase" class="select" onchange="quickStartLoadTasks(document.getElementById('qs-project').value, this.value)" disabled>
+          <option value="">— Selectează mai întâi proiectul —</option>
         </select>
       </div>
       <div>
-        <label class="label">Sau descrie activitatea</label>
-        <input type="text" id="qs-desc" class="input" placeholder="Ex: Modelare 3D Draft 1" />
+        <label class="label">Task</label>
+        <select id="qs-task" class="select" disabled>
+          <option value="">— Selectează mai întâi etapa —</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Sau descrie activitatea liber</label>
+        <input type="text" id="qs-desc" class="input" placeholder="Ex: Modelare 3D Draft 1, Ședință client..." />
       </div>
     </div>
   `, `
@@ -515,25 +518,70 @@ function openQuickStartModal() {
   `);
 }
 
-function quickStartLoadTasks(projectId) {
+function quickStartLoadPhases(projectId) {
+  const phaseSelect = document.getElementById('qs-phase');
+  const taskSelect = document.getElementById('qs-task');
+  if (!phaseSelect || !taskSelect) return;
+  if (!projectId) {
+    phaseSelect.innerHTML = '<option value="">— Selectează mai întâi proiectul —</option>';
+    phaseSelect.disabled = true;
+    taskSelect.innerHTML = '<option value="">— Selectează mai întâi etapa —</option>';
+    taskSelect.disabled = true;
+    return;
+  }
+  const pid = parseInt(projectId);
+  let phases = [];
+  if (typeof TimeTracking !== 'undefined' && TimeTracking.phases?.length) {
+    phases = TimeTracking.phases.filter(ph => ph.project_id === pid);
+  } else if (typeof Proiecte !== 'undefined' && Proiecte.phases?.length) {
+    phases = Proiecte.phases.filter(ph => ph.project_id === pid);
+  }
+  const userId = Auth.currentUser?.id;
+  let myTasks = [];
+  if (typeof TimeTracking !== 'undefined' && TimeTracking.tasks?.length) {
+    myTasks = TimeTracking.tasks.filter(t => t.project_id === pid);
+  } else if (typeof Proiecte !== 'undefined' && Proiecte.tasks?.length) {
+    myTasks = Proiecte.tasks.filter(t => t.project_id === pid && t.assigned_user_id === userId);
+  }
+  const phaseIdsWithTasks = new Set(myTasks.map(t => t.phase_id).filter(Boolean));
+  const filteredPhases = phases.filter(ph => phaseIdsWithTasks.has(ph.id));
+  const hasTasksWithoutPhase = myTasks.some(t => !t.phase_id);
+  phaseSelect.innerHTML = '<option value="">— Toate etapele —</option>' +
+    filteredPhases.map(ph => `<option value="${ph.id}">${ph.name}</option>`).join('') +
+    (hasTasksWithoutPhase ? '<option value="0">Fără etapă</option>' : '');
+  phaseSelect.disabled = false;
+  taskSelect.innerHTML = '<option value="">— Selectează etapa —</option>';
+  taskSelect.disabled = true;
+  if (filteredPhases.length === 1 && !hasTasksWithoutPhase) {
+    phaseSelect.value = filteredPhases[0].id;
+    quickStartLoadTasks(pid, filteredPhases[0].id);
+  } else if (filteredPhases.length === 0 && hasTasksWithoutPhase) {
+    phaseSelect.value = '0';
+    quickStartLoadTasks(pid, '0');
+  } else if (filteredPhases.length === 0 && !hasTasksWithoutPhase) {
+    quickStartLoadTasks(pid, '');
+  }
+}
+
+function quickStartLoadTasks(projectId, phaseId) {
   const taskSelect = document.getElementById('qs-task');
   if (!taskSelect) return;
   const pid = parseInt(projectId);
   const userId = Auth.currentUser?.id;
-
-  // Toți utilizatorii (inclusiv admin) văd DOAR task-urile alocate lor explicit
   let tasks = [];
   if (typeof TimeTracking !== 'undefined' && TimeTracking.tasks?.length) {
-    // TimeTracking.tasks este filtrat după assigned_user_id pentru toți
     tasks = TimeTracking.tasks.filter(t => t.project_id === pid);
-  } else {
-    // Fallback: Proiecte.tasks — filtru strict pe assigned_user_id pentru toți
-    const allTasks = (typeof Proiecte !== 'undefined' && Proiecte.tasks) ? Proiecte.tasks : [];
-    tasks = allTasks.filter(t => t.project_id === pid && t.assigned_user_id === userId);
+  } else if (typeof Proiecte !== 'undefined' && Proiecte.tasks?.length) {
+    tasks = Proiecte.tasks.filter(t => t.project_id === pid && t.assigned_user_id === userId);
   }
-
+  if (phaseId !== '' && phaseId !== undefined && phaseId !== null) {
+    const phId = parseInt(phaseId);
+    if (phId === 0) tasks = tasks.filter(t => !t.phase_id);
+    else if (!isNaN(phId)) tasks = tasks.filter(t => t.phase_id === phId);
+  }
   taskSelect.innerHTML = '<option value="">— Selectează task —</option>' +
     tasks.map(t => `<option value="${t.id}" data-name="${(t.name||'').replace(/"/g,'&quot;')}">${t.name}</option>`).join('');
+  taskSelect.disabled = tasks.length === 0;
 }
 
 function quickStartConfirm() {
