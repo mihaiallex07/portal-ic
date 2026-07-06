@@ -13,6 +13,7 @@ const ROUTES = {
   'process-overview':  { label: 'Process Overview',      module: () => ProcessOverview.render() },
   'proiecte':          { label: 'Proiecte',              module: () => Proiecte.render() },
   'formulare':         { label: 'Formulare & Cereri',    module: () => Formulare.render() },
+  'task-manager':      { label: 'Task Manager',            module: () => TaskManager.render() },
   'viziune':           { label: 'Viziune & Valori',      module: () => Viziune.render() },
   'regulament':        { label: 'Regulament intern',     module: () => Regulament.render() },
   'procese-proceduri': { label: 'Procese & Proceduri',   module: () => Procese.render() },

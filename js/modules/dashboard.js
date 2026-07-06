@@ -64,6 +64,51 @@ const Dashboard = {
     const weekMinutes = timeEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
     const unreadNotifs = notifications.length;
 
+    // Task-uri urgente pentru widget dashboard (top 5 cu alertă buget sau în lucru)
+    let urgentTasks = [];
+    if (!APP_CONFIG.demoMode) {
+      try {
+        const sb = getSupabase();
+        if (sb) {
+          const userIdStr = String(userId);
+          const projectIds = projects.map(p => p.id);
+          if (projectIds.length > 0) {
+            const [myTasksRes, assignRes] = await Promise.all([
+              sb.from('project_tasks').select('id,name,project_id,phase_id,assigned_user_id,assigned_users,budget_hours,minutes_worked').in('project_id', projectIds).order('display_order'),
+              sb.from('project_task_assignments').select('task_id').eq('user_id', userId).in('project_id', projectIds),
+            ]);
+            const allMyTasks = myTasksRes.data || [];
+            const assignedTaskIds = new Set((assignRes.data || []).map(a => String(a.task_id)));
+            const memberships2 = (membershipsRes.data || []);
+            const coordProjIds = new Set(memberships2.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
+            const filtered = allMyTasks.filter(t => {
+              if (coordProjIds.has(String(t.project_id))) return true;
+              if (String(t.assigned_user_id) === userIdStr) return true;
+              if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
+              if (assignedTaskIds.has(String(t.id))) return true;
+              return false;
+            });
+            urgentTasks = filtered.map(t => {
+              const proj = projects.find(p => p.id === t.project_id);
+              const workedH = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+              const budgetH = t.budget_hours || 0;
+              const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
+              let alert = null;
+              if (pct >= 100) alert = 'exceeded';
+              else if (pct >= 90) alert = 'critical';
+              else if (pct >= 75) alert = 'warning';
+              return { ...t, proj, workedH, budgetH, pct, alert };
+            }).filter(t => t.alert || (window.activeTimerData?.taskId === t.id))
+              .sort((a, b) => {
+                const ao = a.alert === 'exceeded' ? 0 : a.alert === 'critical' ? 1 : 2;
+                const bo = b.alert === 'exceeded' ? 0 : b.alert === 'critical' ? 1 : 2;
+                return ao !== bo ? ao - bo : b.pct - a.pct;
+              }).slice(0, 5);
+          }
+        }
+      } catch(e) { urgentTasks = []; }
+    }
+
     const profile = Auth.currentProfile;
     const greeting = getGreeting();
 
@@ -167,6 +212,53 @@ const Dashboard = {
                 }
               </div>
             </div>
+
+            <!-- Widget Task Manager — Sarcini urgente -->  
+            ${urgentTasks.length > 0 ? `
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">⚠ Sarcini cu alertă buget</span>
+                <button class="btn-brand" style="font-size:12px;padding:5px 12px" onclick="navigate('task-manager', null)">
+                  Task Manager
+                </button>
+              </div>
+              <div class="card-body" style="padding:0">
+                ${urgentTasks.map(t => {
+                  const barColor = t.pct >= 100 ? '#EF4444' : t.pct >= 90 ? '#EF4444' : '#F59E0B';
+                  const alertLabel = t.alert === 'exceeded' ? '⚠ Depășit' : t.alert === 'critical' ? '🔴 <10%' : '🟡 <25%';
+                  return `
+                    <div class="flex items-center gap-3 p-3 cursor-pointer" style="border-bottom:1px solid var(--border)" onclick="navigate('task-manager', null)">
+                      <div style="width:3px;height:36px;border-radius:2px;background:${barColor};flex-shrink:0"></div>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.name}</div>
+                        <div class="text-xs text-muted">${t.proj?.emoji || '📁'} ${t.proj?.name || 'Proiect'}</div>
+                      </div>
+                      <div style="text-align:right;flex-shrink:0">
+                        <div style="font-size:12px;font-weight:700;color:${barColor}">${t.pct}%</div>
+                        <div style="font-size:10px;color:${barColor};white-space:nowrap">${alertLabel}</div>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+            ` : `
+            <div class="card" style="border:1px dashed var(--border);background:transparent">
+              <div class="card-header">
+                <span class="card-title">Task Manager</span>
+                <button class="btn-secondary" style="font-size:12px;padding:5px 12px" onclick="navigate('task-manager', null)">
+                  Deschide
+                </button>
+              </div>
+              <div style="padding:16px 20px;display:flex;align-items:center;gap:12px">
+                <div style="font-size:28px">✅</div>
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text)">Nicio alertă de buget</div>
+                  <div class="text-xs text-muted">Toate sarcinile tale sunt în parametri normali</div>
+                </div>
+              </div>
+            </div>
+            `}
           </div>
 
           <div class="dashboard-right">
