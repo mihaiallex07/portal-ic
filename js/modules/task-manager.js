@@ -85,16 +85,30 @@ const TaskManager = {
 
       const userIdStr = String(userId);
       const assignedTaskIds = new Set(this.assignments.map(a => String(a.task_id)));
+      const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
+      // Proiectele pe care userul le coordoneaza (rol coordonator SAU admin global)
+      const adminOrCoordProjectIds = new Set([
+        ...coordProjectIds,
+        ...(isGlobalAdmin ? this.projects.map(p => String(p.id)) : []),
+      ]);
+
+      console.log('[TaskManager] userId:', userIdStr, 'isAdmin:', isGlobalAdmin,
+        'projects:', this.projects.length, 'allTasks:', allTasks.length,
+        'assignments:', this.assignments.length, 'coordProjects:', coordProjectIds.size,
+        'adminOrCoordProjects:', adminOrCoordProjectIds.size);
 
       // Filtrare: task-urile vizibile pentru utilizatorul curent
-      // Coordonatorii văd toate task-urile din proiectele lor
+      // Admin global si coordonatori vad TOATE task-urile din proiectele lor
+      // Angajatii vad task-urile alocate explicit lor
       const myTasks = allTasks.filter(t => {
-        if (coordProjectIds.has(String(t.project_id))) return true;
+        if (adminOrCoordProjectIds.has(String(t.project_id))) return true;
         if (String(t.assigned_user_id) === userIdStr) return true;
         if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
         if (assignedTaskIds.has(String(t.id))) return true;
         return false;
       });
+
+      console.log('[TaskManager] myTasks after filter:', myTasks.length);
 
       // Îmbogățim fiecare task cu date calculate
       this.tasks = myTasks.map(task => {
