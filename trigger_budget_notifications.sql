@@ -17,7 +17,7 @@ DECLARE
   proj_id BIGINT;
   assigned_user UUID;
   notif_title TEXT;
-  notif_body TEXT;
+  notif_message TEXT;
   threshold NUMERIC;
   thresholds NUMERIC[] := ARRAY[50, 25, 10, 5];
 BEGIN
@@ -46,14 +46,14 @@ BEGIN
       -- Notificare pentru utilizatorul asignat pe task
       IF NEW.assigned_user_id IS NOT NULL THEN
         notif_title := 'Buget aproape epuizat — ' || threshold::TEXT || '% rămas';
-        notif_body := 'Sarcina "' || task_name || '" din proiectul "' || proj_name || '" mai are doar ' || threshold::TEXT || '% din bugetul de ore alocat.';
+        notif_message := 'Sarcina "' || task_name || '" din proiectul "' || proj_name || '" mai are doar ' || threshold::TEXT || '% din bugetul de ore alocat.';
         
-        INSERT INTO notifications (user_id, type, title, body, project_id, task_id, is_read, created_at)
+        INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read, created_at)
         VALUES (
           NEW.assigned_user_id,
           'budget_warning',
           notif_title,
-          notif_body,
+          notif_message,
           NEW.project_id,
           NEW.id,
           false,
@@ -63,12 +63,12 @@ BEGIN
       END IF;
 
       -- Notificare și pentru coordonatorii/adminii proiectului
-      INSERT INTO notifications (user_id, type, title, body, project_id, task_id, is_read, created_at)
+      INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read, created_at)
       SELECT 
         pm.user_id,
         'budget_warning',
         notif_title,
-        notif_body,
+        notif_message,
         NEW.project_id,
         NEW.id,
         false,
@@ -85,16 +85,16 @@ BEGIN
   -- Notificare specială când bugetul e DEPĂȘIT (100%+)
   IF old_pct < 100 AND new_pct >= 100 THEN
     notif_title := '⚠️ Buget DEPĂȘIT — ' || task_name;
-    notif_body := 'Sarcina "' || task_name || '" din proiectul "' || proj_name || '" a depășit bugetul alocat de ' || NEW.budget_hours::TEXT || ' ore!';
+    notif_message := 'Sarcina "' || task_name || '" din proiectul "' || proj_name || '" a depășit bugetul alocat de ' || NEW.budget_hours::TEXT || ' ore!';
     
     IF NEW.assigned_user_id IS NOT NULL THEN
-      INSERT INTO notifications (user_id, type, title, body, project_id, task_id, is_read, created_at)
-      VALUES (NEW.assigned_user_id, 'budget_exceeded', notif_title, notif_body, NEW.project_id, NEW.id, false, NOW())
+      INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read, created_at)
+      VALUES (NEW.assigned_user_id, 'budget_exceeded', notif_title, notif_message, NEW.project_id, NEW.id, false, NOW())
       ON CONFLICT DO NOTHING;
     END IF;
 
-    INSERT INTO notifications (user_id, type, title, body, project_id, task_id, is_read, created_at)
-    SELECT pm.user_id, 'budget_exceeded', notif_title, notif_body, NEW.project_id, NEW.id, false, NOW()
+    INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read, created_at)
+    SELECT pm.user_id, 'budget_exceeded', notif_title, notif_message, NEW.project_id, NEW.id, false, NOW()
     FROM project_members pm
     WHERE pm.project_id = NEW.project_id
       AND pm.role IN ('coordonator', 'admin')

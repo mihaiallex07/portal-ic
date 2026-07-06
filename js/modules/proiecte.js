@@ -459,7 +459,7 @@ const Proiecte = {
     const budgetH = phase.budget_hours || 0;
     const workedMin = phaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
     const workedH = Math.round(workedMin / 60 * 10) / 10;
-    const remainH = Math.max(0, budgetH - workedH);
+    const remainH = Math.round(Math.max(0, budgetH - workedH) * 100) / 100;
     const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const color = phase.color || '#3B82F6';
@@ -516,7 +516,7 @@ const Proiecte = {
   renderTaskRow(task, idx, canEdit, phaseBudget) {
     const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
     const budgetH = task.budget_hours || 0;
-    const remainH = Math.max(0, budgetH - workedH);
+    const remainH = Math.round(Math.max(0, budgetH - workedH) * 100) / 100;
     const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
     const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
@@ -1206,7 +1206,7 @@ const Proiecte = {
         <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:13px">
           <div>Ore bugetate: <strong>${budgetH}h</strong></div>
           <div>Ore consumate curent: <strong>${workedH}h</strong></div>
-          <div>Ore rămase: <strong>${Math.max(0, budgetH - workedH)}h</strong></div>
+          <div>Ore rămase: <strong>${Math.round(Math.max(0, budgetH - workedH) * 100) / 100}h</strong></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
