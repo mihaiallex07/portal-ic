@@ -77,6 +77,9 @@ function showApp(user, profile) {
   // Update notification badge (defined in notificari.js)
   if (typeof updateNotifBadge === 'function') updateNotifBadge();
 
+  // Validare timer după login (verifică că timer-ul aparține utilizatorului curent)
+  if (typeof _timerValidateUser === 'function') _timerValidateUser();
+
   // Hash routing
   const hash = window.location.hash.replace('#/', '');
   const route = ROUTES[hash] ? hash : 'dashboard';
@@ -314,9 +317,51 @@ function _timerLoad() {
     const raw = localStorage.getItem(TIMER_LS_KEY);
     if (!raw) return;
     const state = JSON.parse(raw);
-    window.activeTimerData = state.active || null;
-    window.pausedTimerData = state.paused || null;
+    const active = state.active || null;
+    const paused = state.paused || null;
+    // Validare: timer-ul nu trebuie să fie mai vechi de 24h
+    const now = Date.now();
+    const MAX_AGE = 24 * 60 * 60 * 1000;
+    if (active && (now - active.startTime) > MAX_AGE) {
+      localStorage.removeItem(TIMER_LS_KEY);
+      return;
+    }
+    if (paused && (now - paused.startTime) > MAX_AGE) {
+      localStorage.removeItem(TIMER_LS_KEY);
+      return;
+    }
+    // Validare userId: timer-ul trebuie să aparțină utilizatorului curent
+    // Auth.currentUser poate să nu fie încă disponibil la load, deci validăm lazy
+    window.activeTimerData = active;
+    window.pausedTimerData = paused;
+    window._timerPendingUserCheck = true; // flag pentru validare lazy după login
   } catch(e) {}
+}
+
+// Apelat după login pentru a valida că timer-ul aparține utilizatorului curent
+function _timerValidateUser() {
+  if (!window._timerPendingUserCheck) return;
+  window._timerPendingUserCheck = false;
+  const currentUserId = Auth?.currentUser?.id;
+  if (!currentUserId) return;
+  const active = window.activeTimerData;
+  const paused = window.pausedTimerData;
+  if (active && active.userId && active.userId !== currentUserId) {
+    window.activeTimerData = null;
+    window.pausedTimerData = null;
+    _timerClear();
+    return;
+  }
+  if (paused && paused.userId && paused.userId !== currentUserId) {
+    window.activeTimerData = null;
+    window.pausedTimerData = null;
+    _timerClear();
+    return;
+  }
+  // Dacă timer-ul există și e valid, pornim intervalul
+  if (window.activeTimerData && !_globalTimerInterval) {
+    startGlobalTimer();
+  }
 }
 
 function _timerClear() {
@@ -604,6 +649,7 @@ function quickStartConfirm() {
     const now = new Date();
     window.activeTimerData = {
       taskId: null, taskName, projectId,
+      userId: Auth?.currentUser?.id || null,
       startTime: Date.now(),
       startHour: now.getHours(),
       startMin: now.getMinutes(),

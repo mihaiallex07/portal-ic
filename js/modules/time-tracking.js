@@ -552,6 +552,26 @@ const TimeTracking = {
       status: 'salvat',
     };
 
-    return await sb.from('time_entries').insert(entry).select().single();
+    const result = await sb.from('time_entries').insert(entry).select().single();
+    // Actualizăm minutes_worked în project_tasks dacă există task_id
+    if (!result.error && entry.project_task_id) {
+      try {
+        // Citim valoarea curentă
+        const { data: taskData } = await sb
+          .from('project_tasks')
+          .select('minutes_worked')
+          .eq('id', entry.project_task_id)
+          .single();
+        if (taskData) {
+          const newMinutes = (taskData.minutes_worked || 0) + entry.duration_minutes;
+          await sb.from('project_tasks')
+            .update({ minutes_worked: newMinutes })
+            .eq('id', entry.project_task_id);
+        }
+      } catch(e) {
+        console.warn('[saveFromTimer] Nu am putut actualiza minutes_worked:', e);
+      }
+    }
+    return result;
   },
 };

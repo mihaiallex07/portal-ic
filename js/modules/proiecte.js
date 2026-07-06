@@ -959,6 +959,7 @@ const Proiecte = {
     const now = new Date();
     window.activeTimerData = {
       taskId, taskName, projectId, phaseId,
+      userId: Auth?.currentUser?.id || null,
       startTime: Date.now(),
       startHour: now.getHours(),
       startMin: now.getMinutes(),

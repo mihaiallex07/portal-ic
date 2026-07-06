@@ -20,15 +20,30 @@ const Formulare = {
     const userId = Auth.currentUser?.id;
     const isAdmin = Auth.currentProfile?.role === 'admin';
     const isCoord = Auth.currentProfile?.role === 'coordonator';
-    const { data: mele } = await sb.from('formulare_cereri')
-      .select('*, profiles:user_id(full_name,employee_code,department), approver:aprobat_de(full_name)')
-      .eq('user_id', userId).order('created_at', { ascending: false });
+    // Citim cererile fără JOIN (foreign key user_id → auth.users, nu profiles)
+    const { data: mele, error: errMele } = await sb.from('formulare_cereri')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (errMele) console.error('[Formulare] loadCereri mele error:', errMele);
     this.cereriMele = mele || [];
     if (isAdmin || isCoord) {
-      const { data: all } = await sb.from('formulare_cereri')
-        .select('*, profiles:user_id(full_name,employee_code,department), approver:aprobat_de(full_name)')
+      const { data: all, error: errAll } = await sb.from('formulare_cereri')
+        .select('*')
         .order('created_at', { ascending: false });
+      if (errAll) console.error('[Formulare] loadCereri all error:', errAll);
       this.cereriAll = all || [];
+      // Enrichment: adăugăm full_name din profiles pentru admin view
+      if (this.cereriAll.length > 0) {
+        const uids = [...new Set(this.cereriAll.map(c => c.user_id).filter(Boolean))];
+        const { data: profs } = await sb.from('profiles').select('id,full_name,employee_code,department').in('id', uids);
+        const profMap = {};
+        (profs || []).forEach(p => { profMap[p.id] = p; });
+        this.cereriAll = this.cereriAll.map(c => ({
+          ...c,
+          _profile: profMap[c.user_id] || null,
+        }));
+      }
     } else {
       this.cereriAll = [];
     }
@@ -74,20 +89,20 @@ const Formulare = {
               <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:8px;background:${sc.bg};color:${sc.color}">${sc.label}</span>
               <span style="font-size:11px;color:var(--text-muted);background:var(--bg);padding:2px 8px;border-radius:8px;border:1px solid var(--border)">${tip}</span>
             </div>
-            ${isTabAll ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">👤 ${c.profiles?.full_name || 'Angajat'}${c.profiles?.employee_code ? ' · ' + c.profiles.employee_code : ''}</div>` : ''}
+            ${isTabAll ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">👤 ${c._profile?.full_name || 'Angajat'}${c._profile?.employee_code ? ' · ' + c._profile.employee_code : ''}</div>` : ''}
             ${c.descriere ? `<div style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:4px">${c.descriere}</div>` : ''}
             ${c.detalii?.proiect || c.detalii?.ore_solicitate ? `<div style="font-size:12px;color:var(--text-muted)">📁 ${c.detalii.proiect || ''}${c.detalii.ore_solicitate ? ' · ⏱ ' + c.detalii.ore_solicitate + 'h solicitate' : ''}</div>` : ''}
             ${c.motiv_respingere ? `<div style="font-size:12px;color:#dc2626;margin-top:4px">❌ Motiv: ${c.motiv_respingere}</div>` : ''}
-            ${c.status !== 'trimis' && c.approver?.full_name ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">✍️ ${c.status === 'aprobat' ? 'Aprobat' : 'Respins'} de: ${c.approver.full_name}</div>` : ''}
+            ${c.status !== 'trimis' ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">✍️ ${c.status === 'aprobat' ? 'Aprobat' : 'Respins'}</div>` : ''}
             <div style="font-size:11px;color:var(--text-muted);margin-top:4px">📅 ${dateStr}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">
             ${canManageAll && c.status === 'trimis' ? `
-              <button onclick="Formulare.approveRequest(${c.id})" style="font-size:12px;padding:5px 12px;border-radius:6px;background:#d1fae5;color:#059669;border:none;cursor:pointer;font-weight:600">✓ Aprobă</button>
-              <button onclick="Formulare.rejectRequest(${c.id})" style="font-size:12px;padding:5px 12px;border-radius:6px;background:#fee2e2;color:#dc2626;border:none;cursor:pointer;font-weight:600">✗ Respinge</button>
+              <button onclick="Formulare.approveRequest('${c.id}')" style="font-size:12px;padding:5px 12px;border-radius:6px;background:#d1fae5;color:#059669;border:none;cursor:pointer;font-weight:600">✓ Aprobă</button>
+              <button onclick="Formulare.rejectRequest('${c.id}')" style="font-size:12px;padding:5px 12px;border-radius:6px;background:#fee2e2;color:#dc2626;border:none;cursor:pointer;font-weight:600">✗ Respinge</button>
             ` : ''}
             ${c.user_id === userId && c.status === 'trimis' ? `
-              <button onclick="Formulare.deleteRequest(${c.id})" style="font-size:12px;padding:5px 10px;border-radius:6px;background:transparent;color:var(--text-muted);border:1px solid var(--border);cursor:pointer" title="Șterge">🗑</button>
+              <button onclick="Formulare.deleteRequest('${c.id}')" style="font-size:12px;padding:5px 10px;border-radius:6px;background:transparent;color:var(--text-muted);border:1px solid var(--border);cursor:pointer" title="Șterge">🗑</button>
             ` : ''}
           </div>
         </div>`;
