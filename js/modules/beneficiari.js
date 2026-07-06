@@ -102,7 +102,7 @@ const Beneficiari = {
       invited_by: Auth.currentUser?.id,
       access_token,
       token_expires_at: new Date(untilDate + 'T23:59:59').toISOString(),
-      status: 'pending',
+      status: 'invited',
       invited_at: new Date().toISOString(),
     });
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
@@ -120,7 +120,7 @@ const Beneficiari = {
     if (isNaN(Date.parse(newDate))) { showToast('Dată invalidă', 'error'); return; }
     const { error } = await DB.updateBeneficiary(id, {
       token_expires_at: new Date(newDate + 'T23:59:59').toISOString(),
-      status: new Date(newDate) > new Date() ? 'pending' : 'expired',
+      status: new Date(newDate) > new Date() ? 'invited' : 'expired',
     });
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
     showToast('Perioadă de acces actualizată', 'success');

@@ -264,6 +264,30 @@ const Profil = {
           </div>
         </div>
 
+        <!-- 7. Preferințe Timer -->
+        <div class="card p-6 mb-4">
+          <div class="section-title" style="font-size:15px;font-weight:700;margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #f59e0b">
+            ⏱ Preferințe Timer
+          </div>
+          <div class="form-row form-row-2">
+            <div>
+              <label class="label">Auto-stop timer după (ore)</label>
+              ${isEditing
+                ? `<select id="prof-timer-auto-stop" class="input">
+                    <option value="0" ${(profile.timer_auto_stop_hours || 4) === 0 ? 'selected' : ''}>Dezactivat (fără limită)</option>
+                    <option value="2" ${(profile.timer_auto_stop_hours || 4) === 2 ? 'selected' : ''}>2 ore</option>
+                    <option value="3" ${(profile.timer_auto_stop_hours || 4) === 3 ? 'selected' : ''}>3 ore</option>
+                    <option value="4" ${(profile.timer_auto_stop_hours || 4) === 4 ? 'selected' : ''}>4 ore (implicit)</option>
+                    <option value="6" ${(profile.timer_auto_stop_hours || 4) === 6 ? 'selected' : ''}>6 ore</option>
+                    <option value="8" ${(profile.timer_auto_stop_hours || 4) === 8 ? 'selected' : ''}>8 ore</option>
+                  </select>`
+                : `<div class="input" style="background:var(--bg-secondary,#f5f5f5);cursor:default;border-color:transparent">${profile.timer_auto_stop_hours === 0 ? 'Dezactivat' : (profile.timer_auto_stop_hours || 4) + ' ore'}</div>`
+              }
+              <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Timerul se va opri automat după intervalul selectat pentru a evita uitările.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Butoane de acțiune — doar în mod editabil -->
         ${isEditing ? `
         <div class="flex justify-between items-center mb-6">
@@ -393,6 +417,9 @@ const Profil = {
       const rolEl = document.getElementById('prof-role');
       if (rolEl && rolEl.value) updates.role = rolEl.value;
     }
+    // Timer auto-stop — editabil de oricine pe profilul propriu
+    const timerStopEl = document.getElementById('prof-timer-auto-stop');
+    if (timerStopEl) updates.timer_auto_stop_hours = parseInt(timerStopEl.value) || 0;
 
     const { error } = await DB.updateProfile(targetId, updates);
     if (error) { showToast('Eroare la salvare: ' + error.message, 'error'); return; }

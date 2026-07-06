@@ -12,7 +12,7 @@ const ROUTES = {
   'time-tracking':     { label: 'Time-Tracking',         module: () => TimeTracking.render() },
   'process-overview':  { label: 'Process Overview',      module: () => ProcessOverview.render() },
   'proiecte':          { label: 'Proiecte',              module: () => Proiecte.render() },
-  'formulare':         { label: 'Formulare & Cereri',    module: () => Placeholder.render('Formulare & Cereri', 'Formularele și cererile interne vor fi disponibile în curând.', 'file-text') },
+  'formulare':         { label: 'Formulare & Cereri',    module: () => Formulare.render() },
   'viziune':           { label: 'Viziune & Valori',      module: () => Viziune.render() },
   'regulament':        { label: 'Regulament intern',     module: () => Regulament.render() },
   'procese-proceduri': { label: 'Procese & Proceduri',   module: () => Procese.render() },
@@ -332,6 +332,7 @@ _timerLoad();
 
 function startGlobalTimer() {
   stopGlobalTimerInterval();
+  window._autoStopTriggered = false; // resetează auto-stop la fiecare start nou
   _timerSave();
   _globalTimerInterval = setInterval(updateHeaderTimer, 1000);
   updateHeaderTimer();
@@ -370,6 +371,16 @@ function updateHeaderTimer() {
     const taskName = window.activeTimerData.taskName || 'Task activ';
     const shortName = taskName.length > 22 ? taskName.substring(0, 22) + '…' : taskName;
     document.title = '● ' + _fmtTime(elapsed) + ' — ' + shortName;
+    // ── AUTO-STOP după N ore configurabile ──────────────────────
+    const _autoStopH = Auth.currentProfile?.timer_auto_stop_hours;
+    if (_autoStopH && _autoStopH > 0) {
+      const _limitMs = _autoStopH * 3600 * 1000;
+      if (elapsed >= _limitMs && !window._autoStopTriggered) {
+        window._autoStopTriggered = true;
+        showToast('⏹ Timer oprit automat după ' + _autoStopH + 'h. Verifică înregistrarea în Time-Tracking.', 'warning', 8000);
+        setTimeout(() => stopActiveTimer(), 100);
+      }
+    }
   } else if (window.pausedTimerData) {
     // PAUSED state
     if (idle) idle.style.display = 'none';

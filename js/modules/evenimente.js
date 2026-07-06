@@ -222,11 +222,11 @@ const Evenimente = {
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora start *</label>
-              <input id="ev-start" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="${ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box" oninput="this.value=this.value.replace(/[^0-9:]/g,'')">
+              <input id="ev-start" type="time" value="${ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora final *</label>
-              <input id="ev-end" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="${ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box" oninput="this.value=this.value.replace(/[^0-9:]/g,'')">
+              <input id="ev-end" type="time" value="${ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00'}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
             </div>
           </div>
 
@@ -482,30 +482,49 @@ const Evenimente = {
     } catch(e) { console.warn('Setup participants error:', e); }
   },
 
-  async _generateRecurringInstances(parentId, payload) {
+    async _generateRecurringInstances(parentId, payload) {
     try {
       const startDate = new Date(payload.event_date + 'T00:00:00');
       const endDate = new Date(payload.recurrence_end_date + 'T00:00:00');
       const instances = [];
       let current = new Date(startDate);
-
-      // Avansează cu o zi pentru a nu duplica evenimentul principal
-      if (payload.recurrence_type === 'daily') current.setDate(current.getDate() + 1);
-      else if (payload.recurrence_type === 'weekly') current.setDate(current.getDate() + 7);
-      else if (payload.recurrence_type === 'monthly') current.setMonth(current.getMonth() + 1);
-
       let count = 0;
-      while (current <= endDate && count < 365) {
+
+      // Funcție de avansare în funcție de tip
+      const advance = () => {
+        if (payload.recurrence_type === 'daily') {
+          current.setDate(current.getDate() + 1);
+        } else if (payload.recurrence_type === 'weekly') {
+          // Pentru weekly avansăm zi cu zi și verificăm ziua
+          current.setDate(current.getDate() + 1);
+        } else if (payload.recurrence_type === 'monthly') {
+          current.setMonth(current.getMonth() + 1);
+        }
+      };
+
+      // Avansează prima dată pentru a nu duplica evenimentul principal
+      advance();
+
+      while (current <= endDate && count < 500) {
         count++;
         const dateStr = current.toISOString().split('T')[0];
-        // Verifică zilele săptămânii pentru recurentă săptămânală
-        if (payload.recurrence_type === 'weekly' && payload.recurrence_days?.length) {
+
+        // Pentru weekly: verifică dacă ziua curentă e în lista de zile selectate
+        if (payload.recurrence_type === 'weekly') {
           const dayOfWeek = current.getDay() === 0 ? 7 : current.getDay(); // 1=Lu..7=Du
-          if (!payload.recurrence_days.includes(dayOfWeek)) {
-            current.setDate(current.getDate() + 1);
-            continue;
+          if (!payload.recurrence_days?.length || payload.recurrence_days.includes(dayOfWeek)) {
+            instances.push({
+              ...payload,
+              event_date: dateStr,
+              recurrence_parent_id: parentId,
+              is_instance: true,
+              is_recurring: false,
+            });
           }
+          advance();
+          continue;
         }
+
         instances.push({
           ...payload,
           event_date: dateStr,
@@ -513,9 +532,7 @@ const Evenimente = {
           is_instance: true,
           is_recurring: false,
         });
-        if (payload.recurrence_type === 'daily') current.setDate(current.getDate() + 1);
-        else if (payload.recurrence_type === 'weekly') current.setDate(current.getDate() + 7);
-        else if (payload.recurrence_type === 'monthly') current.setMonth(current.getMonth() + 1);
+        advance();
       }
 
       // Inserează în batch-uri de 50
@@ -532,7 +549,45 @@ const Evenimente = {
     if (!userId) return;
     const { error } = await DB.upsertEventParticipant(eventId, userId, status, declineReason);
     if (error) { showToast('Eroare la confirmare: ' + error.message, 'error'); return; }
-    showToast(status === 'accepted' ? '✓ Participare confirmată!' : '✗ Răspuns înregistrat', 'success');
+
+    // Dacă confirm participarea la un eveniment cu count_as_work_hours=true, înregistrează ore
+    if (status === 'accepted') {
+      try {
+        const ev = this.events.find(e => e.id === eventId);
+        if (ev && ev.count_as_work_hours && ev.start_time && ev.end_time) {
+          const startDt = new Date(ev.start_time);
+          const endDt = new Date(ev.end_time);
+          const durationMin = Math.round((endDt - startDt) / 60000);
+          if (durationMin > 0) {
+            const sb = getSupabase();
+            // Verifică dacă nu există deja o intrare pentru acest eveniment
+            const { data: existing } = await sb.from('time_entries')
+              .select('id')
+              .eq('user_id', userId)
+              .eq('date', ev.event_date)
+              .eq('task_name', ev.title)
+              .eq('activity_type', 'meeting')
+              .limit(1);
+            if (!existing || existing.length === 0) {
+              await DB.createTimeEntry({
+                user_id: userId,
+                date: ev.event_date,
+                task_name: ev.title,
+                activity_type: 'meeting',
+                duration_minutes: durationMin,
+                start_time: ev.start_time,
+                end_time: ev.end_time,
+                description: `Eveniment firmă: ${ev.title}`,
+                is_billable: false,
+                status: 'approved',
+              });
+            }
+          }
+        }
+      } catch(e) { console.warn('Time entry event error:', e); }
+    }
+
+    showToast(status === 'accepted' ? '✓ Participare confirmată! Orele au fost înregistrate automat.' : '✗ Răspuns înregistrat', 'success');
     await this.loadEvents();
     this.renderPage();
   },
