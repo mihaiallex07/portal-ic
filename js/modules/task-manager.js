@@ -31,19 +31,28 @@ const TaskManager = {
     const userId = Auth.currentUser?.id;
     if (!userId) return;
 
+    const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
+
     try {
-      // 1. Memberships — proiectele la care e arondat userul
-      const [membershipsRes, allProjectsRes] = await Promise.all([
-        sb.from('project_members').select('project_id, role').eq('user_id', userId),
+      // 1. Proiecte + Memberships în paralel
+      const [allProjectsRes, membershipsRes] = await Promise.all([
         sb.from('projects').select('id, name, emoji, color, status, client_name'),
+        sb.from('project_members').select('project_id, role').eq('user_id', userId),
       ]);
 
-      const memberships = membershipsRes.data || [];
       const allProjects = allProjectsRes.data || [];
+      const memberships = membershipsRes.data || [];
       const enrolledIds = new Set(memberships.map(m => String(m.project_id)));
       const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
 
-      this.projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
+      // Admin global vede TOATE proiectele (identic cu pagina Proiecte)
+      // Ceilalți văd doar proiectele din project_members
+      if (isGlobalAdmin) {
+        this.projects = allProjects;
+      } else {
+        this.projects = allProjects.filter(p => enrolledIds.has(String(p.id)));
+      }
+
       const projectIds = this.projects.map(p => p.id);
 
       if (projectIds.length === 0) {
@@ -85,7 +94,6 @@ const TaskManager = {
 
       const userIdStr = String(userId);
       const assignedTaskIds = new Set(this.assignments.map(a => String(a.task_id)));
-      const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
       // Proiectele pe care userul le coordoneaza (rol coordonator SAU admin global)
       const adminOrCoordProjectIds = new Set([
         ...coordProjectIds,
