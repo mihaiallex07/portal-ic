@@ -35,9 +35,10 @@ const TaskManager = {
 
     try {
       // 1. Proiecte + Memberships în paralel
+      // Folosim DB.getProjects() exact ca în proiecte.js (identic cu sursa de adevăr)
       const [allProjectsRes, membershipsRes] = await Promise.all([
-        sb.from('projects').select('id, name, emoji, color, status, client_name'),
-        sb.from('project_members').select('project_id, role').eq('user_id', userId),
+        DB.getProjects(),
+        dbQuery('project_members', q => q.select('project_id, role').eq('user_id', userId), []),
       ]);
 
       const allProjects = allProjectsRes.data || [];
@@ -62,23 +63,23 @@ const TaskManager = {
         return;
       }
 
-      // 2. Task-uri, etape, assignments în paralel
+      // 2. Task-uri, etape, assignments în paralel (folosim dbQuery pentru consistenta)
       const [tasksRes, phasesRes, assignRes, membersRes] = await Promise.all([
-        sb.from('project_tasks')
+        dbQuery('project_tasks', q => q
           .select('id, name, project_id, phase_id, assigned_user_id, assigned_users, budget_hours, minutes_worked, status, description, display_order')
           .in('project_id', projectIds)
-          .order('display_order'),
-        sb.from('project_phases')
+          .order('display_order'), []),
+        dbQuery('project_phases', q => q
           .select('id, name, project_id, code, color, display_order')
           .in('project_id', projectIds)
-          .order('display_order'),
-        sb.from('project_task_assignments')
+          .order('display_order'), []),
+        dbQuery('project_task_assignments', q => q
           .select('task_id, user_id, start_date, end_date, project_id')
           .eq('user_id', userId)
-          .in('project_id', projectIds),
-        sb.from('project_members')
+          .in('project_id', projectIds), []),
+        dbQuery('project_members', q => q
           .select('project_id, user_id, role, profiles!project_members_user_id_fkey(id, full_name, employee_code)')
-          .in('project_id', projectIds),
+          .in('project_id', projectIds), []),
       ]);
 
       const allTasks = tasksRes.data || [];
