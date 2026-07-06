@@ -202,6 +202,18 @@ const Evenimente = {
     const modal = document.createElement('div');
     modal.id = 'event-modal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+
+    // Calculăm orele ÎNAINTE de template pentru a evita nested template literals
+    const _stRaw = ev && ev.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00';
+    const _etRaw = ev && ev.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00';
+    const _sH = (_stRaw.split(':')[0] || '09').padStart(2,'0');
+    const _sM = (_stRaw.split(':')[1] || '00').padStart(2,'0');
+    const _eH = (_etRaw.split(':')[0] || '10').padStart(2,'0');
+    const _eM = (_etRaw.split(':')[1] || '00').padStart(2,'0');
+    const _sHOpts = Array.from({length:24},(_,h)=>{ const v=String(h).padStart(2,'0'); return '<option value="'+v+'"'+(_sH===v?' selected':'')+'>'+v+'</option>'; }).join('');
+    const _sMOpts = [0,5,10,15,20,25,30,35,40,45,50,55].map(m=>{ const v=String(m).padStart(2,'0'); return '<option value="'+v+'"'+(_sM===v?' selected':'')+'>'+v+'</option>'; }).join('');
+    const _eHOpts = Array.from({length:24},(_,h)=>{ const v=String(h).padStart(2,'0'); return '<option value="'+v+'"'+(_eH===v?' selected':'')+'>'+v+'</option>'; }).join('');
+    const _eMOpts = [0,5,10,15,20,25,30,35,40,45,50,55].map(m=>{ const v=String(m).padStart(2,'0'); return '<option value="'+v+'"'+(_eM===v?' selected':'')+'>'+v+'</option>'; }).join('');
     modal.innerHTML = `
       <div style="background:var(--card-bg);border-radius:16px;padding:28px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -222,35 +234,19 @@ const Evenimente = {
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora start *</label>
-              \${(() => {
-                const _st = ev?.start_time ? new Date(ev.start_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '09:00';
-                const startH = _st.split(':')[0]; const startM = _st.split(':')[1];
-                return \`<div style="display:flex;gap:4px;align-items:center">
-                  <select id="ev-start-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
-                    \${Array.from({length:24},(_,h)=>\`<option value="\${String(h).padStart(2,'0')}" \${startH===String(h).padStart(2,'0')?'selected':''}>\${String(h).padStart(2,'0')}</option>\`).join('')}
-                  </select>
-                  <span style="font-weight:700;color:var(--text-muted)">:</span>
-                  <select id="ev-start-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
-                    \${[0,5,10,15,20,25,30,35,40,45,50,55].map(m=>\`<option value="\${String(m).padStart(2,'0')}" \${startM===String(m).padStart(2,'0')?'selected':''}>\${String(m).padStart(2,'0')}</option>\`).join('')}
-                  </select>
-                </div>\`;
-              })()}
+              <div style="display:flex;gap:4px;align-items:center">
+                <select id="ev-start-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">${_sHOpts}</select>
+                <span style="font-weight:700;color:var(--text-muted)">:</span>
+                <select id="ev-start-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">${_sMOpts}</select>
+              </div>
             </div>
             <div>
               <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Ora final *</label>
-              \${(() => {
-                const _et = ev?.end_time ? new Date(ev.end_time).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit',hour12:false}) : '10:00';
-                const endH = _et.split(':')[0]; const endM = _et.split(':')[1];
-                return \`<div style="display:flex;gap:4px;align-items:center">
-                  <select id="ev-end-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
-                    \${Array.from({length:24},(_,h)=>\`<option value="\${String(h).padStart(2,'0')}" \${endH===String(h).padStart(2,'0')?'selected':''}>\${String(h).padStart(2,'0')}</option>\`).join('')}
-                  </select>
-                  <span style="font-weight:700;color:var(--text-muted)">:</span>
-                  <select id="ev-end-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">
-                    \${[0,5,10,15,20,25,30,35,40,45,50,55].map(m=>\`<option value="\${String(m).padStart(2,'0')}" \${endM===String(m).padStart(2,'0')?'selected':''}>\${String(m).padStart(2,'0')}</option>\`).join('')}
-                  </select>
-                </div>\`;
-              })()}
+              <div style="display:flex;gap:4px;align-items:center">
+                <select id="ev-end-h" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">${_eHOpts}</select>
+                <span style="font-weight:700;color:var(--text-muted)">:</span>
+                <select id="ev-end-m" style="flex:1;padding:10px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);cursor:pointer">${_eMOpts}</select>
+              </div>
             </div>
           </div>
 
