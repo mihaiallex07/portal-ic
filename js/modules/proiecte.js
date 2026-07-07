@@ -171,6 +171,46 @@ const Proiecte = {
     this.phases = phasesRes.data || [];
     this.tasks = tasksRes.data || [];
     this.taskAssignments = assignRes.data || [];
+    // Sincronizare automată minutes_worked din time_entries + manual_hours_log
+    // Rulează în background fără să blocheze UI-ul
+    this._syncTaskMinutes(projectId).catch(() => {});
+  },
+
+  // Recalculează minutes_worked pentru toate task-urile unui proiect
+  // și salvează valorile corecte în DB (rulează în background)
+  async _syncTaskMinutes(projectId) {
+    const sb = getSupabase();
+    if (!sb || !this.tasks || this.tasks.length === 0) return;
+    const taskIds = this.tasks.map(t => t.id);
+    // Preia toate time_entries și manual_hours_log pentru proiect dintr-o singură cerere
+    const [timeRes, manualRes] = await Promise.all([
+      sb.from('time_entries').select('project_task_id,duration_minutes').in('project_task_id', taskIds),
+      sb.from('manual_hours_log').select('task_id,minutes').in('task_id', taskIds),
+    ]);
+    const timeEntries = timeRes.data || [];
+    const manualLogs = manualRes.data || [];
+    // Calculează totalul per task
+    const minutesMap = {};
+    for (const t of this.tasks) minutesMap[t.id] = 0;
+    for (const e of timeEntries) {
+      if (minutesMap[e.project_task_id] !== undefined)
+        minutesMap[e.project_task_id] += (e.duration_minutes || 0);
+    }
+    for (const m of manualLogs) {
+      if (minutesMap[m.task_id] !== undefined)
+        minutesMap[m.task_id] += (m.minutes || 0);
+    }
+    // Actualizează task-urile care au valori diferite față de DB
+    const updates = this.tasks.filter(t => minutesMap[t.id] !== (t.minutes_worked || 0));
+    for (const task of updates) {
+      const newVal = minutesMap[task.id];
+      const { error } = await sb.from('project_tasks').update({ minutes_worked: newVal }).eq('id', task.id);
+      if (!error) task.minutes_worked = newVal;
+    }
+    // Re-render dacă au existat actualizări
+    if (updates.length > 0 && this.currentProject?.id === projectId) {
+      this.renderProjectDetail();
+    }
   },
 
   renderList() {
