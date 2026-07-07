@@ -164,7 +164,13 @@ const TaskManager = {
           else if (pct >= 50) budgetAlert = 'info';
         }
 
-        return { ...task, project, phase, workedH, budgetH, remainH, pct, startDate, endDate, assignedUsers: uniqueUsers, computedStatus, budgetAlert };
+        // Este utilizatorul curent alocat explicit acestui task?
+        const isAllocatedToMe =
+          String(task.assigned_user_id) === userIdStr ||
+          (Array.isArray(task.assigned_users) && task.assigned_users.map(String).includes(userIdStr)) ||
+          assignedTaskIds.has(String(task.id));
+
+        return { ...task, project, phase, workedH, budgetH, remainH, pct, startDate, endDate, assignedUsers: uniqueUsers, computedStatus, budgetAlert, isAllocatedToMe };
       };
 
       // ── allTasks (pentru tab admin) ────────────────────────────
@@ -692,6 +698,11 @@ const TaskManager = {
         <button class="tm-timer-btn tm-timer-resume" onclick="TaskManager.resumeTask(${task.id})">▶ Reia</button>
         <button class="tm-timer-btn tm-timer-stop" onclick="TaskManager.stopTask(${task.id})">⏹ Stop</button>
       `;
+    }
+    // Verificăm dacă userul este alocat explicit acestui task
+    // Adminii/coordonatorii care nu sunt alocați NU pot porni timerul
+    if (!task.isAllocatedToMe) {
+      return `<span style="font-size:10px;color:var(--text-muted);padding:4px 8px;font-style:italic">Nealocat</span>`;
     }
     if (hasActiveTimer) {
       return `<button class="tm-timer-btn tm-timer-start" disabled title="Oprește task-ul activ mai întâi" style="opacity:0.4;cursor:not-allowed">▶ Start</button>`;
