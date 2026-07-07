@@ -1,19 +1,24 @@
 // task-manager.js — Portal Inginerie Creativă
-// Centralizator personal de task-uri: toate sarcinile arondate utilizatorului curent
-// Sursa de adevăr: tabela project_tasks (via Proiecte sau query direct)
+// Centralizator personal de task-uri + Overview admin
+// Sursa de adevăr: tabela project_tasks (identic cu pagina Proiecte)
 // ============================================================
-
 const TaskManager = {
   // State
   tasks: [],       // task-urile personale ale utilizatorului curent (cu date îmbogățite)
+  allTasks: [],    // TOATE task-urile din proiecte (pentru tab admin)
   projects: [],    // proiectele la care e arondat
   phases: [],      // etapele proiectelor
   members: {},     // { projectId: [...members] } — cache per proiect
+  allProfiles: [], // toate profilurile (pentru tab admin)
   assignments: [], // project_task_assignments pentru userul curent
+  allAssignments: [], // toate assignments (pentru tab admin)
 
-  filterStatus: 'all',   // 'all' | 'activ' | 'de_facut' | 'finalizat' | 'depasit'
-  filterProject: 'all',  // 'all' | projectId
+  activeTab: 'personal', // 'personal' | 'overview'
+  filterStatus: 'all',
+  filterProject: 'all',
   searchQuery: '',
+  overviewSearch: '',
+  overviewFilter: 'all', // 'all' | userId
 
   // ── RENDER PRINCIPAL ──────────────────────────────────────────
   async render() {
@@ -47,7 +52,6 @@ const TaskManager = {
       const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
 
       // Admin global vede TOATE proiectele (identic cu pagina Proiecte)
-      // Ceilalți văd doar proiectele din project_members
       if (isGlobalAdmin) {
         this.projects = allProjects;
       } else {
@@ -58,13 +62,15 @@ const TaskManager = {
 
       if (projectIds.length === 0) {
         this.tasks = [];
+        this.allTasks = [];
         this.phases = [];
         this.assignments = [];
+        this.allAssignments = [];
         return;
       }
 
       // 2. Task-uri, etape, assignments în paralel (folosim dbQuery pentru consistenta)
-      const [tasksRes, phasesRes, assignRes, membersRes] = await Promise.all([
+      const queries = [
         dbQuery('project_tasks', q => q
           .select('id, name, project_id, phase_id, assigned_user_id, assigned_users, budget_hours, minutes_worked, status, description, display_order')
           .in('project_id', projectIds)
@@ -75,16 +81,24 @@ const TaskManager = {
           .order('display_order'), []),
         dbQuery('project_task_assignments', q => q
           .select('task_id, user_id, start_date, end_date, project_id')
-          .eq('user_id', userId)
           .in('project_id', projectIds), []),
         dbQuery('project_members', q => q
           .select('project_id, user_id, role, profiles!project_members_user_id_fkey(id, full_name, employee_code)')
           .in('project_id', projectIds), []),
-      ]);
+      ];
 
-      const allTasks = tasksRes.data || [];
+      // Dacă admin, încarcă și toate profilurile pentru overview
+      if (isGlobalAdmin) {
+        queries.push(DB.getUsers());
+      }
+
+      const results = await Promise.all(queries);
+      const [tasksRes, phasesRes, assignRes, membersRes, profilesRes] = results;
+
+      const rawTasks = tasksRes.data || [];
       this.phases = phasesRes.data || [];
-      this.assignments = assignRes.data || [];
+      this.allAssignments = assignRes.data || [];
+      this.allProfiles = (profilesRes?.data || []);
 
       // Cache members per proiect
       this.members = {};
@@ -94,33 +108,18 @@ const TaskManager = {
       });
 
       const userIdStr = String(userId);
+      // Assignments ale utilizatorului curent
+      this.assignments = this.allAssignments.filter(a => String(a.user_id) === userIdStr);
       const assignedTaskIds = new Set(this.assignments.map(a => String(a.task_id)));
+
       // Proiectele pe care userul le coordoneaza (rol coordonator SAU admin global)
       const adminOrCoordProjectIds = new Set([
         ...coordProjectIds,
         ...(isGlobalAdmin ? this.projects.map(p => String(p.id)) : []),
       ]);
 
-      console.log('[TaskManager] userId:', userIdStr, 'isAdmin:', isGlobalAdmin,
-        'projects:', this.projects.length, 'allTasks:', allTasks.length,
-        'assignments:', this.assignments.length, 'coordProjects:', coordProjectIds.size,
-        'adminOrCoordProjects:', adminOrCoordProjectIds.size);
-
-      // Filtrare: task-urile vizibile pentru utilizatorul curent
-      // Admin global si coordonatori vad TOATE task-urile din proiectele lor
-      // Angajatii vad task-urile alocate explicit lor
-      const myTasks = allTasks.filter(t => {
-        if (adminOrCoordProjectIds.has(String(t.project_id))) return true;
-        if (String(t.assigned_user_id) === userIdStr) return true;
-        if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
-        if (assignedTaskIds.has(String(t.id))) return true;
-        return false;
-      });
-
-      console.log('[TaskManager] myTasks after filter:', myTasks.length);
-
-      // Îmbogățim fiecare task cu date calculate
-      this.tasks = myTasks.map(task => {
+      // ── Îmbogățire task (funcție comună) ──────────────────────
+      const enrichTask = (task) => {
         const project = this.projects.find(p => p.id === task.project_id);
         const phase = this.phases.find(ph => ph.id === task.phase_id);
         const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
@@ -129,7 +128,7 @@ const TaskManager = {
         const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
 
         // Perioadă din assignments
-        const taskAssigns = this.assignments.filter(a => String(a.task_id) === String(task.id));
+        const taskAssigns = this.allAssignments.filter(a => String(a.task_id) === String(task.id));
         let startDate = null, endDate = null;
         if (taskAssigns.length > 0) {
           const starts = taskAssigns.map(a => a.start_date).filter(Boolean).sort();
@@ -137,6 +136,19 @@ const TaskManager = {
           startDate = starts[0] || null;
           endDate = ends[0] || null;
         }
+
+        // Utilizatori alocați (pentru tab admin)
+        const assignedUsers = taskAssigns.map(a => {
+          const profile = this.allProfiles.find(p => String(p.id) === String(a.user_id));
+          return profile ? { id: a.user_id, name: profile.full_name || profile.name || 'Necunoscut', code: profile.employee_code } : null;
+        }).filter(Boolean);
+
+        // Deduplicare utilizatori
+        const uniqueUsers = [];
+        const seenIds = new Set();
+        assignedUsers.forEach(u => {
+          if (!seenIds.has(u.id)) { seenIds.add(u.id); uniqueUsers.push(u); }
+        });
 
         // Status calculat
         let computedStatus = task.status || 'de_facut';
@@ -152,18 +164,27 @@ const TaskManager = {
           else if (pct >= 50) budgetAlert = 'info';
         }
 
-        return {
-          ...task,
-          project, phase,
-          workedH, budgetH, remainH, pct,
-          startDate, endDate,
-          computedStatus, budgetAlert,
-        };
+        return { ...task, project, phase, workedH, budgetH, remainH, pct, startDate, endDate, assignedUsers: uniqueUsers, computedStatus, budgetAlert };
+      };
+
+      // ── allTasks (pentru tab admin) ────────────────────────────
+      this.allTasks = rawTasks.map(enrichTask);
+
+      // ── myTasks (tab personal) ─────────────────────────────────
+      // Angajații văd DOAR task-urile alocate explicit lor
+      const myRawTasks = rawTasks.filter(t => {
+        if (String(t.assigned_user_id) === userIdStr) return true;
+        if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
+        if (assignedTaskIds.has(String(t.id))) return true;
+        return false;
       });
+
+      this.tasks = myRawTasks.map(enrichTask);
 
     } catch(err) {
       console.error('[TaskManager] loadData error:', err);
       this.tasks = [];
+      this.allTasks = [];
     }
   },
 
@@ -172,35 +193,15 @@ const TaskManager = {
     const container = document.getElementById('page-content');
     if (!container) return;
 
-    const filtered = this.getFilteredTasks();
-    const stats = this.calcStats();
-
-    // Banner debug temporar
-    const debugInfo = {
-      userId: Auth.currentUser?.id || 'N/A',
-      role: Auth.currentProfile?.role || 'N/A',
-      projects: this.projects.length,
-      tasks: this.tasks.length,
-      sbOk: !!getSupabase(),
-    };
+    const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
 
     container.innerHTML = `
       <div class="tm-wrapper">
-        <!-- DEBUG BANNER -->
-        <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:12px;font-family:monospace">
-          <strong>🔍 Debug:</strong>
-          userId=${debugInfo.userId} |
-          role=${debugInfo.role} |
-          projects=${debugInfo.projects} |
-          tasks=${debugInfo.tasks} |
-          supabase=${debugInfo.sbOk}
-          <button onclick="this.parentElement.remove()" style="float:right;border:none;background:none;cursor:pointer">✕</button>
-        </div>
         <!-- Header -->
         <div class="tm-header">
           <div>
             <h1 class="tm-title">Task Manager</h1>
-            <p class="tm-subtitle">Sarcinile tale arondate din toate proiectele</p>
+            <p class="tm-subtitle">Centralizatorul tău de sarcini</p>
           </div>
           <button class="btn-secondary tm-refresh-btn" onclick="TaskManager.refresh()" title="Reîncarcă">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -208,57 +209,22 @@ const TaskManager = {
           </button>
         </div>
 
-        <!-- Stats bar -->
-        <div class="tm-stats-bar">
-          <div class="tm-stat" onclick="TaskManager.setFilter('status','all')" style="cursor:pointer">
-            <span class="tm-stat-value">${stats.total}</span>
-            <span class="tm-stat-label">Total sarcini</span>
-          </div>
-          <div class="tm-stat tm-stat-activ" onclick="TaskManager.setFilter('status','activ')" style="cursor:pointer">
-            <span class="tm-stat-value">${stats.activ}</span>
-            <span class="tm-stat-label">În lucru</span>
-          </div>
-          <div class="tm-stat tm-stat-de_facut" onclick="TaskManager.setFilter('status','de_facut')" style="cursor:pointer">
-            <span class="tm-stat-value">${stats.de_facut}</span>
-            <span class="tm-stat-label">De făcut</span>
-          </div>
-          <div class="tm-stat tm-stat-depasit" onclick="TaskManager.setFilter('status','depasit')" style="cursor:pointer">
-            <span class="tm-stat-value">${stats.depasit}</span>
-            <span class="tm-stat-label">Buget depășit</span>
-          </div>
-          <div class="tm-stat tm-stat-alert" onclick="TaskManager.setFilter('status','alert')" style="cursor:pointer">
-            <span class="tm-stat-value">${stats.alert}</span>
-            <span class="tm-stat-label">Alertă buget</span>
-          </div>
+        <!-- Tabs -->
+        <div class="tm-tabs">
+          <button class="tm-tab-btn ${this.activeTab === 'personal' ? 'active' : ''}" onclick="TaskManager.setTab('personal')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            Sarcinile mele
+          </button>
+          ${isAdmin ? `
+          <button class="tm-tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" onclick="TaskManager.setTab('overview')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Overview echipă
+          </button>` : ''}
         </div>
 
-        <!-- Filters & Search -->
-        <div class="tm-filters">
-          <div class="tm-search-wrap">
-            <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="tm-search" class="tm-search-input" placeholder="Caută sarcini..." value="${this.searchQuery}" oninput="TaskManager.onSearch(this.value)">
-          </div>
-          <div class="tm-filter-group">
-            <select class="tm-select" onchange="TaskManager.setFilter('status', this.value)">
-              <option value="all" ${this.filterStatus === 'all' ? 'selected' : ''}>Toate statusurile</option>
-              <option value="activ" ${this.filterStatus === 'activ' ? 'selected' : ''}>▶ În lucru</option>
-              <option value="de_facut" ${this.filterStatus === 'de_facut' ? 'selected' : ''}>○ De făcut</option>
-              <option value="depasit" ${this.filterStatus === 'depasit' ? 'selected' : ''}>⚠ Buget depășit</option>
-              <option value="alert" ${this.filterStatus === 'alert' ? 'selected' : ''}>🔔 Alertă buget</option>
-            </select>
-            <select class="tm-select" onchange="TaskManager.setFilter('project', this.value)">
-              <option value="all" ${this.filterProject === 'all' ? 'selected' : ''}>Toate proiectele</option>
-              ${this.projects.map(p => `<option value="${p.id}" ${String(this.filterProject) === String(p.id) ? 'selected' : ''}>${p.emoji || '📁'} ${p.name}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-
-        <!-- Task list -->
-        <div class="tm-list" id="tm-task-list">
-          ${filtered.length === 0
-            ? this.renderEmpty()
-            : filtered.map(t => this.renderTaskCard(t)).join('')
-          }
+        <!-- Tab content -->
+        <div id="tm-tab-content">
+          ${this.renderTabContent()}
         </div>
       </div>
     `;
@@ -266,11 +232,328 @@ const TaskManager = {
     this.injectStyles();
   },
 
-  // ── FILTRARE ──────────────────────────────────────────────────
+  renderTabContent() {
+    if (this.activeTab === 'personal') return this.renderPersonalTab();
+    if (this.activeTab === 'overview') return this.renderOverviewTab();
+    return '';
+  },
+
+  setTab(tab) {
+    this.activeTab = tab;
+    const el = document.getElementById('tm-tab-content');
+    if (el) {
+      el.innerHTML = this.renderTabContent();
+      // Actualizăm butoanele de tab
+      document.querySelectorAll('.tm-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.trim().includes(tab === 'personal' ? 'mele' : 'echipă'));
+      });
+    }
+  },
+
+  // ── TAB PERSONAL ──────────────────────────────────────────────
+  renderPersonalTab() {
+    const filtered = this.getFilteredTasks();
+    const stats = this.calcStats();
+
+    return `
+      <!-- Stats bar -->
+      <div class="tm-stats-bar">
+        <div class="tm-stat" onclick="TaskManager.setFilter('status','all')" style="cursor:pointer">
+          <span class="tm-stat-value">${stats.total}</span>
+          <span class="tm-stat-label">Total sarcini</span>
+        </div>
+        <div class="tm-stat tm-stat-activ" onclick="TaskManager.setFilter('status','activ')" style="cursor:pointer">
+          <span class="tm-stat-value">${stats.activ}</span>
+          <span class="tm-stat-label">În lucru</span>
+        </div>
+        <div class="tm-stat tm-stat-de_facut" onclick="TaskManager.setFilter('status','de_facut')" style="cursor:pointer">
+          <span class="tm-stat-value">${stats.de_facut}</span>
+          <span class="tm-stat-label">De făcut</span>
+        </div>
+        <div class="tm-stat tm-stat-depasit" onclick="TaskManager.setFilter('status','depasit')" style="cursor:pointer">
+          <span class="tm-stat-value">${stats.depasit}</span>
+          <span class="tm-stat-label">Buget depășit</span>
+        </div>
+        <div class="tm-stat tm-stat-alert" onclick="TaskManager.setFilter('status','alert')" style="cursor:pointer">
+          <span class="tm-stat-value">${stats.alert}</span>
+          <span class="tm-stat-label">Alertă buget</span>
+        </div>
+      </div>
+
+      <!-- Filters & Search -->
+      <div class="tm-filters">
+        <div class="tm-search-wrap">
+          <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="tm-search" class="tm-search-input" placeholder="Caută sarcini..." value="${this.searchQuery}" oninput="TaskManager.onSearch(this.value)">
+        </div>
+        <div class="tm-filter-group">
+          <select class="tm-select" onchange="TaskManager.setFilter('status', this.value)">
+            <option value="all" ${this.filterStatus === 'all' ? 'selected' : ''}>Toate statusurile</option>
+            <option value="activ" ${this.filterStatus === 'activ' ? 'selected' : ''}>▶ În lucru</option>
+            <option value="de_facut" ${this.filterStatus === 'de_facut' ? 'selected' : ''}>○ De făcut</option>
+            <option value="depasit" ${this.filterStatus === 'depasit' ? 'selected' : ''}>⚠ Buget depășit</option>
+            <option value="alert" ${this.filterStatus === 'alert' ? 'selected' : ''}>🔔 Alertă buget</option>
+          </select>
+          <select class="tm-select" onchange="TaskManager.setFilter('project', this.value)">
+            <option value="all" ${this.filterProject === 'all' ? 'selected' : ''}>Toate proiectele</option>
+            ${this.projects.map(p => `<option value="${p.id}" ${String(this.filterProject) === String(p.id) ? 'selected' : ''}>${p.emoji || '📁'} ${p.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <!-- Task list -->
+      <div class="tm-list" id="tm-task-list">
+        ${filtered.length === 0
+          ? this.renderEmpty()
+          : filtered.map(t => this.renderTaskCard(t)).join('')
+        }
+      </div>
+    `;
+  },
+
+  // ── TAB OVERVIEW ADMIN ────────────────────────────────────────
+  renderOverviewTab() {
+    if (!Auth.isAdmin() && Auth.currentProfile?.role !== 'coordonator') {
+      return `<div style="text-align:center;padding:60px;color:var(--text-muted)">🔒 Acces restricționat</div>`;
+    }
+
+    // Construim harta: userId → { profile, tasks[] }
+    const peopleMap = {};
+
+    this.allAssignments.forEach(a => {
+      const uid = String(a.user_id);
+      if (!peopleMap[uid]) {
+        const profile = this.allProfiles.find(p => String(p.id) === uid);
+        if (!profile) return;
+        peopleMap[uid] = {
+          id: uid,
+          name: profile.full_name || profile.name || 'Necunoscut',
+          code: profile.employee_code || '',
+          role: profile.role || 'angajat',
+          tasks: [],
+        };
+      }
+      const task = this.allTasks.find(t => String(t.id) === String(a.task_id));
+      if (task) {
+        // Evităm duplicate
+        if (!peopleMap[uid].tasks.find(t => t.id === task.id)) {
+          peopleMap[uid].tasks.push(task);
+        }
+      }
+    });
+
+    // Adăugăm și task-urile cu assigned_user_id direct
+    this.allTasks.forEach(task => {
+      if (!task.assigned_user_id) return;
+      const uid = String(task.assigned_user_id);
+      if (!peopleMap[uid]) {
+        const profile = this.allProfiles.find(p => String(p.id) === uid);
+        if (!profile) return;
+        peopleMap[uid] = {
+          id: uid,
+          name: profile.full_name || profile.name || 'Necunoscut',
+          code: profile.employee_code || '',
+          role: profile.role || 'angajat',
+          tasks: [],
+        };
+      }
+      if (!peopleMap[uid].tasks.find(t => t.id === task.id)) {
+        peopleMap[uid].tasks.push(task);
+      }
+    });
+
+    let people = Object.values(peopleMap).filter(p => p.tasks.length > 0);
+
+    // Filtrare search
+    const sq = this.overviewSearch.toLowerCase().trim();
+    if (sq) {
+      people = people.filter(p =>
+        p.name.toLowerCase().includes(sq) ||
+        p.tasks.some(t => (t.name || '').toLowerCase().includes(sq) || (t.project?.name || '').toLowerCase().includes(sq))
+      );
+    }
+
+    // Filtrare per angajat
+    if (this.overviewFilter !== 'all') {
+      people = people.filter(p => p.id === this.overviewFilter);
+    }
+
+    // Sortare: mai întâi cei cu task-uri depășite/alertă
+    people.sort((a, b) => {
+      const aAlert = a.tasks.filter(t => t.budgetAlert === 'exceeded' || t.budgetAlert === 'critical').length;
+      const bAlert = b.tasks.filter(t => t.budgetAlert === 'exceeded' || t.budgetAlert === 'critical').length;
+      if (aAlert !== bAlert) return bAlert - aAlert;
+      return b.tasks.length - a.tasks.length;
+    });
+
+    // Stats globale
+    const totalInLucru = this.allTasks.filter(t => t.computedStatus === 'activ').length;
+    const totalDepasit = this.allTasks.filter(t => t.budgetAlert === 'exceeded').length;
+    const totalAlerta = this.allTasks.filter(t => t.budgetAlert && t.budgetAlert !== 'exceeded').length;
+    const totalAngajati = people.length;
+
+    // Dropdown angajați
+    const allPeopleForFilter = Object.values(peopleMap);
+
+    return `
+      <!-- Overview stats -->
+      <div class="tm-stats-bar" style="margin-bottom:16px">
+        <div class="tm-stat">
+          <span class="tm-stat-value">${this.allTasks.length}</span>
+          <span class="tm-stat-label">Total task-uri</span>
+        </div>
+        <div class="tm-stat tm-stat-activ">
+          <span class="tm-stat-value">${totalInLucru}</span>
+          <span class="tm-stat-label">În lucru</span>
+        </div>
+        <div class="tm-stat tm-stat-depasit">
+          <span class="tm-stat-value">${totalDepasit}</span>
+          <span class="tm-stat-label">Buget depășit</span>
+        </div>
+        <div class="tm-stat tm-stat-alert">
+          <span class="tm-stat-value">${totalAlerta}</span>
+          <span class="tm-stat-label">Alertă buget</span>
+        </div>
+        <div class="tm-stat">
+          <span class="tm-stat-value">${totalAngajati}</span>
+          <span class="tm-stat-label">Angajați activi</span>
+        </div>
+      </div>
+
+      <!-- Filters overview -->
+      <div class="tm-filters" style="margin-bottom:16px">
+        <div class="tm-search-wrap">
+          <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="tm-search-input" placeholder="Caută angajat sau task..." value="${this.overviewSearch}" oninput="TaskManager.onOverviewSearch(this.value)">
+        </div>
+        <select class="tm-select" onchange="TaskManager.setOverviewFilter(this.value)">
+          <option value="all">Toți angajații</option>
+          ${allPeopleForFilter.sort((a,b) => a.name.localeCompare(b.name)).map(p =>
+            `<option value="${p.id}" ${this.overviewFilter === p.id ? 'selected' : ''}>${p.name}</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <!-- People cards -->
+      <div class="tm-overview-list">
+        ${people.length === 0
+          ? `<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:600">Niciun angajat cu task-uri alocate</div></div>`
+          : people.map(p => this.renderPersonCard(p)).join('')
+        }
+      </div>
+    `;
+  },
+
+  renderPersonCard(person) {
+    const totalTasks = person.tasks.length;
+    const inLucru = person.tasks.filter(t => t.computedStatus === 'activ').length;
+    const depasit = person.tasks.filter(t => t.budgetAlert === 'exceeded' || t.budgetAlert === 'critical').length;
+    const totalBudget = person.tasks.reduce((s, t) => s + (t.budgetH || 0), 0);
+    const totalWorked = person.tasks.reduce((s, t) => s + (t.workedH || 0), 0);
+    const overallPct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
+    const barColor = overallPct >= 100 ? '#EF4444' : overallPct >= 75 ? '#F59E0B' : '#10B981';
+
+    const initials = person.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const avatarColors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
+    const avatarColor = avatarColors[person.name.charCodeAt(0) % avatarColors.length];
+
+    const hasAlert = depasit > 0;
+
+    return `
+      <div class="tm-person-card ${hasAlert ? 'tm-person-alert' : ''}">
+        <!-- Person header -->
+        <div class="tm-person-header">
+          <div class="tm-person-info">
+            <div class="tm-avatar" style="background:${avatarColor}20;color:${avatarColor};border:2px solid ${avatarColor}40">${initials}</div>
+            <div>
+              <div class="tm-person-name">${person.name}</div>
+              <div class="tm-person-meta">
+                ${person.code ? `<span class="tm-person-code">${person.code}</span>` : ''}
+                <span class="tm-person-role">${person.role}</span>
+              </div>
+            </div>
+          </div>
+          <div class="tm-person-stats">
+            <div class="tm-person-stat">
+              <span class="tm-person-stat-val">${totalTasks}</span>
+              <span class="tm-person-stat-lbl">task-uri</span>
+            </div>
+            <div class="tm-person-stat tm-stat-activ">
+              <span class="tm-person-stat-val" style="color:#10B981">${inLucru}</span>
+              <span class="tm-person-stat-lbl">în lucru</span>
+            </div>
+            ${depasit > 0 ? `
+            <div class="tm-person-stat">
+              <span class="tm-person-stat-val" style="color:#EF4444">${depasit}</span>
+              <span class="tm-person-stat-lbl">depășit</span>
+            </div>` : ''}
+          </div>
+        </div>
+
+        <!-- Buget global persoană -->
+        ${totalBudget > 0 ? `
+        <div class="tm-person-budget">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--text-muted)">Buget total: ${totalWorked}h / ${totalBudget}h</span>
+            <span style="font-size:12px;font-weight:700;color:${barColor}">${overallPct}%</span>
+          </div>
+          <div style="height:4px;background:${barColor}20;border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${Math.min(100,overallPct)}%;background:${barColor};border-radius:2px;transition:width 0.4s ease-out"></div>
+          </div>
+        </div>` : ''}
+
+        <!-- Task list pentru persoană -->
+        <div class="tm-person-tasks">
+          ${person.tasks.map(t => this.renderPersonTaskRow(t)).join('')}
+        </div>
+      </div>
+    `;
+  },
+
+  renderPersonTaskRow(task) {
+    const { project, phase, workedH, budgetH, pct, budgetAlert, computedStatus } = task;
+    const barColor = pct >= 100 ? '#EF4444' : pct >= 75 ? '#F59E0B' : '#10B981';
+    const projColor = project?.color || '#3B82F6';
+
+    let alertIcon = '';
+    if (budgetAlert === 'exceeded') alertIcon = '<span style="color:#EF4444;font-size:11px">⚠ Depășit</span>';
+    else if (budgetAlert === 'critical') alertIcon = '<span style="color:#DC2626;font-size:11px">🔴 &lt;10%</span>';
+    else if (budgetAlert === 'warning') alertIcon = '<span style="color:#D97706;font-size:11px">🟡 &lt;25%</span>';
+
+    return `
+      <div class="tm-person-task-row">
+        <div class="tm-person-task-info">
+          <span class="tm-person-task-dot" style="background:${projColor}"></span>
+          <div>
+            <div class="tm-person-task-name">${task.name}</div>
+            <div class="tm-person-task-meta">
+              <span style="color:${projColor};font-size:10px;font-weight:600">${project?.emoji || '📁'} ${project?.name || ''}</span>
+              ${phase ? `<span style="color:var(--text-muted);font-size:10px"> · ${phase.code ? phase.code + '. ' : ''}${phase.name}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="tm-person-task-budget">
+          ${budgetH > 0 ? `
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:60px;height:4px;background:${barColor}20;border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100,pct)}%;background:${barColor};border-radius:2px"></div>
+            </div>
+            <span style="font-size:11px;font-weight:700;color:${barColor}">${pct}%</span>
+            <span style="font-size:10px;color:var(--text-muted)">${workedH}/${budgetH}h</span>
+            ${alertIcon}
+          </div>` : `<span style="font-size:10px;color:var(--text-muted)">Fără buget</span>`}
+          <button class="tm-goto-btn" style="padding:2px 8px;font-size:10px" onclick="TaskManager.goToProject(${task.project_id})" title="Deschide proiectul">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </button>
+        </div>
+      </div>
+    `;
+  },
+
+  // ── FILTRARE TAB PERSONAL ─────────────────────────────────────
   getFilteredTasks() {
     let tasks = [...this.tasks];
 
-    // Filtru status
     if (this.filterStatus !== 'all') {
       if (this.filterStatus === 'alert') {
         tasks = tasks.filter(t => t.budgetAlert && t.budgetAlert !== 'exceeded');
@@ -279,12 +562,10 @@ const TaskManager = {
       }
     }
 
-    // Filtru proiect
     if (this.filterProject !== 'all') {
       tasks = tasks.filter(t => String(t.project_id) === String(this.filterProject));
     }
 
-    // Filtru search
     if (this.searchQuery.trim()) {
       const q = this.searchQuery.toLowerCase().trim();
       tasks = tasks.filter(t =>
@@ -294,7 +575,6 @@ const TaskManager = {
       );
     }
 
-    // Sortare: depasit > activ > alert > de_facut; apoi după % buget desc
     const statusOrder = { depasit: 0, activ: 1, alert: 2, de_facut: 3 };
     tasks.sort((a, b) => {
       const ao = statusOrder[a.computedStatus] ?? 3;
@@ -315,18 +595,15 @@ const TaskManager = {
     return { total, activ, de_facut, depasit, alert };
   },
 
-  // ── RENDER TASK CARD ──────────────────────────────────────────
+  // ── RENDER TASK CARD (tab personal) ───────────────────────────
   renderTaskCard(task) {
     const { project, phase, workedH, budgetH, remainH, pct, budgetAlert, computedStatus, startDate, endDate } = task;
 
-    // Culoare bară progres
     const barColor = pct >= 100 ? '#EF4444' : pct >= 90 ? '#EF4444' : pct >= 75 ? '#F59E0B' : '#10B981';
     const barBg = pct >= 90 ? '#EF444415' : pct >= 75 ? '#F59E0B15' : '#10B98115';
 
-    // Badge status
     const statusBadgeHtml = this.statusBadge(computedStatus);
 
-    // Badge alertă buget
     let alertHtml = '';
     if (budgetAlert === 'exceeded') {
       alertHtml = `<span class="tm-alert-badge tm-alert-exceeded">⚠ Buget depășit</span>`;
@@ -338,7 +615,6 @@ const TaskManager = {
       alertHtml = `<span class="tm-alert-badge tm-alert-info">🔵 Sub 50% rămas</span>`;
     }
 
-    // Perioadă
     const fmtDate = d => {
       if (!d) return null;
       const dt = new Date(d + 'T00:00:00');
@@ -351,14 +627,10 @@ const TaskManager = {
       periodHtml = `<span class="tm-period">📅 ${s || '?'} – ${e || '?'}</span>`;
     }
 
-    // Culoare proiect
     const projColor = project?.color || '#3B82F6';
     const projEmoji = project?.emoji || '📁';
-
-    // Buton timer
     const timerHtml = this.renderTimerBtn(task);
 
-    // Card border color bazat pe alertă
     const cardBorderColor = budgetAlert === 'exceeded' || budgetAlert === 'critical' ? '#EF4444'
       : budgetAlert === 'warning' ? '#F59E0B'
       : computedStatus === 'activ' ? '#10B981'
@@ -366,7 +638,6 @@ const TaskManager = {
 
     return `
       <div class="tm-card" id="tm-card-${task.id}" style="border-left: 3px solid ${cardBorderColor}">
-        <!-- Card header -->
         <div class="tm-card-header">
           <div class="tm-card-title-row">
             <div class="tm-card-title-wrap">
@@ -382,8 +653,6 @@ const TaskManager = {
               </button>
             </div>
           </div>
-
-          <!-- Meta info -->
           <div class="tm-card-meta">
             <span class="tm-project-badge" style="background:${projColor}20;color:${projColor};border:1px solid ${projColor}40">
               ${projEmoji} ${project?.name || 'Proiect'}
@@ -392,8 +661,6 @@ const TaskManager = {
             ${periodHtml}
           </div>
         </div>
-
-        <!-- Budget progress -->
         <div class="tm-budget-section">
           <div class="tm-budget-bar-wrap" style="background:${barBg}">
             <div class="tm-budget-bar-fill" style="width:${Math.min(100, pct)}%;background:${barColor}"></div>
@@ -427,7 +694,6 @@ const TaskManager = {
       `;
     }
     if (hasActiveTimer) {
-      // Alt task activ — buton dezactivat
       return `<button class="tm-timer-btn tm-timer-start" disabled title="Oprește task-ul activ mai întâi" style="opacity:0.4;cursor:not-allowed">▶ Start</button>`;
     }
     const taskNameEsc = (task.name || '').replace(/'/g, "\\'");
@@ -494,13 +760,11 @@ const TaskManager = {
     const elapsed = Date.now() - timerData.startTime - (timerData.pausedMs || 0);
     const minutes = Math.max(1, Math.round(elapsed / 60000));
 
-    // Salvăm în time_entries via TimeTracking.saveFromTimer
     if (typeof TimeTracking !== 'undefined' && TimeTracking.saveFromTimer) {
       const result = await TimeTracking.saveFromTimer(timerData, minutes);
       if (result && result.error) {
         showToast('Eroare la salvarea timpului: ' + result.error.message, 'error');
       } else {
-        // Actualizează minutes_worked pe task local și în DB
         const task = this.tasks.find(t => t.id === taskId);
         if (task) {
           const sb = getSupabase();
@@ -508,11 +772,9 @@ const TaskManager = {
             const newMinutes = (task.minutes_worked || 0) + minutes;
             await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
             task.minutes_worked = newMinutes;
-            // Recalculăm datele task-ului
             task.workedH = Math.round(newMinutes / 60 * 10) / 10;
             task.pct = task.budgetH > 0 ? Math.min(100, Math.round((task.workedH / task.budgetH) * 100)) : 0;
             task.remainH = Math.round(Math.max(0, task.budgetH - task.workedH) * 100) / 100;
-            // Update alertă
             if (task.budgetH > 0) {
               if (task.pct >= 100) task.budgetAlert = 'exceeded';
               else if (task.pct >= 90) task.budgetAlert = 'critical';
@@ -535,19 +797,15 @@ const TaskManager = {
     this.refreshTimerBtns();
   },
 
-  // Reîmprospătează doar butoanele timer fără re-render complet
   refreshTimerBtns() {
     this.tasks.forEach(task => {
       const card = document.getElementById('tm-card-' + task.id);
       if (!card) return;
       const actionsDiv = card.querySelector('.tm-card-actions');
       if (!actionsDiv) return;
-      // Înlocuim butoanele timer (primele elemente din actions, înainte de butonul Proiect)
       const gotoBtn = actionsDiv.querySelector('.tm-goto-btn');
       const newTimerHtml = this.renderTimerBtn(task);
-      // Ștergem butoanele timer existente
       actionsDiv.querySelectorAll('.tm-timer-btn').forEach(b => b.remove());
-      // Inserăm noile butoane timer înainte de butonul goto
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = newTimerHtml;
       while (tempDiv.firstChild) {
@@ -578,6 +836,18 @@ const TaskManager = {
     this.renderTaskList();
   },
 
+  onOverviewSearch(value) {
+    this.overviewSearch = value;
+    const el = document.getElementById('tm-tab-content');
+    if (el) el.innerHTML = this.renderTabContent();
+  },
+
+  setOverviewFilter(value) {
+    this.overviewFilter = value;
+    const el = document.getElementById('tm-tab-content');
+    if (el) el.innerHTML = this.renderTabContent();
+  },
+
   renderTaskList() {
     const listEl = document.getElementById('tm-task-list');
     if (!listEl) return;
@@ -585,11 +855,6 @@ const TaskManager = {
     listEl.innerHTML = filtered.length === 0
       ? this.renderEmpty()
       : filtered.map(t => this.renderTaskCard(t)).join('');
-    // Actualizăm și select-urile pentru a reflecta filtrele curente
-    const statusSel = document.querySelector('.tm-select');
-    if (statusSel) statusSel.value = this.filterStatus;
-    const projSel = document.querySelectorAll('.tm-select')[1];
-    if (projSel) projSel.value = this.filterProject;
   },
 
   renderEmpty() {
@@ -640,7 +905,7 @@ const TaskManager = {
     style.textContent = `
       /* ── Task Manager Styles ── */
       .tm-wrapper {
-        max-width: 900px;
+        max-width: 960px;
         margin: 0 auto;
         padding: 0 0 40px;
       }
@@ -671,6 +936,40 @@ const TaskManager = {
         font-size: 12px;
         padding: 7px 14px;
         white-space: nowrap;
+      }
+
+      /* Tabs */
+      .tm-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 20px;
+        border-bottom: 2px solid var(--border);
+        padding-bottom: 0;
+      }
+      .tm-tab-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-muted);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        cursor: pointer;
+        border-radius: 6px 6px 0 0;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+      .tm-tab-btn:hover {
+        color: var(--text);
+        background: var(--bg-secondary);
+      }
+      .tm-tab-btn.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+        background: none;
       }
 
       /* Stats bar */
@@ -747,9 +1046,7 @@ const TaskManager = {
         transition: border-color 0.15s;
         box-sizing: border-box;
       }
-      .tm-search-input:focus {
-        border-color: var(--primary);
-      }
+      .tm-search-input:focus { border-color: var(--primary); }
       .tm-filter-group {
         display: flex;
         gap: 8px;
@@ -766,9 +1063,7 @@ const TaskManager = {
         outline: none;
         transition: border-color 0.15s;
       }
-      .tm-select:focus {
-        border-color: var(--primary);
-      }
+      .tm-select:focus { border-color: var(--primary); }
 
       /* Task cards */
       .tm-list {
@@ -792,9 +1087,7 @@ const TaskManager = {
         box-shadow: 0 4px 16px rgba(0,0,0,0.08);
         transform: translateY(-1px);
       }
-      .tm-card-header {
-        margin-bottom: 12px;
-      }
+      .tm-card-header { margin-bottom: 12px; }
       .tm-card-title-row {
         display: flex;
         align-items: flex-start;
@@ -873,12 +1166,8 @@ const TaskManager = {
         transition: color 0.15s, border-color 0.15s;
         white-space: nowrap;
       }
-      .tm-goto-btn:hover {
-        color: var(--primary);
-        border-color: var(--primary);
-      }
+      .tm-goto-btn:hover { color: var(--primary); border-color: var(--primary); }
 
-      /* Card meta */
       .tm-card-meta {
         display: flex;
         align-items: center;
@@ -892,39 +1181,82 @@ const TaskManager = {
         border-radius: 6px;
         white-space: nowrap;
       }
-      .tm-period {
-        font-size: 11px;
-        color: var(--text-muted);
-        white-space: nowrap;
-      }
+      .tm-period { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 
-      /* Budget section */
-      .tm-budget-section {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-      .tm-budget-bar-wrap {
-        height: 6px;
-        border-radius: 3px;
-        overflow: hidden;
-        position: relative;
-      }
-      .tm-budget-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width 0.4s ease-out;
-      }
-      .tm-budget-numbers {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: 12px;
-        flex-wrap: wrap;
-      }
+      .tm-budget-section { display: flex; flex-direction: column; gap: 6px; }
+      .tm-budget-bar-wrap { height: 6px; border-radius: 3px; overflow: hidden; position: relative; }
+      .tm-budget-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease-out; }
+      .tm-budget-numbers { display: flex; align-items: center; gap: 12px; font-size: 12px; flex-wrap: wrap; }
       .tm-budget-worked { font-weight: 600; }
       .tm-budget-pct { font-size: 13px; }
       .tm-budget-remain { margin-left: auto; }
+
+      /* Overview tab — person cards */
+      .tm-overview-list { display: flex; flex-direction: column; gap: 12px; }
+      .tm-person-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px 18px;
+        animation: tm-card-in 0.2s ease-out;
+        transition: box-shadow 0.15s;
+      }
+      .tm-person-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+      .tm-person-alert { border-left: 3px solid #EF4444; }
+      .tm-person-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .tm-person-info { display: flex; align-items: center; gap: 10px; }
+      .tm-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 800;
+        flex-shrink: 0;
+      }
+      .tm-person-name { font-size: 14px; font-weight: 700; color: var(--text); }
+      .tm-person-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+      .tm-person-code {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+      }
+      .tm-person-role { font-size: 11px; color: var(--text-muted); text-transform: capitalize; }
+      .tm-person-stats { display: flex; gap: 16px; }
+      .tm-person-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+      .tm-person-stat-val { font-size: 18px; font-weight: 800; color: var(--text); line-height: 1; }
+      .tm-person-stat-lbl { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+      .tm-person-budget { margin-bottom: 10px; }
+      .tm-person-tasks { display: flex; flex-direction: column; gap: 6px; }
+      .tm-person-task-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 10px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .tm-person-task-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+      .tm-person-task-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .tm-person-task-name { font-size: 12px; font-weight: 600; color: var(--text); }
+      .tm-person-task-meta { display: flex; align-items: center; gap: 4px; }
+      .tm-person-task-budget { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
       /* Responsive */
       @media (max-width: 600px) {
@@ -935,6 +1267,8 @@ const TaskManager = {
         .tm-card-title-row { flex-direction: column; }
         .tm-card-actions { width: 100%; justify-content: flex-start; }
         .tm-budget-remain { margin-left: 0; }
+        .tm-person-header { flex-direction: column; align-items: flex-start; }
+        .tm-person-stats { gap: 12px; }
       }
     `;
     document.head.appendChild(style);
