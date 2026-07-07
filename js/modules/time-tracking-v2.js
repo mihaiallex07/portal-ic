@@ -602,9 +602,14 @@ const TimeTracking = {
     if (taskId && durationMinutes) {
       const task = this.tasks.find(t => String(t.id) === String(taskId));
       if (task) {
-        const newMinutes = (task.minutes_worked || 0) + durationMinutes;
+        const oldMinutes = task.minutes_worked || 0;
+        const newMinutes = oldMinutes + durationMinutes;
         await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', parseInt(taskId));
         task.minutes_worked = newMinutes;
+        // Verifică alerte buget (JS-side, înlocuiește trigger-ul SQL defect)
+        if (typeof NotificationService !== 'undefined' && NotificationService.checkBudgetAlert) {
+          NotificationService.checkBudgetAlert(task, oldMinutes, newMinutes).catch(e => console.warn('[TT] Budget alert error:', e));
+        }
       }
     }
 

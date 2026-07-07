@@ -427,10 +427,10 @@ const Proiecte = {
           ${canEdit ? `<button class="btn-primary btn-sm" onclick="Proiecte.openAddPhaseModal()">+ Adaugă etapă</button>` : ''}
         </div>
 
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:65vh;overflow-y:auto">
           <table style="width:100%;border-collapse:collapse;table-layout:fixed">
-            <thead>
-              <tr style="background:var(--bg-secondary);font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">
+            <thead style="position:sticky;top:0;z-index:5">
+              <tr style="background:var(--bg-secondary);font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;box-shadow:0 1px 0 var(--border)">
                 <th style="padding:10px 16px;text-align:left">Etapă / Sarcină</th>
                 <th style="padding:10px 12px;text-align:center;width:150px">Perioadă</th>
                 <th style="padding:10px 12px;text-align:center;width:100px">Buget (H)</th>
@@ -573,8 +573,11 @@ const Proiecte = {
     const assignedIds = Array.isArray(task.assigned_users) && task.assigned_users.length > 0
       ? task.assigned_users
       : (task.assigned_user_id ? [task.assigned_user_id] : []);
-    const isAssigned = assignedIds.includes(profile.id);
-    const canStart = isAssigned || isAdminOrCoord;
+    // Verifică și project_task_assignments pentru alocare
+    const taskAssignedUserIds = (this.taskAssignments || []).filter(a => a.task_id === task.id).map(a => a.user_id);
+    const isAssigned = assignedIds.includes(profile.id) || taskAssignedUserIds.includes(profile.id);
+    // Doar persoanele alocate explicit pot porni timerul (adminii nu pot porni task-uri la care nu sunt alocati)
+    const canStart = isAssigned;
 
     // Generăm avatarele pentru toți responsabilii (stivă cu overlap)
     const avatarsHtml = assignedIds.length > 0
@@ -1211,18 +1214,11 @@ const Proiecte = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
             <label class="form-label">Ore</label>
-            <select id="manual-hours-h" class="form-input">
-              ${Array.from({length:13},(_,i)=>`<option value="${i}">${i}h</option>`).join('')}
-            </select>
+            <input type="number" id="manual-hours-h" class="form-input" min="0" max="9999" step="1" value="0" placeholder="0" style="text-align:center">
           </div>
           <div>
-            <label class="form-label">Minute</label>
-            <select id="manual-hours-m" class="form-input">
-              <option value="0">0 min</option>
-              <option value="15">15 min</option>
-              <option value="30">30 min</option>
-              <option value="45">45 min</option>
-            </select>
+            <label class="form-label">Minute (0, 15, 30, 45)</label>
+            <input type="number" id="manual-hours-m" class="form-input" min="0" max="59" step="15" value="0" placeholder="0" style="text-align:center">
           </div>
         </div>
         <div>
@@ -1334,15 +1330,11 @@ const Proiecte = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
             <label class="form-label">Ore</label>
-            <select id="edit-mhl-h" class="form-input">
-              ${Array.from({length:13},(_,i)=>`<option value="${i}" ${i===currentH?'selected':''}>${i}h</option>`).join('')}
-            </select>
+            <input type="number" id="edit-mhl-h" class="form-input" min="0" max="9999" step="1" value="${currentH}" style="text-align:center">
           </div>
           <div>
-            <label class="form-label">Minute</label>
-            <select id="edit-mhl-m" class="form-input">
-              ${[0,15,30,45].map(v=>`<option value="${v}" ${v===currentM?'selected':''}>${v} min</option>`).join('')}
-            </select>
+            <label class="form-label">Minute (0-59)</label>
+            <input type="number" id="edit-mhl-m" class="form-input" min="0" max="59" step="15" value="${currentM}" style="text-align:center">
           </div>
         </div>
         <div>

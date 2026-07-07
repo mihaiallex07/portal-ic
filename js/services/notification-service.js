@@ -289,6 +289,53 @@ const NotificationService = {
     }
   },
 
+
+  // ── BUDGET ALERT JS-SIDE (înlocuiește trigger-ul SQL defect) ──────────
+  async checkBudgetAlert(task, oldMinutes, newMinutes) {
+    const sb = getSupabase();
+    if (!sb || !task || !task.budget_hours || task.budget_hours <= 0) return;
+    const budgetMin = task.budget_hours * 60;
+    const oldPct = (oldMinutes / budgetMin) * 100;
+    const newPct = (newMinutes / budgetMin) * 100;
+    const oldRemaining = 100 - oldPct;
+    const newRemaining = 100 - newPct;
+    const thresholds = [
+      { pct: 50, title: 'Buget 50% consumat',    type: 'budget_alert' },
+      { pct: 25, title: 'Buget 75% consumat',    type: 'budget_alert' },
+      { pct: 10, title: 'Buget 90% consumat',    type: 'budget_alert' },
+      { pct: 5,  title: 'Buget aproape epuizat', type: 'budget_alert' },
+    ];
+    const projName = task.project_name || '';
+    const taskName = task.name || 'Sarcina';
+    for (const t of thresholds) {
+      if (oldRemaining > t.pct && newRemaining <= t.pct) {
+        const msg = 'Sarcina "' + taskName + '" din proiectul "' + projName + '" a consumat ' + (100 - t.pct) + '% din buget.';
+        await this._sendBudgetNotif(sb, task, t.title, msg, t.type);
+      }
+    }
+    if (oldPct < 100 && newPct >= 100) {
+      const msg = 'Sarcina "' + taskName + '" din proiectul "' + projName + '" a depasit bugetul alocat!';
+      await this._sendBudgetNotif(sb, task, 'Buget depasit!', msg, 'budget_exceeded');
+    }
+  },
+
+  async _sendBudgetNotif(sb, task, title, message, type) {
+    const recipients = new Set();
+    if (task.assigned_user_id) recipients.add(task.assigned_user_id);
+    if (Array.isArray(task.assigned_users)) task.assigned_users.forEach(uid => uid && recipients.add(uid));
+    try {
+      const { data: asgn } = await sb.from('project_task_assignments').select('user_id').eq('task_id', task.id);
+      (asgn || []).forEach(a => a.user_id && recipients.add(a.user_id));
+    } catch (e) { /* ignora */ }
+    if (recipients.size === 0) return;
+    const rows = Array.from(recipients).map(uid => ({ user_id: uid, title, message, type, is_read: false, link: '#proiecte' }));
+    try {
+      const { error } = await sb.from('notifications').insert(rows);
+      if (!error && typeof updateNotifBadge === 'function') updateNotifBadge();
+      if (error) console.warn('[NotificationService] Budget notif error:', error.message);
+    } catch (e) { console.warn('[NotificationService] Budget notif error:', e); }
+  },
+
   // ── LISTENERS ──────────────────────────────────────────────────────────
   subscribe(callback) {
     this.listeners.push(callback);
