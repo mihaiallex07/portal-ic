@@ -598,19 +598,9 @@ const TimeTracking = {
       return;
     }
 
-    // Actualizează minutes_worked pe task (consumă bugetul de ore)
-    if (taskId && durationMinutes) {
-      const task = this.tasks.find(t => String(t.id) === String(taskId));
-      if (task) {
-        const oldMinutes = task.minutes_worked || 0;
-        const newMinutes = oldMinutes + durationMinutes;
-        await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', parseInt(taskId));
-        task.minutes_worked = newMinutes;
-        // Verifică alerte buget (JS-side, înlocuiește trigger-ul SQL defect)
-        if (typeof NotificationService !== 'undefined' && NotificationService.checkBudgetAlert) {
-          NotificationService.checkBudgetAlert(task, oldMinutes, newMinutes).catch(e => console.warn('[TT] Budget alert error:', e));
-        }
-      }
+    // Recalculează minutes_worked din zero (nu incremental) pentru acuratețe maximă
+    if (taskId) {
+      await this._recalcAndSaveTaskMinutes(parseInt(taskId));
     }
 
     closeModalForce();
@@ -743,22 +733,12 @@ const TimeTracking = {
       project_task_id: taskId ? parseInt(taskId) : null,
     }).eq('id', id);
     if (error) { showToast('Eroare la salvare: ' + error.message, 'error'); return; }
-    // Ajustează minutes_worked: scade de pe task-ul vechi, adaugă pe cel nou
-    if (oldEntry?.project_task_id && String(oldEntry.project_task_id) !== String(taskId)) {
-      const oldTask = this.tasks.find(t => t.id === oldEntry.project_task_id);
-      if (oldTask) {
-        const newMin = Math.max(0, (oldTask.minutes_worked || 0) - (oldEntry.duration_minutes || 0));
-        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', oldTask.id);
-      }
-    }
-    if (taskId) {
-      const task = this.tasks.find(t => String(t.id) === String(taskId));
-      if (task) {
-        const oldMin = (oldEntry?.project_task_id && String(oldEntry.project_task_id) === String(taskId))
-          ? (oldEntry.duration_minutes || 0) : 0;
-        const newMin = Math.max(0, (task.minutes_worked || 0) - oldMin + durationMinutes);
-        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', parseInt(taskId));
-      }
+    // Recalculează minutes_worked din zero pentru ambele task-uri afectate
+    const affectedTaskIds = new Set();
+    if (oldEntry?.project_task_id) affectedTaskIds.add(oldEntry.project_task_id);
+    if (taskId) affectedTaskIds.add(parseInt(taskId));
+    for (const tid of affectedTaskIds) {
+      await this._recalcAndSaveTaskMinutes(tid);
     }
     closeModalForce();
     showToast('✅ Activitate actualizată', 'success');
@@ -774,13 +754,9 @@ const TimeTracking = {
     const entry = this.entries.find(e => e.id === id);
     const { error } = await sb.from('time_entries').delete().eq('id', id);
     if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
-    // Scade ore din project_task dacă există
-    if (entry?.project_task_id && entry?.duration_minutes) {
-      const task = this.tasks.find(t => t.id === entry.project_task_id);
-      if (task) {
-        const newMin = Math.max(0, (task.minutes_worked || 0) - entry.duration_minutes);
-        await sb.from('project_tasks').update({ minutes_worked: newMin }).eq('id', task.id);
-      }
+    // Recalculează minutes_worked din zero pentru acuratețe maximă
+    if (entry?.project_task_id) {
+      await this._recalcAndSaveTaskMinutes(entry.project_task_id);
     }
     closeModalForce();
     showToast('✅ Activitate ștearsă', 'success');
@@ -790,6 +766,25 @@ const TimeTracking = {
 
   // ── Integrare cu timer din Proiecte / Start Task ──────────────────────────
   // Apelat din proiecte.js (stopTask) și app.js (stopActiveTimer)
+
+  // Recalcul centralizat minutes_worked pentru UN task (din zero, din DB)
+  // Apelat după orice operație de scriere (stop timer, save entry, delete, edit)
+  async _recalcAndSaveTaskMinutes(taskId) {
+    const sb = getSupabase();
+    if (!sb || !taskId) return 0;
+    const [timeRes, manualRes] = await Promise.all([
+      sb.from('time_entries').select('duration_minutes').eq('project_task_id', taskId),
+      sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
+    ]);
+    const timeMin = (timeRes.data || []).reduce((s, r) => s + (r.duration_minutes || 0), 0);
+    const manualMin = (manualRes.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
+    const realMinutes = timeMin + manualMin;
+    await sb.from('project_tasks').update({ minutes_worked: realMinutes }).eq('id', taskId);
+    // Actualizează și în memoria locală
+    const task = this.tasks?.find(t => t.id === taskId || String(t.id) === String(taskId));
+    if (task) task.minutes_worked = realMinutes;
+    return realMinutes;
+  },
 
   async saveFromTimer(timerData, minutes) {
     const userId = this.getNumericUserId();

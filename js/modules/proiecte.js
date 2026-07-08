@@ -176,6 +176,25 @@ const Proiecte = {
     this._syncTaskMinutes(projectId).catch(() => {});
   },
 
+  // ── Recalcul centralizat minutes_worked pentru UN task (din zero, din DB) ──
+  // Apelat după orice operație de scriere (stop timer, save entry, save manual, delete, edit)
+  async _recalcAndSaveTaskMinutes(taskId) {
+    const sb = getSupabase();
+    if (!sb) return 0;
+    const [timeRes, manualRes] = await Promise.all([
+      sb.from('time_entries').select('duration_minutes').eq('project_task_id', taskId),
+      sb.from('manual_hours_log').select('minutes').eq('task_id', taskId),
+    ]);
+    const timeMin = (timeRes.data || []).reduce((s, r) => s + (r.duration_minutes || 0), 0);
+    const manualMin = (manualRes.data || []).reduce((s, r) => s + (r.minutes || 0), 0);
+    const realMinutes = timeMin + manualMin;
+    await sb.from('project_tasks').update({ minutes_worked: realMinutes }).eq('id', taskId);
+    // Actualizează și în memoria locală
+    const task = this.tasks?.find(t => t.id === taskId);
+    if (task) task.minutes_worked = realMinutes;
+    return realMinutes;
+  },
+
   // Recalculează minutes_worked pentru toate task-urile unui proiect
   // și salvează valorile corecte în DB (rulează în background)
   async _syncTaskMinutes(projectId) {
@@ -1059,16 +1078,8 @@ const Proiecte = {
       if (result && result.error) {
         showToast('Eroare la salvarea timpului: ' + result.error.message, 'error');
       } else {
-        // Actualizează minutes_worked pe task
-        const task = this.tasks.find(t => t.id === taskId);
-        if (task) {
-          const sb = getSupabase();
-          if (sb) {
-            const newMinutes = (task.minutes_worked || 0) + minutes;
-            await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
-            task.minutes_worked = newMinutes;
-          }
-        }
+        // Recalculează minutes_worked din zero (nu incremental) pentru acuratețe maximă
+        await this._recalcAndSaveTaskMinutes(taskId);
         const h = Math.floor(minutes / 60);
         const m = minutes % 60;
         showToast('⏹ Task oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate în Time-Tracking.', 'success');
@@ -1347,13 +1358,9 @@ const Proiecte = {
       minutes,
       note,
     });
-    if (logError) { showToast('Eroare la salvarea istoricului: ' + logError.message, 'error'); return; }
-
-    // Actualizează minutes_worked pe task
-    const newMinutes = (task.minutes_worked || 0) + minutes;
-    const { error } = await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
-    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
-    task.minutes_worked = newMinutes;
+        if (logError) { showToast('Eroare la salvarea istoricului: ' + logError.message, 'error'); return; }
+    // Recalculează minutes_worked din zero pentru acuratețe maximă
+    await this._recalcAndSaveTaskMinutes(taskId);
     closeModalForce();
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
@@ -1398,16 +1405,9 @@ const Proiecte = {
     if (!sb) return;
 
     const { error: logError } = await sb.from('manual_hours_log').update({ minutes: newMinutes, note, updated_at: new Date().toISOString() }).eq('id', logId);
-    if (logError) { showToast('Eroare: ' + logError.message, 'error'); return; }
-
-    // Ajustează minutes_worked pe task (diferența)
-    const diff = newMinutes - oldMinutes;
-    const task = this.tasks.find(t => t.id === taskId);
-    if (task) {
-      const updatedMin = Math.max(0, (task.minutes_worked || 0) + diff);
-      await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
-      task.minutes_worked = updatedMin;
-    }
+        if (logError) { showToast('Eroare: ' + logError.message, 'error'); return; }
+    // Recalculează minutes_worked din zero pentru acuratețe maximă
+    await this._recalcAndSaveTaskMinutes(taskId);
     closeModalForce();
     showToast('✅ Consum manual actualizat', 'success');
     await this.loadProjectDetails(this.currentProject.id);
@@ -1420,17 +1420,9 @@ const Proiecte = {
     if (!sb) return;
     console.log('🗑️ deleteManualLog:', { logId, minutes, taskId });
     const { error } = await sb.from('manual_hours_log').delete().eq('id', logId);
-    if (error) { console.error('❌ Eroare ștergere manual_log:', error); showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
-    console.log('✅ manual_log șters din DB');
-    // Scade orele din minutes_worked
-    const task = this.tasks.find(t => t.id === taskId);
-    if (task) {
-      const updatedMin = Math.max(0, (task.minutes_worked || 0) - minutes);
-      console.log('📊 Actualizare minutes_worked:', { oldMin: task.minutes_worked, updatedMin, minutes });
-      const { error: updateErr } = await sb.from('project_tasks').update({ minutes_worked: updatedMin }).eq('id', taskId);
-      if (updateErr) { console.error('❌ Eroare update minutes_worked:', updateErr); } else { console.log('✅ minutes_worked actualizat în DB'); }
-      task.minutes_worked = updatedMin;
-    }
+    if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    // Recalculează minutes_worked din zero pentru acuratețe maximă
+    await this._recalcAndSaveTaskMinutes(taskId);
     showToast('✅ Consum manual șters', 'success');
     // Redeschide modalul cu datele actualizate (nu închide fereastra)
     await this.openManualConsumeModal(taskId);
