@@ -172,8 +172,8 @@ const Proiecte = {
     this.tasks = tasksRes.data || [];
     this.taskAssignments = assignRes.data || [];
     // Sincronizare automată minutes_worked din time_entries + manual_hours_log
-    // Rulează în background fără să blocheze UI-ul
-    this._syncTaskMinutes(projectId).catch(() => {});
+    // Rulează în background și re-renderizează dacă găsește diferențe
+    this._syncTaskMinutes(projectId).catch(e => console.warn('[Proiecte] _syncTaskMinutes error:', e));
   },
 
   // ── Recalcul centralizat minutes_worked pentru UN task (din zero, din DB) ──
@@ -226,8 +226,8 @@ const Proiecte = {
       const { error } = await sb.from('project_tasks').update({ minutes_worked: newVal }).eq('id', task.id);
       if (!error) task.minutes_worked = newVal;
     }
-    // Re-render dacă au existat actualizări
-    if (updates.length > 0 && this.currentProject?.id === projectId) {
+    // Re-render întotdeauna după sync (valorile din memorie au fost actualizate)
+    if (String(this.currentProject?.id) === String(projectId)) {
       this.renderProjectDetail();
     }
   },
