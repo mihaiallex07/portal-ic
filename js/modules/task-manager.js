@@ -1,24 +1,31 @@
-// task-manager.js — Portal Inginerie Creativă
-// Centralizator personal de task-uri + Overview admin
-// Sursa de adevăr: tabela project_tasks (identic cu pagina Proiecte)
+// ============================================================
+// TASK MANAGER — task-manager.js
+// Centralizator personal de task-uri + To-Do + Overview admin
 // ============================================================
 const TaskManager = {
   // State
-  tasks: [],       // task-urile personale ale utilizatorului curent (cu date îmbogățite)
-  allTasks: [],    // TOATE task-urile din proiecte (pentru tab admin)
-  projects: [],    // proiectele la care e arondat
-  phases: [],      // etapele proiectelor
-  members: {},     // { projectId: [...members] } — cache per proiect
-  allProfiles: [], // toate profilurile (pentru tab admin)
-  assignments: [], // project_task_assignments pentru userul curent
+  tasks: [],        // task-urile personale ale utilizatorului curent (cu date îmbogățite)
+  allTasks: [],     // TOATE task-urile din proiecte (pentru tab admin)
+  todoTasks: [],    // task-uri To-Do (tabela todo_tasks)
+  projects: [],     // proiectele la care e arondat
+  phases: [],       // etapele proiectelor
+  members: {},      // { projectId: [...members] } — cache per proiect
+  allProfiles: [],  // toate profilurile (pentru tab admin)
+  assignments: [],  // project_task_assignments pentru userul curent
   allAssignments: [], // toate assignments (pentru tab admin)
+  coordProjectIds: new Set(), // proiectele pe care userul le coordonează
 
-  activeTab: 'personal', // 'personal' | 'overview'
+  activeTab: 'personal', // 'personal' | 'todo' | 'overview'
   filterStatus: 'all',
   filterProject: 'all',
   searchQuery: '',
   overviewSearch: '',
-  overviewFilter: 'all', // 'all' | userId
+  overviewFilter: 'all',
+
+  // To-Do state
+  todoFilterStatus: 'all',
+  todoFilterPriority: 'all',
+  todoSearch: '',
 
   // ── RENDER PRINCIPAL ──────────────────────────────────────────
   async render() {
@@ -37,10 +44,10 @@ const TaskManager = {
     if (!userId) return;
 
     const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
 
     try {
       // 1. Proiecte + Memberships în paralel
-      // Folosim DB.getProjects() exact ca în proiecte.js (identic cu sursa de adevăr)
       const [allProjectsRes, membershipsRes] = await Promise.all([
         DB.getProjects(),
         dbQuery('project_members', q => q.select('project_id, role').eq('user_id', userId), []),
@@ -49,9 +56,8 @@ const TaskManager = {
       const allProjects = allProjectsRes.data || [];
       const memberships = membershipsRes.data || [];
       const enrolledIds = new Set(memberships.map(m => String(m.project_id)));
-      const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
+      this.coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
 
-      // Admin global vede TOATE proiectele (identic cu pagina Proiecte)
       if (isGlobalAdmin) {
         this.projects = allProjects;
       } else {
@@ -60,16 +66,31 @@ const TaskManager = {
 
       const projectIds = this.projects.map(p => p.id);
 
+      // 2. Încarcă To-Do tasks (independent de proiecte)
+      const todoRes = await dbQuery('todo_tasks', q => {
+        if (isGlobalAdmin || isCoord) {
+          return q.select('*').order('created_at', { ascending: false });
+        } else {
+          return q.select('*').eq('assigned_to', userId).order('created_at', { ascending: false });
+        }
+      }, []);
+      this.todoTasks = todoRes.data || [];
+
       if (projectIds.length === 0) {
         this.tasks = [];
         this.allTasks = [];
         this.phases = [];
         this.assignments = [];
         this.allAssignments = [];
+        // Încarcă profiluri pentru admin/coord (necesar pentru To-Do)
+        if (isGlobalAdmin || isCoord) {
+          const profilesRes = await DB.getUsers();
+          this.allProfiles = profilesRes.data || [];
+        }
         return;
       }
 
-      // 2. Task-uri, etape, assignments în paralel (folosim dbQuery pentru consistenta)
+      // 3. Task-uri, etape, assignments în paralel
       const queries = [
         dbQuery('project_tasks', q => q
           .select('id, name, project_id, phase_id, assigned_user_id, assigned_users, budget_hours, minutes_worked, status, description, display_order')
@@ -87,8 +108,7 @@ const TaskManager = {
           .in('project_id', projectIds), []),
       ];
 
-      // Dacă admin, încarcă și toate profilurile pentru overview
-      if (isGlobalAdmin) {
+      if (isGlobalAdmin || isCoord) {
         queries.push(DB.getUsers());
       }
 
@@ -100,7 +120,6 @@ const TaskManager = {
       this.allAssignments = assignRes.data || [];
       this.allProfiles = (profilesRes?.data || []);
 
-      // Cache members per proiect
       this.members = {};
       (membersRes.data || []).forEach(m => {
         if (!this.members[m.project_id]) this.members[m.project_id] = [];
@@ -108,17 +127,9 @@ const TaskManager = {
       });
 
       const userIdStr = String(userId);
-      // Assignments ale utilizatorului curent
       this.assignments = this.allAssignments.filter(a => String(a.user_id) === userIdStr);
       const assignedTaskIds = new Set(this.assignments.map(a => String(a.task_id)));
 
-      // Proiectele pe care userul le coordoneaza (rol coordonator SAU admin global)
-      const adminOrCoordProjectIds = new Set([
-        ...coordProjectIds,
-        ...(isGlobalAdmin ? this.projects.map(p => String(p.id)) : []),
-      ]);
-
-      // ── Îmbogățire task (funcție comună) ──────────────────────
       const enrichTask = (task) => {
         const project = this.projects.find(p => p.id === task.project_id);
         const phase = this.phases.find(ph => ph.id === task.phase_id);
@@ -127,7 +138,6 @@ const TaskManager = {
         const remainH = Math.round(Math.max(0, budgetH - workedH) * 100) / 100;
         const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
 
-        // Perioadă din assignments
         const taskAssigns = this.allAssignments.filter(a => String(a.task_id) === String(task.id));
         let startDate = null, endDate = null;
         if (taskAssigns.length > 0) {
@@ -137,25 +147,21 @@ const TaskManager = {
           endDate = ends[0] || null;
         }
 
-        // Utilizatori alocați (pentru tab admin)
         const assignedUsers = taskAssigns.map(a => {
           const profile = this.allProfiles.find(p => String(p.id) === String(a.user_id));
           return profile ? { id: a.user_id, name: profile.full_name || profile.name || 'Necunoscut', code: profile.employee_code } : null;
         }).filter(Boolean);
 
-        // Deduplicare utilizatori
         const uniqueUsers = [];
         const seenIds = new Set();
         assignedUsers.forEach(u => {
           if (!seenIds.has(u.id)) { seenIds.add(u.id); uniqueUsers.push(u); }
         });
 
-        // Status calculat
         let computedStatus = task.status || 'de_facut';
         if (pct >= 100) computedStatus = 'depasit';
         else if (pct > 0 || (window.activeTimerData?.taskId === task.id)) computedStatus = 'activ';
 
-        // Alertă buget
         let budgetAlert = null;
         if (budgetH > 0) {
           if (pct >= 100) budgetAlert = 'exceeded';
@@ -164,7 +170,6 @@ const TaskManager = {
           else if (pct >= 50) budgetAlert = 'info';
         }
 
-        // Este utilizatorul curent alocat explicit acestui task?
         const isAllocatedToMe =
           String(task.assigned_user_id) === userIdStr ||
           (Array.isArray(task.assigned_users) && task.assigned_users.map(String).includes(userIdStr)) ||
@@ -173,11 +178,8 @@ const TaskManager = {
         return { ...task, project, phase, workedH, budgetH, remainH, pct, startDate, endDate, assignedUsers: uniqueUsers, computedStatus, budgetAlert, isAllocatedToMe };
       };
 
-      // ── allTasks (pentru tab admin) ────────────────────────────
       this.allTasks = rawTasks.map(enrichTask);
 
-      // ── myTasks (tab personal) ─────────────────────────────────
-      // Angajații văd DOAR task-urile alocate explicit lor
       const myRawTasks = rawTasks.filter(t => {
         if (String(t.assigned_user_id) === userIdStr) return true;
         if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
@@ -191,6 +193,7 @@ const TaskManager = {
       console.error('[TaskManager] loadData error:', err);
       this.tasks = [];
       this.allTasks = [];
+      this.todoTasks = [];
     }
   },
 
@@ -198,6 +201,8 @@ const TaskManager = {
   renderPage() {
     const container = document.getElementById('page-content');
     if (!container) return;
+
+    this.injectStyles();
 
     const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
 
@@ -221,6 +226,10 @@ const TaskManager = {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
             Sarcinile mele
           </button>
+          <button class="tm-tab-btn ${this.activeTab === 'todo' ? 'active' : ''}" onclick="TaskManager.setTab('todo')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            To-Do
+          </button>
           ${isAdmin ? `
           <button class="tm-tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" onclick="TaskManager.setTab('overview')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -234,12 +243,11 @@ const TaskManager = {
         </div>
       </div>
     `;
-
-    this.injectStyles();
   },
 
   renderTabContent() {
     if (this.activeTab === 'personal') return this.renderPersonalTab();
+    if (this.activeTab === 'todo') return this.renderTodoTab();
     if (this.activeTab === 'overview') return this.renderOverviewTab();
     return '';
   },
@@ -249,9 +257,12 @@ const TaskManager = {
     const el = document.getElementById('tm-tab-content');
     if (el) {
       el.innerHTML = this.renderTabContent();
-      // Actualizăm butoanele de tab
       document.querySelectorAll('.tm-tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.trim().includes(tab === 'personal' ? 'mele' : 'echipă'));
+        const txt = btn.textContent.trim();
+        if (tab === 'personal') btn.classList.toggle('active', txt.includes('mele'));
+        else if (tab === 'todo') btn.classList.toggle('active', txt.includes('To-Do'));
+        else if (tab === 'overview') btn.classList.toggle('active', txt.includes('echipă'));
+        else btn.classList.remove('active');
       });
     }
   },
@@ -262,7 +273,6 @@ const TaskManager = {
     const stats = this.calcStats();
 
     return `
-      <!-- Stats bar -->
       <div class="tm-stats-bar">
         <div class="tm-stat" onclick="TaskManager.setFilter('status','all')" style="cursor:pointer">
           <span class="tm-stat-value">${stats.total}</span>
@@ -286,7 +296,6 @@ const TaskManager = {
         </div>
       </div>
 
-      <!-- Filters & Search -->
       <div class="tm-filters">
         <div class="tm-search-wrap">
           <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -307,7 +316,6 @@ const TaskManager = {
         </div>
       </div>
 
-      <!-- Task list -->
       <div class="tm-list" id="tm-task-list">
         ${filtered.length === 0
           ? this.renderEmpty()
@@ -317,16 +325,623 @@ const TaskManager = {
     `;
   },
 
+  // ── TAB TO-DO ─────────────────────────────────────────────────
+  renderTodoTab() {
+    const userId = Auth.currentUser?.id;
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const canAssignOthers = isAdmin || isCoord;
+
+    const filtered = this.getFilteredTodoTasks();
+    const total = this.todoTasks.length;
+    const todo = this.todoTasks.filter(t => t.status === 'todo').length;
+    const inProgress = this.todoTasks.filter(t => t.status === 'in_progress').length;
+    const done = this.todoTasks.filter(t => t.status === 'done').length;
+    const urgent = this.todoTasks.filter(t => t.priority === 'urgent' && t.status !== 'done').length;
+
+    return `
+      <!-- Stats To-Do -->
+      <div class="tm-stats-bar">
+        <div class="tm-stat" onclick="TaskManager.setTodoFilter('status','all')" style="cursor:pointer">
+          <span class="tm-stat-value">${total}</span>
+          <span class="tm-stat-label">Total</span>
+        </div>
+        <div class="tm-stat" onclick="TaskManager.setTodoFilter('status','todo')" style="cursor:pointer">
+          <span class="tm-stat-value" style="color:#6B7280">${todo}</span>
+          <span class="tm-stat-label">De făcut</span>
+        </div>
+        <div class="tm-stat tm-stat-activ" onclick="TaskManager.setTodoFilter('status','in_progress')" style="cursor:pointer">
+          <span class="tm-stat-value">${inProgress}</span>
+          <span class="tm-stat-label">În lucru</span>
+        </div>
+        <div class="tm-stat" onclick="TaskManager.setTodoFilter('status','done')" style="cursor:pointer">
+          <span class="tm-stat-value" style="color:#3B82F6">${done}</span>
+          <span class="tm-stat-label">Finalizate</span>
+        </div>
+        <div class="tm-stat" onclick="TaskManager.setTodoFilter('priority','urgent')" style="cursor:pointer">
+          <span class="tm-stat-value" style="color:#EF4444">${urgent}</span>
+          <span class="tm-stat-label">Urgente</span>
+        </div>
+      </div>
+
+      <!-- Filters + Add button -->
+      <div class="tm-filters">
+        <div class="tm-search-wrap">
+          <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="tm-search-input" placeholder="Caută task To-Do..." value="${this.todoSearch}" oninput="TaskManager.onTodoSearch(this.value)">
+        </div>
+        <div class="tm-filter-group">
+          <select class="tm-select" onchange="TaskManager.setTodoFilter('status', this.value)">
+            <option value="all" ${this.todoFilterStatus === 'all' ? 'selected' : ''}>Toate statusurile</option>
+            <option value="todo" ${this.todoFilterStatus === 'todo' ? 'selected' : ''}>○ De făcut</option>
+            <option value="in_progress" ${this.todoFilterStatus === 'in_progress' ? 'selected' : ''}>▶ În lucru</option>
+            <option value="done" ${this.todoFilterStatus === 'done' ? 'selected' : ''}>✓ Finalizat</option>
+          </select>
+          <select class="tm-select" onchange="TaskManager.setTodoFilter('priority', this.value)">
+            <option value="all" ${this.todoFilterPriority === 'all' ? 'selected' : ''}>Toate prioritățile</option>
+            <option value="urgent" ${this.todoFilterPriority === 'urgent' ? 'selected' : ''}>🔴 Urgent</option>
+            <option value="normal" ${this.todoFilterPriority === 'normal' ? 'selected' : ''}>🔵 Normal</option>
+            <option value="low" ${this.todoFilterPriority === 'low' ? 'selected' : ''}>⚪ Scăzut</option>
+          </select>
+        </div>
+        <button class="btn-primary" style="font-size:12px;padding:8px 14px;white-space:nowrap" onclick="TaskManager.openTodoModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Task nou
+        </button>
+      </div>
+
+      <!-- To-Do list -->
+      <div class="tm-list" id="tm-todo-list">
+        ${filtered.length === 0
+          ? `<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+               <div style="font-size:48px;margin-bottom:12px">✅</div>
+               <div style="font-size:15px;font-weight:600;margin-bottom:6px">${this.todoTasks.length === 0 ? 'Nu ai task-uri To-Do.' : 'Niciun task nu corespunde filtrelor.'}</div>
+               ${this.todoTasks.length > 0 ? `<button class="btn-secondary" style="margin-top:12px;font-size:12px" onclick="TaskManager.clearTodoFilters()">Resetează filtrele</button>` : ''}
+               <div style="margin-top:16px"><button class="btn-primary" style="font-size:12px" onclick="TaskManager.openTodoModal()">+ Adaugă primul task</button></div>
+             </div>`
+          : filtered.map(t => this.renderTodoCard(t)).join('')
+        }
+      </div>
+
+      <!-- Modal To-Do (injectat dinamic) -->
+      <div id="tm-todo-modal" style="display:none"></div>
+    `;
+  },
+
+  // ── RENDER CARD TO-DO ─────────────────────────────────────────
+  renderTodoCard(task) {
+    const userId = Auth.currentUser?.id;
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const isOwner = String(task.assigned_to) === String(userId) || String(task.created_by) === String(userId);
+    const canEdit = isAdmin || isCoord || isOwner;
+
+    const priorityMap = {
+      urgent: { label: '🔴 Urgent', bg: '#EF444420', color: '#EF4444', border: '#EF444440' },
+      normal: { label: '🔵 Normal', bg: '#3B82F620', color: '#3B82F6', border: '#3B82F640' },
+      low:    { label: '⚪ Scăzut', bg: '#6B728020', color: '#6B7280', border: '#6B728040' },
+    };
+    const statusMap = {
+      todo:        { label: '○ De făcut',  bg: '#6B728020', color: '#6B7280', border: '#6B728040' },
+      in_progress: { label: '▶ În lucru',  bg: '#10B98120', color: '#10B981', border: '#10B98140' },
+      done:        { label: '✓ Finalizat', bg: '#3B82F620', color: '#3B82F6', border: '#3B82F640' },
+    };
+
+    const prio = priorityMap[task.priority] || priorityMap.normal;
+    const stat = statusMap[task.status] || statusMap.todo;
+
+    const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
+
+    const fmtDate = d => {
+      if (!d) return null;
+      const dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    const deadlineStr = task.deadline ? fmtDate(task.deadline) : null;
+    const isOverdue = task.deadline && task.status !== 'done' && new Date(task.deadline + 'T23:59:59') < new Date();
+
+    // Persoana alocată
+    const assignedProfile = this.allProfiles.find(p => String(p.id) === String(task.assigned_to));
+    const assignedName = assignedProfile ? (assignedProfile.full_name || assignedProfile.name || 'Necunoscut') : 'Eu';
+
+    // Timer buttons
+    const timerHtml = this.renderTodoTimerBtn(task);
+
+    const cardBorderColor = task.priority === 'urgent' && task.status !== 'done' ? '#EF4444'
+      : task.status === 'in_progress' ? '#10B981'
+      : task.status === 'done' ? '#3B82F6'
+      : 'var(--border)';
+
+    const doneStyle = task.status === 'done' ? 'opacity:0.65;' : '';
+
+    return `
+      <div class="tm-card tm-todo-card" id="tm-todo-card-${task.id}" style="border-left:3px solid ${cardBorderColor};${doneStyle}">
+        <div class="tm-card-header" style="margin-bottom:8px">
+          <div class="tm-card-title-row">
+            <div class="tm-card-title-wrap">
+              <span class="tm-task-name" style="${task.status === 'done' ? 'text-decoration:line-through;color:var(--text-muted)' : ''}">${task.title}</span>
+              <span class="tm-status-badge" style="background:${stat.bg};color:${stat.color};border:1px solid ${stat.border}">${stat.label}</span>
+              <span class="tm-status-badge" style="background:${prio.bg};color:${prio.color};border:1px solid ${prio.border}">${prio.label}</span>
+            </div>
+            <div class="tm-card-actions">
+              ${timerHtml}
+              ${canEdit ? `
+              <button class="tm-goto-btn" onclick="TaskManager.openTodoModal(${task.id})" title="Editează">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Editează
+              </button>
+              ${task.status !== 'done' ? `
+              <button class="tm-goto-btn" style="color:#10B981;border-color:#10B98140" onclick="TaskManager.markTodoDone(${task.id})" title="Marchează finalizat">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                Done
+              </button>` : `
+              <button class="tm-goto-btn" onclick="TaskManager.markTodoReopen(${task.id})" title="Redeschide">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+                Redeschide
+              </button>`}
+              <button class="tm-goto-btn" style="color:#EF4444;border-color:#EF444440" onclick="TaskManager.deleteTodo(${task.id})" title="Șterge">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              </button>
+              ` : ''}
+            </div>
+          </div>
+          ${task.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.5">${task.description}</div>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text-muted)">
+          <span>👤 ${assignedName}</span>
+          ${deadlineStr ? `<span style="color:${isOverdue ? '#EF4444' : 'var(--text-muted)'}">📅 ${deadlineStr}${isOverdue ? ' ⚠ Expirat' : ''}</span>` : ''}
+          ${workedH > 0 ? `<span>⏱ ${workedH}h lucrate</span>` : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  // ── TIMER TO-DO ───────────────────────────────────────────────
+  renderTodoTimerBtn(task) {
+    if (task.status === 'done') return '';
+
+    const userId = Auth.currentUser?.id;
+    const isOwner = String(task.assigned_to) === String(userId) || String(task.created_by) === String(userId);
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const canTimer = isOwner || isAdmin || isCoord;
+
+    if (!canTimer) return `<span style="font-size:10px;color:var(--text-muted);padding:4px 8px;font-style:italic">Nealocat</span>`;
+
+    const isRunning = window.activeTimerData && window.activeTimerData.taskId === ('todo_' + task.id);
+    const isPaused = window.pausedTimerData && window.pausedTimerData.taskId === ('todo_' + task.id);
+    const hasActiveTimer = !!(window.activeTimerData || window.pausedTimerData);
+
+    if (isRunning) {
+      return `
+        <button class="tm-timer-btn tm-timer-pause" onclick="TaskManager.pauseTodo(${task.id})">⏸ Pauză</button>
+        <button class="tm-timer-btn tm-timer-stop" onclick="TaskManager.stopTodo(${task.id})">⏹ Stop</button>
+      `;
+    }
+    if (isPaused) {
+      return `
+        <button class="tm-timer-btn tm-timer-resume" onclick="TaskManager.resumeTodo(${task.id})">▶ Reia</button>
+        <button class="tm-timer-btn tm-timer-stop" onclick="TaskManager.stopTodo(${task.id})">⏹ Stop</button>
+      `;
+    }
+    if (hasActiveTimer) {
+      return `<button class="tm-timer-btn tm-timer-start" disabled title="Oprește task-ul activ mai întâi" style="opacity:0.4;cursor:not-allowed">▶ Start</button>`;
+    }
+    const titleEsc = (task.title || '').replace(/'/g, "\\'");
+    return `<button class="tm-timer-btn tm-timer-start" onclick="TaskManager.startTodo(${task.id},'${titleEsc}')">▶ Start</button>`;
+  },
+
+  // ── TIMER ACTIONS TO-DO ───────────────────────────────────────
+  startTodo(todoId, todoTitle) {
+    if (window.activeTimerData) {
+      showToast('Oprește task-ul activ înainte de a începe altul.', 'warning');
+      return;
+    }
+    const now = new Date();
+    window.activeTimerData = {
+      taskId: 'todo_' + todoId,
+      todoId: todoId,
+      taskName: todoTitle,
+      projectId: null,
+      phaseId: null,
+      isTodo: true,
+      userId: Auth?.currentUser?.id || null,
+      startTime: Date.now(),
+      startHour: now.getHours(),
+      startMin: now.getMinutes(),
+      pausedMs: 0,
+    };
+    window.pausedTimerData = null;
+    if (typeof _timerSave === 'function') _timerSave();
+    if (typeof startGlobalTimer === 'function') startGlobalTimer();
+    showToast('▶ To-Do pornit: ' + todoTitle, 'success');
+    this.refreshTodoTimerBtns();
+  },
+
+  pauseTodo(todoId) {
+    if (!window.activeTimerData || window.activeTimerData.taskId !== ('todo_' + todoId)) return;
+    window.pausedTimerData = Object.assign({}, window.activeTimerData, { pausedAt: Date.now() });
+    window.activeTimerData = null;
+    if (typeof stopGlobalTimerInterval === 'function') stopGlobalTimerInterval();
+    if (typeof _timerSave === 'function') _timerSave();
+    if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
+    showToast('⏸ To-Do în pauză', 'info');
+    this.refreshTodoTimerBtns();
+  },
+
+  resumeTodo(todoId) {
+    if (!window.pausedTimerData || window.pausedTimerData.taskId !== ('todo_' + todoId)) return;
+    const paused = window.pausedTimerData;
+    const additionalPause = Date.now() - paused.pausedAt;
+    window.activeTimerData = Object.assign({}, paused, { pausedMs: (paused.pausedMs || 0) + additionalPause });
+    delete window.activeTimerData.pausedAt;
+    window.pausedTimerData = null;
+    if (typeof _timerSave === 'function') _timerSave();
+    if (typeof startGlobalTimer === 'function') startGlobalTimer();
+    if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
+    showToast('▶ To-Do reluat', 'success');
+    this.refreshTodoTimerBtns();
+  },
+
+  async stopTodo(todoId) {
+    const timerData = (window.activeTimerData && window.activeTimerData.taskId === ('todo_' + todoId)) ? window.activeTimerData
+                    : (window.pausedTimerData && window.pausedTimerData.taskId === ('todo_' + todoId)) ? window.pausedTimerData
+                    : null;
+    if (!timerData) return;
+
+    if (typeof stopGlobalTimerInterval === 'function') stopGlobalTimerInterval();
+    window.activeTimerData = null;
+    window.pausedTimerData = null;
+
+    const elapsed = Date.now() - timerData.startTime - (timerData.pausedMs || 0);
+    const minutes = Math.max(1, Math.round(elapsed / 60000));
+
+    const sb = getSupabase();
+    const userId = Auth.currentUser?.id;
+
+    try {
+      // Salvează în time_entries cu activity_type='todo' și project_task_id=null
+      if (sb && userId) {
+        const today = new Date().toISOString().split('T')[0];
+        await sb.from('time_entries').insert({
+          user_id: userId,
+          project_task_id: null,
+          duration_minutes: minutes,
+          date: today,
+          activity_type: 'todo',
+          description: 'To-Do: ' + (timerData.taskName || ''),
+        });
+
+        // Actualizează minutes_worked în todo_tasks
+        const todoTask = this.todoTasks.find(t => t.id === todoId);
+        if (todoTask) {
+          const newMinutes = (todoTask.minutes_worked || 0) + minutes;
+          await sb.from('todo_tasks').update({ minutes_worked: newMinutes, updated_at: new Date().toISOString() }).eq('id', todoId);
+          todoTask.minutes_worked = newMinutes;
+        }
+      }
+
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      showToast('⏹ To-Do oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate.', 'success');
+    } catch(err) {
+      console.error('[TaskManager] stopTodo error:', err);
+      showToast('Eroare la salvarea timpului.', 'error');
+    }
+
+    if (typeof _timerClear === 'function') _timerClear();
+    if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
+    this.refreshTodoTimerBtns();
+  },
+
+  refreshTodoTimerBtns() {
+    this.todoTasks.forEach(task => {
+      const card = document.getElementById('tm-todo-card-' + task.id);
+      if (!card) return;
+      const actionsDiv = card.querySelector('.tm-card-actions');
+      if (!actionsDiv) return;
+      const newTimerHtml = this.renderTodoTimerBtn(task);
+      actionsDiv.querySelectorAll('.tm-timer-btn').forEach(b => b.remove());
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = newTimerHtml;
+      while (tempDiv.firstChild) {
+        actionsDiv.insertBefore(tempDiv.firstChild, actionsDiv.firstChild);
+      }
+    });
+  },
+
+  // ── CRUD TO-DO ────────────────────────────────────────────────
+  openTodoModal(editId) {
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const canAssignOthers = isAdmin || isCoord;
+    const userId = Auth.currentUser?.id;
+
+    let task = null;
+    if (editId) {
+      task = this.todoTasks.find(t => t.id === editId);
+    }
+
+    const title = task ? task.title : '';
+    const desc = task ? (task.description || '') : '';
+    const priority = task ? task.priority : 'normal';
+    const deadline = task ? (task.deadline || '') : '';
+    const assignedTo = task ? (task.assigned_to || userId) : userId;
+
+    // Construiește lista de utilizatori pentru dropdown
+    let usersOptions = '';
+    if (canAssignOthers && this.allProfiles.length > 0) {
+      usersOptions = this.allProfiles
+        .sort((a, b) => (a.full_name || a.name || '').localeCompare(b.full_name || b.name || ''))
+        .map(p => `<option value="${p.id}" ${String(p.id) === String(assignedTo) ? 'selected' : ''}>${p.full_name || p.name || p.email || 'Necunoscut'}</option>`)
+        .join('');
+    }
+
+    const modalHtml = `
+      <div class="tm-modal-overlay" onclick="if(event.target===this)TaskManager.closeTodoModal()">
+        <div class="tm-modal">
+          <div class="tm-modal-header">
+            <h3 class="tm-modal-title">${editId ? 'Editează task To-Do' : 'Task To-Do nou'}</h3>
+            <button class="tm-modal-close" onclick="TaskManager.closeTodoModal()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="tm-modal-body">
+            <div class="tm-form-group">
+              <label class="tm-form-label">Titlu *</label>
+              <input type="text" id="todo-title" class="tm-form-input" placeholder="Ce trebuie făcut?" value="${title.replace(/"/g, '&quot;')}" maxlength="200">
+            </div>
+            <div class="tm-form-group">
+              <label class="tm-form-label">Descriere</label>
+              <textarea id="todo-desc" class="tm-form-input" rows="3" placeholder="Detalii opționale...">${desc}</textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="tm-form-group">
+                <label class="tm-form-label">Prioritate</label>
+                <select id="todo-priority" class="tm-form-input">
+                  <option value="urgent" ${priority === 'urgent' ? 'selected' : ''}>🔴 Urgent</option>
+                  <option value="normal" ${priority === 'normal' ? 'selected' : ''}>🔵 Normal</option>
+                  <option value="low" ${priority === 'low' ? 'selected' : ''}>⚪ Scăzut</option>
+                </select>
+              </div>
+              <div class="tm-form-group">
+                <label class="tm-form-label">Deadline</label>
+                <input type="date" id="todo-deadline" class="tm-form-input" value="${deadline}">
+              </div>
+            </div>
+            ${canAssignOthers && usersOptions ? `
+            <div class="tm-form-group">
+              <label class="tm-form-label">Alocă la</label>
+              <select id="todo-assigned" class="tm-form-input">
+                ${usersOptions}
+              </select>
+            </div>` : ''}
+          </div>
+          <div class="tm-modal-footer">
+            <button class="btn-secondary" onclick="TaskManager.closeTodoModal()">Anulează</button>
+            <button class="btn-primary" onclick="TaskManager.saveTodo(${editId || 'null'})">
+              ${editId ? 'Salvează' : 'Adaugă task'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const modalEl = document.getElementById('tm-todo-modal');
+    if (modalEl) {
+      modalEl.innerHTML = modalHtml;
+      modalEl.style.display = 'block';
+    } else {
+      // Fallback: append to body
+      const div = document.createElement('div');
+      div.id = 'tm-todo-modal-fallback';
+      div.innerHTML = modalHtml;
+      document.body.appendChild(div);
+    }
+
+    // Focus pe titlu
+    setTimeout(() => {
+      const inp = document.getElementById('todo-title');
+      if (inp) inp.focus();
+    }, 50);
+  },
+
+  closeTodoModal() {
+    const el = document.getElementById('tm-todo-modal');
+    if (el) el.style.display = 'none';
+    const fb = document.getElementById('tm-todo-modal-fallback');
+    if (fb) fb.remove();
+  },
+
+  async saveTodo(editId) {
+    const titleEl = document.getElementById('todo-title');
+    const descEl = document.getElementById('todo-desc');
+    const priorityEl = document.getElementById('todo-priority');
+    const deadlineEl = document.getElementById('todo-deadline');
+    const assignedEl = document.getElementById('todo-assigned');
+
+    const title = (titleEl?.value || '').trim();
+    if (!title) {
+      showToast('Titlul este obligatoriu.', 'warning');
+      titleEl?.focus();
+      return;
+    }
+
+    const sb = getSupabase();
+    const userId = Auth.currentUser?.id;
+    if (!sb || !userId) return;
+
+    const payload = {
+      title,
+      description: descEl?.value?.trim() || null,
+      priority: priorityEl?.value || 'normal',
+      deadline: deadlineEl?.value || null,
+      assigned_to: assignedEl ? assignedEl.value : userId,
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      if (editId) {
+        const { error } = await sb.from('todo_tasks').update(payload).eq('id', editId);
+        if (error) throw error;
+        // Actualizează local
+        const idx = this.todoTasks.findIndex(t => t.id === editId);
+        if (idx >= 0) this.todoTasks[idx] = { ...this.todoTasks[idx], ...payload };
+        showToast('Task actualizat ✓', 'success');
+      } else {
+        payload.created_by = userId;
+        payload.status = 'todo';
+        payload.minutes_worked = 0;
+        payload.created_at = new Date().toISOString();
+        const { data, error } = await sb.from('todo_tasks').insert(payload).select().single();
+        if (error) throw error;
+        if (data) this.todoTasks.unshift(data);
+        showToast('Task adăugat ✓', 'success');
+      }
+
+      this.closeTodoModal();
+      this.renderTodoList();
+    } catch(err) {
+      console.error('[TaskManager] saveTodo error:', err);
+      showToast('Eroare la salvare: ' + (err.message || err), 'error');
+    }
+  },
+
+  async markTodoDone(todoId) {
+    const sb = getSupabase();
+    if (!sb) return;
+    try {
+      await sb.from('todo_tasks').update({ status: 'done', updated_at: new Date().toISOString() }).eq('id', todoId);
+      const task = this.todoTasks.find(t => t.id === todoId);
+      if (task) task.status = 'done';
+      showToast('Task marcat ca finalizat ✓', 'success');
+      this.renderTodoList();
+    } catch(err) {
+      showToast('Eroare: ' + err.message, 'error');
+    }
+  },
+
+  async markTodoReopen(todoId) {
+    const sb = getSupabase();
+    if (!sb) return;
+    try {
+      await sb.from('todo_tasks').update({ status: 'todo', updated_at: new Date().toISOString() }).eq('id', todoId);
+      const task = this.todoTasks.find(t => t.id === todoId);
+      if (task) task.status = 'todo';
+      showToast('Task redeschis', 'info');
+      this.renderTodoList();
+    } catch(err) {
+      showToast('Eroare: ' + err.message, 'error');
+    }
+  },
+
+  async deleteTodo(todoId) {
+    if (!confirm('Ștergi acest task To-Do? Acțiunea nu poate fi anulată.')) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    try {
+      await sb.from('todo_tasks').delete().eq('id', todoId);
+      this.todoTasks = this.todoTasks.filter(t => t.id !== todoId);
+      showToast('Task șters.', 'info');
+      this.renderTodoList();
+    } catch(err) {
+      showToast('Eroare: ' + err.message, 'error');
+    }
+  },
+
+  renderTodoList() {
+    const listEl = document.getElementById('tm-todo-list');
+    if (!listEl) return;
+    const filtered = this.getFilteredTodoTasks();
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:6px">${this.todoTasks.length === 0 ? 'Nu ai task-uri To-Do.' : 'Niciun task nu corespunde filtrelor.'}</div>
+        ${this.todoTasks.length > 0 ? `<button class="btn-secondary" style="margin-top:12px;font-size:12px" onclick="TaskManager.clearTodoFilters()">Resetează filtrele</button>` : ''}
+      </div>`;
+    } else {
+      listEl.innerHTML = filtered.map(t => this.renderTodoCard(t)).join('');
+    }
+  },
+
+  // ── FILTRE TO-DO ──────────────────────────────────────────────
+  getFilteredTodoTasks() {
+    let tasks = [...this.todoTasks];
+
+    if (this.todoFilterStatus !== 'all') {
+      tasks = tasks.filter(t => t.status === this.todoFilterStatus);
+    }
+    if (this.todoFilterPriority !== 'all') {
+      tasks = tasks.filter(t => t.priority === this.todoFilterPriority);
+    }
+    if (this.todoSearch.trim()) {
+      const q = this.todoSearch.toLowerCase().trim();
+      tasks = tasks.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Sortare: urgente primul, apoi după deadline, apoi după creare
+    const prioOrder = { urgent: 0, normal: 1, low: 2 };
+    const statOrder = { in_progress: 0, todo: 1, done: 2 };
+    tasks.sort((a, b) => {
+      const so = (statOrder[a.status] ?? 1) - (statOrder[b.status] ?? 1);
+      if (so !== 0) return so;
+      const po = (prioOrder[a.priority] ?? 1) - (prioOrder[b.priority] ?? 1);
+      if (po !== 0) return po;
+      if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+      if (a.deadline) return -1;
+      if (b.deadline) return 1;
+      return 0;
+    });
+
+    return tasks;
+  },
+
+  setTodoFilter(type, value) {
+    if (type === 'status') this.todoFilterStatus = value;
+    if (type === 'priority') this.todoFilterPriority = value;
+    this.renderTodoList();
+  },
+
+  onTodoSearch(value) {
+    this.todoSearch = value;
+    this.renderTodoList();
+  },
+
+  clearTodoFilters() {
+    this.todoFilterStatus = 'all';
+    this.todoFilterPriority = 'all';
+    this.todoSearch = '';
+    this.renderTodoList();
+  },
+
   // ── TAB OVERVIEW ADMIN ────────────────────────────────────────
   renderOverviewTab() {
     if (!Auth.isAdmin() && Auth.currentProfile?.role !== 'coordonator') {
       return `<div style="text-align:center;padding:60px;color:var(--text-muted)">🔒 Acces restricționat</div>`;
     }
 
+    const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
+    const userId = Auth.currentUser?.id;
+
+    // ── Filtrare proiecte vizibile pentru coordonator ──────────
+    // Admin → vede toți; Coordonator → vede doar angajații din proiectele sale
+    let visibleProjectIds = null; // null = toate
+    if (!isGlobalAdmin) {
+      // Coordonator: proiectele unde el este coordonator
+      visibleProjectIds = this.coordProjectIds;
+    }
+
     // Construim harta: userId → { profile, tasks[] }
     const peopleMap = {};
 
     this.allAssignments.forEach(a => {
+      // Dacă coordonator, filtrăm după proiectele coordonate
+      if (visibleProjectIds !== null && !visibleProjectIds.has(String(a.project_id))) return;
+
       const uid = String(a.user_id);
       if (!peopleMap[uid]) {
         const profile = this.allProfiles.find(p => String(p.id) === uid);
@@ -341,7 +956,6 @@ const TaskManager = {
       }
       const task = this.allTasks.find(t => String(t.id) === String(a.task_id));
       if (task) {
-        // Evităm duplicate
         if (!peopleMap[uid].tasks.find(t => t.id === task.id)) {
           peopleMap[uid].tasks.push(task);
         }
@@ -351,6 +965,9 @@ const TaskManager = {
     // Adăugăm și task-urile cu assigned_user_id direct
     this.allTasks.forEach(task => {
       if (!task.assigned_user_id) return;
+      // Dacă coordonator, filtrăm după proiectele coordonate
+      if (visibleProjectIds !== null && !visibleProjectIds.has(String(task.project_id))) return;
+
       const uid = String(task.assigned_user_id);
       if (!peopleMap[uid]) {
         const profile = this.allProfiles.find(p => String(p.id) === uid);
@@ -379,12 +996,10 @@ const TaskManager = {
       );
     }
 
-    // Filtrare per angajat
     if (this.overviewFilter !== 'all') {
       people = people.filter(p => p.id === this.overviewFilter);
     }
 
-    // Sortare: mai întâi cei cu task-uri depășite/alertă
     people.sort((a, b) => {
       const aAlert = a.tasks.filter(t => t.budgetAlert === 'exceeded' || t.budgetAlert === 'critical').length;
       const bAlert = b.tasks.filter(t => t.budgetAlert === 'exceeded' || t.budgetAlert === 'critical').length;
@@ -392,20 +1007,22 @@ const TaskManager = {
       return b.tasks.length - a.tasks.length;
     });
 
-    // Stats globale
-    const totalInLucru = this.allTasks.filter(t => t.computedStatus === 'activ').length;
-    const totalDepasit = this.allTasks.filter(t => t.budgetAlert === 'exceeded').length;
-    const totalAlerta = this.allTasks.filter(t => t.budgetAlert && t.budgetAlert !== 'exceeded').length;
+    // Stats — pentru coordonator, calculăm doar din task-urile vizibile
+    const visibleTasks = visibleProjectIds === null
+      ? this.allTasks
+      : this.allTasks.filter(t => visibleProjectIds.has(String(t.project_id)));
+
+    const totalInLucru = visibleTasks.filter(t => t.computedStatus === 'activ').length;
+    const totalDepasit = visibleTasks.filter(t => t.budgetAlert === 'exceeded').length;
+    const totalAlerta = visibleTasks.filter(t => t.budgetAlert && t.budgetAlert !== 'exceeded').length;
     const totalAngajati = people.length;
 
-    // Dropdown angajați
     const allPeopleForFilter = Object.values(peopleMap);
 
     return `
-      <!-- Overview stats -->
       <div class="tm-stats-bar" style="margin-bottom:16px">
         <div class="tm-stat">
-          <span class="tm-stat-value">${this.allTasks.length}</span>
+          <span class="tm-stat-value">${visibleTasks.length}</span>
           <span class="tm-stat-label">Total task-uri</span>
         </div>
         <div class="tm-stat tm-stat-activ">
@@ -426,7 +1043,6 @@ const TaskManager = {
         </div>
       </div>
 
-      <!-- Filters overview -->
       <div class="tm-filters" style="margin-bottom:16px">
         <div class="tm-search-wrap">
           <svg class="tm-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -440,10 +1056,9 @@ const TaskManager = {
         </select>
       </div>
 
-      <!-- People cards -->
       <div class="tm-overview-list">
         ${people.length === 0
-          ? `<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:600">Niciun angajat cu task-uri alocate</div></div>`
+          ? `<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:600">Niciun angajat cu task-uri alocate${!isGlobalAdmin ? ' în proiectele tale' : ''}</div></div>`
           : people.map(p => this.renderPersonCard(p)).join('')
         }
       </div>
@@ -467,7 +1082,6 @@ const TaskManager = {
 
     return `
       <div class="tm-person-card ${hasAlert ? 'tm-person-alert' : ''}">
-        <!-- Person header -->
         <div class="tm-person-header">
           <div class="tm-person-info">
             <div class="tm-avatar" style="background:${avatarColor}20;color:${avatarColor};border:2px solid ${avatarColor}40">${initials}</div>
@@ -496,7 +1110,6 @@ const TaskManager = {
           </div>
         </div>
 
-        <!-- Buget global persoană -->
         ${totalBudget > 0 ? `
         <div class="tm-person-budget">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -508,7 +1121,6 @@ const TaskManager = {
           </div>
         </div>` : ''}
 
-        <!-- Task list pentru persoană -->
         <div class="tm-person-tasks">
           ${person.tasks.map(t => this.renderPersonTaskRow(t)).join('')}
         </div>
@@ -681,7 +1293,7 @@ const TaskManager = {
     `;
   },
 
-  // ── TIMER BUTTON ──────────────────────────────────────────────
+  // ── TIMER BUTTON (tab personal) ───────────────────────────────
   renderTimerBtn(task) {
     const isRunning = window.activeTimerData && window.activeTimerData.taskId === task.id;
     const isPaused = window.pausedTimerData && window.pausedTimerData.taskId === task.id;
@@ -699,8 +1311,6 @@ const TaskManager = {
         <button class="tm-timer-btn tm-timer-stop" onclick="TaskManager.stopTask(${task.id})">⏹ Stop</button>
       `;
     }
-    // Verificăm dacă userul este alocat explicit acestui task
-    // Adminii/coordonatorii care nu sunt alocați NU pot porni timerul
     if (!task.isAllocatedToMe) {
       return `<span style="font-size:10px;color:var(--text-muted);padding:4px 8px;font-style:italic">Nealocat</span>`;
     }
@@ -711,7 +1321,7 @@ const TaskManager = {
     return `<button class="tm-timer-btn tm-timer-start" onclick="TaskManager.startTask(${task.id},'${taskNameEsc}',${task.project_id},${task.phase_id || 'null'})">▶ Start</button>`;
   },
 
-  // ── TIMER ACTIONS ─────────────────────────────────────────────
+  // ── TIMER ACTIONS (tab personal) ──────────────────────────────
   startTask(taskId, taskName, projectId, phaseId) {
     if (window.activeTimerData) {
       showToast('Oprește task-ul activ înainte de a începe altul.', 'warning');
@@ -776,23 +1386,29 @@ const TaskManager = {
       if (result && result.error) {
         showToast('Eroare la salvarea timpului: ' + result.error.message, 'error');
       } else {
+        // Recalculează din zero (nu incremental) — identic cu proiecte.js
         const task = this.tasks.find(t => t.id === taskId);
         if (task) {
           const sb = getSupabase();
           if (sb) {
-            const newMinutes = (task.minutes_worked || 0) + minutes;
-            await sb.from('project_tasks').update({ minutes_worked: newMinutes }).eq('id', taskId);
-            task.minutes_worked = newMinutes;
-            task.workedH = Math.round(newMinutes / 60 * 10) / 10;
-            task.pct = task.budgetH > 0 ? Math.min(100, Math.round((task.workedH / task.budgetH) * 100)) : 0;
-            task.remainH = Math.round(Math.max(0, task.budgetH - task.workedH) * 100) / 100;
-            if (task.budgetH > 0) {
-              if (task.pct >= 100) task.budgetAlert = 'exceeded';
-              else if (task.pct >= 90) task.budgetAlert = 'critical';
-              else if (task.pct >= 75) task.budgetAlert = 'warning';
-              else if (task.pct >= 50) task.budgetAlert = 'info';
-              else task.budgetAlert = null;
-            }
+            try {
+              const { data: entries } = await sb.from('time_entries')
+                .select('duration_minutes')
+                .eq('project_task_id', taskId);
+              const totalMinutes = (entries || []).reduce((s, e) => s + (e.duration_minutes || 0), 0);
+              await sb.from('project_tasks').update({ minutes_worked: totalMinutes }).eq('id', taskId);
+              task.minutes_worked = totalMinutes;
+              task.workedH = Math.round(totalMinutes / 60 * 10) / 10;
+              task.pct = task.budgetH > 0 ? Math.min(100, Math.round((task.workedH / task.budgetH) * 100)) : 0;
+              task.remainH = Math.round(Math.max(0, task.budgetH - task.workedH) * 100) / 100;
+              if (task.budgetH > 0) {
+                if (task.pct >= 100) task.budgetAlert = 'exceeded';
+                else if (task.pct >= 90) task.budgetAlert = 'critical';
+                else if (task.pct >= 75) task.budgetAlert = 'warning';
+                else if (task.pct >= 50) task.budgetAlert = 'info';
+                else task.budgetAlert = null;
+              }
+            } catch(e) { console.error('[TaskManager] recalc error:', e); }
           }
         }
         const h = Math.floor(minutes / 60);
@@ -835,7 +1451,7 @@ const TaskManager = {
     }, 300);
   },
 
-  // ── FILTRE & SEARCH ───────────────────────────────────────────
+  // ── FILTRE & SEARCH (tab personal) ───────────────────────────
   setFilter(type, value) {
     if (type === 'status') this.filterStatus = value;
     if (type === 'project') this.filterProject = value;
@@ -1202,6 +1818,87 @@ const TaskManager = {
       .tm-budget-pct { font-size: 13px; }
       .tm-budget-remain { margin-left: auto; }
 
+      /* To-Do card */
+      .tm-todo-card .tm-card-header { margin-bottom: 6px; }
+
+      /* Modal To-Do */
+      .tm-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        padding: 20px;
+        animation: tm-fade-in 0.15s ease-out;
+      }
+      @keyframes tm-fade-in {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+      .tm-modal {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        width: 100%;
+        max-width: 480px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        animation: tm-modal-in 0.2s cubic-bezier(0.23,1,0.32,1);
+      }
+      @keyframes tm-modal-in {
+        from { opacity: 0; transform: scale(0.95) translateY(8px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+      }
+      .tm-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .tm-modal-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text);
+        margin: 0;
+      }
+      .tm-modal-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 4px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        transition: color 0.15s, background 0.15s;
+      }
+      .tm-modal-close:hover { color: var(--text); background: var(--bg-secondary); }
+      .tm-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+      .tm-modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 14px 20px 18px;
+        border-top: 1px solid var(--border);
+      }
+      .tm-form-group { display: flex; flex-direction: column; gap: 5px; }
+      .tm-form-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+      .tm-form-input {
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-secondary);
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+        transition: border-color 0.15s;
+        font-family: inherit;
+        resize: vertical;
+      }
+      .tm-form-input:focus { border-color: var(--primary); }
+
       /* Overview tab — person cards */
       .tm-overview-list { display: flex; flex-direction: column; gap: 12px; }
       .tm-person-card {
@@ -1280,6 +1977,7 @@ const TaskManager = {
         .tm-budget-remain { margin-left: 0; }
         .tm-person-header { flex-direction: column; align-items: flex-start; }
         .tm-person-stats { gap: 12px; }
+        .tm-modal { max-width: 100%; }
       }
     `;
     document.head.appendChild(style);
