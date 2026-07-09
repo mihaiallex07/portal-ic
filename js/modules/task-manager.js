@@ -204,7 +204,7 @@ const TaskManager = {
 
     this.injectStyles();
 
-    const isAdmin = Auth.currentProfile?.role === 'admin' || Auth.currentProfile?.role === 'coordonator';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
 
     container.innerHTML = `
       <div class="tm-wrapper">
@@ -230,8 +230,8 @@ const TaskManager = {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
             To-Do
           </button>
-          ${isAdmin ? `
-          <button class="tm-tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" onclick="TaskManager.setTab('overview')">
+          ${isCoord ? `
+          <button class="tm-tab-btn ${this.activeTab === 'overview' ? 'active' : ''}" onclick="TaskManager.setTab('overview')">`
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             Overview echipă
           </button>` : ''}
@@ -502,12 +502,11 @@ const TaskManager = {
     if (task.status === 'done') return '';
 
     const userId = Auth.currentUser?.id;
-    const isOwner = String(task.assigned_to) === String(userId) || String(task.created_by) === String(userId);
-    const isAdmin = Auth.currentProfile?.role === 'admin';
-    const isCoord = Auth.currentProfile?.role === 'coordonator';
-    const canTimer = isOwner || isAdmin || isCoord;
+    // Regula identică cu proiecte.js: doar persoana alocată explicit poate porni timerul
+    // Admin/coordonator care nu sunt alocați NU pot porni timerul
+    const isAllocatedToMe = String(task.assigned_to) === String(userId);
 
-    if (!canTimer) return `<span style="font-size:10px;color:var(--text-muted);padding:4px 8px;font-style:italic">Nealocat</span>`;
+    if (!isAllocatedToMe) return `<span style="font-size:10px;color:var(--text-muted);padding:4px 8px;font-style:italic">Nealocat</span>`;
 
     const isRunning = window.activeTimerData && window.activeTimerData.taskId === ('todo_' + task.id);
     const isPaused = window.pausedTimerData && window.pausedTimerData.taskId === ('todo_' + task.id);
@@ -920,20 +919,15 @@ const TaskManager = {
 
   // ── TAB OVERVIEW ADMIN ────────────────────────────────────────
   renderOverviewTab() {
-    if (!Auth.isAdmin() && Auth.currentProfile?.role !== 'coordonator') {
-      return `<div style="text-align:center;padding:60px;color:var(--text-muted)">🔒 Acces restricționat</div>`;
+    if (Auth.currentProfile?.role !== 'coordonator') {
+      return `<div style="text-align:center;padding:60px;color:var(--text-muted)">🔒 Acces restricționat — doar coordonatorii de proiect pot vedea acest tab</div>`;
     }
 
-    const isGlobalAdmin = Auth.currentProfile?.role === 'admin';
+    const isGlobalAdmin = false; // Overview accesibil doar coordonatorilor
     const userId = Auth.currentUser?.id;
 
-    // ── Filtrare proiecte vizibile pentru coordonator ──────────
-    // Admin → vede toți; Coordonator → vede doar angajații din proiectele sale
-    let visibleProjectIds = null; // null = toate
-    if (!isGlobalAdmin) {
-      // Coordonator: proiectele unde el este coordonator
-      visibleProjectIds = this.coordProjectIds;
-    }
+    // Coordonator vede DOAR angajații din proiectele pe care le coordonează
+    const visibleProjectIds = this.coordProjectIds;
 
     // Construim harta: userId → { profile, tasks[] }
     const peopleMap = {};
@@ -1008,9 +1002,7 @@ const TaskManager = {
     });
 
     // Stats — pentru coordonator, calculăm doar din task-urile vizibile
-    const visibleTasks = visibleProjectIds === null
-      ? this.allTasks
-      : this.allTasks.filter(t => visibleProjectIds.has(String(t.project_id)));
+    const visibleTasks = this.allTasks.filter(t => visibleProjectIds.has(String(t.project_id)));
 
     const totalInLucru = visibleTasks.filter(t => t.computedStatus === 'activ').length;
     const totalDepasit = visibleTasks.filter(t => t.budgetAlert === 'exceeded').length;
@@ -1058,7 +1050,7 @@ const TaskManager = {
 
       <div class="tm-overview-list">
         ${people.length === 0
-          ? `<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:600">Niciun angajat cu task-uri alocate${!isGlobalAdmin ? ' în proiectele tale' : ''}</div></div>`
+          ? `<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">👥</div><div style="font-size:15px;font-weight:600">Niciun angajat cu task-uri alocate în proiectele tale</div></div>`
           : people.map(p => this.renderPersonCard(p)).join('')
         }
       </div>
