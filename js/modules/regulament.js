@@ -14,7 +14,7 @@ const Regulament = {
     container.innerHTML = `
       <div class="page-header">
         <div>
-          <h1 class="page-title">Regulament Intern</h1>
+          <h1 class="page-title">Ghid Intern</h1>
           <p class="page-subtitle">Documentele oficiale ale companiei Inginerie Creativă</p>
         </div>
       </div>
