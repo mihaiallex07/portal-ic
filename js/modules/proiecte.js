@@ -1163,7 +1163,32 @@ const Proiecte = {
       showToast('Eroare la ștergere: ' + err.message, 'error');
     }
   },
-  // ── Modal consum manual ore (admin/coordonator) ───────────────────────────────────────────────
+
+  // ── Ștergere etapă ───────────────────────────────────────────────────────────────────────────────
+  async deletePhase(phaseId) {
+    const phase = (this.phases || []).find(p => p.id === phaseId);
+    const phaseName = phase?.name || 'etapă';
+    const taskCount = (this.tasks || []).filter(t => t.phase_id === phaseId).length;
+    if (taskCount > 0) {
+      showToast(`Nu poți șterge etapa "${phaseName}" — are ${taskCount} sarcin${taskCount === 1 ? 'ă' : 'i'} alocate. Șterge mai întâi sarcinile.`, 'error');
+      return;
+    }
+    if (!confirm(`Ștergi etapa "${phaseName}"? Această acțiune nu poate fi anulată.`)) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    try {
+      const { error } = await sb.from('project_phases').delete().eq('id', phaseId);
+      if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+      this.logChange('delete', 'etapă', phaseName, null, null, 'Etapă ștearsă din proiect');
+      showToast(`Etapa "${phaseName}" a fost ștearsă.`, 'success');
+      await this.loadProjectDetails(this.currentProject.id);
+      this.renderProjectDetail();
+    } catch (err) {
+      showToast('Eroare: ' + err.message, 'error');
+    }
+  },
+
+  // ── Modal consum manual ore (admin/coordonator) ─────────────────────────────────────────────────
   async openManualConsumeModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
     if (!task) return;
