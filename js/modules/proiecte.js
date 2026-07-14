@@ -526,6 +526,8 @@ const Proiecte = {
 
     const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
     const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
+    // Fix: remainH trebuie calculat din displayBudget (suma sarcinilor), nu din budgetH (valoarea DB care poate fi desincronizată)
+    const remainHPhase = Math.round(Math.max(0, displayBudget - workedH) * 100) / 100;
     const phaseRow = `
       <tbody>
         <tr style="border-top:2px solid var(--border);background:var(--bg-secondary)">
@@ -540,7 +542,7 @@ const Proiecte = {
           <td style="padding:10px 12px;text-align:center;color:var(--text-muted);font-size:12px"></td>
           <td style="padding:10px 12px;text-align:center"><strong>${displayBudget}h</strong></td>
           <td style="padding:10px 12px;text-align:center;color:#3B82F6;font-weight:600">${workedH}h</td>
-          <td style="padding:10px 12px;text-align:center;color:var(--text-muted)">${remainH}h</td>
+          <td style="padding:10px 12px;text-align:center;color:var(--text-muted)">${remainHPhase}h</td>
           <td style="padding:10px 12px">
             <div style="display:flex;align-items:center;gap:6px">
               <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
