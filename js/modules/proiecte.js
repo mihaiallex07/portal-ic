@@ -1295,8 +1295,8 @@ const Proiecte = {
             <input type="number" id="manual-hours-h" class="form-input" min="0" max="9999" step="1" value="0" placeholder="0" style="text-align:center">
           </div>
           <div>
-            <label class="form-label">Minute (0, 15, 30, 45)</label>
-            <input type="number" id="manual-hours-m" class="form-input" min="0" max="59" step="15" value="0" placeholder="0" style="text-align:center">
+            <label class="form-label">Minute (0–59)</label>
+            <input type="number" id="manual-hours-m" class="form-input" min="0" max="59" step="1" value="0" placeholder="0" style="text-align:center">
           </div>
         </div>
         <div>

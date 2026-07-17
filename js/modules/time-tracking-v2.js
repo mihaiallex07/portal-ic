@@ -412,28 +412,42 @@ const TimeTracking = {
           <label class="label">Data *</label>
           <input type="date" id="tt-date" class="input" value="${today}">
         </div>
-        <div class="flex gap-3" style="align-items:flex-end">
+        <div class="flex gap-3">
           <div style="flex:1">
-            <label class="label">Oră start *</label>
+            <label class="label">Oră start</label>
             <select id="tt-start" class="select" onchange="TimeTracking._onTimeChange()">${startOptions}</select>
           </div>
           <div style="flex:1">
-            <label class="label">Oră final *</label>
+            <label class="label">Oră final</label>
             <select id="tt-end" class="select" onchange="TimeTracking._onTimeChange()">${endOptions}</select>
           </div>
-          <div style="flex:0 0 auto;min-width:90px">
-            <label class="label">Durată</label>
+        </div>
+        <div>
+          <label class="label">Timp lucrat *</label>
+          <div class="flex gap-3" style="align-items:center">
+            <div style="flex:1">
+              <input type="number" id="tt-manual-h" class="input" min="0" max="23" step="1" placeholder="Ore" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
+              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Ore</div>
+            </div>
+            <div style="font-size:20px;font-weight:700;color:var(--text-muted);padding-bottom:16px">:</div>
+            <div style="flex:1">
+              <input type="number" id="tt-manual-m" class="input" min="0" max="59" step="1" placeholder="Min" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
+              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Minute</div>
+            </div>
             <div id="tt-duration-display" style="
-              padding:8px 12px;
-              background:#f1f5f9;
+              flex:0 0 auto;min-width:72px;
+              padding:8px 10px;
+              background:var(--bg-secondary);
               border:1px solid var(--border);
               border-radius:6px;
-              font-weight:600;
+              font-weight:700;
               text-align:center;
-              color:#0f172a;
+              color:var(--text);
+              font-size:15px;
               user-select:none;
-            ">1h</div>
+            ">—</div>
           </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">💡 Poți completa manual orele/minutele SAU selecta Oră start / Oră final — câmpurile se sincronizează automat.</div>
         </div>
         <div>
           <label class="label">Descriere activitate *</label>
@@ -464,7 +478,7 @@ const TimeTracking = {
       <button class="btn-brand" onclick="TimeTracking.saveEntry()">Salvează</button>
     `);
 
-    // Calculează durata inițială
+    // Inițializează durata din start/end și sincronizează câmpurile manuale
     setTimeout(() => this._onTimeChange(), 0);
   },
 
@@ -472,7 +486,7 @@ const TimeTracking = {
     const startEl = document.getElementById('tt-start');
     const endEl = document.getElementById('tt-end');
     const dispEl = document.getElementById('tt-duration-display');
-    if (!startEl || !endEl || !dispEl) return;
+    if (!startEl || !endEl) return;
     const startMin = parseInt(startEl.value);
     let endMin = parseInt(endEl.value);
     // Auto-corecție: dacă end <= start, setează end = start + 15
@@ -483,12 +497,50 @@ const TimeTracking = {
     const dur = endMin - startMin;
     const h = Math.floor(dur / 60);
     const m = dur % 60;
-    let label;
-    if (h > 0 && m > 0) label = `${h}h ${m}min`;
-    else if (h > 0) label = `${h}h`;
-    else label = `${m}min`;
-    dispEl.textContent = label;
-    dispEl.style.color = dur > 0 ? '#0f172a' : '#dc2626';
+    // Sincronizează câmpurile manuale Ore/Minute
+    const hEl = document.getElementById('tt-manual-h');
+    const mEl = document.getElementById('tt-manual-m');
+    if (hEl) hEl.value = h;
+    if (mEl) mEl.value = m;
+    // Actualizează display
+    if (dispEl) {
+      let label;
+      if (h > 0 && m > 0) label = `${h}h ${m}min`;
+      else if (h > 0) label = `${h}h`;
+      else label = `${m}min`;
+      dispEl.textContent = label;
+      dispEl.style.color = dur > 0 ? 'var(--text)' : '#dc2626';
+    }
+  },
+
+  // Apelat când utilizatorul modifică manual câmpurile Ore/Minute
+  _onManualDurChange() {
+    const hEl = document.getElementById('tt-manual-h');
+    const mEl = document.getElementById('tt-manual-m');
+    const dispEl = document.getElementById('tt-duration-display');
+    const h = Math.max(0, parseInt(hEl?.value) || 0);
+    const m = Math.max(0, Math.min(59, parseInt(mEl?.value) || 0));
+    const dur = h * 60 + m;
+    // Actualizează display
+    if (dispEl) {
+      if (dur === 0) { dispEl.textContent = '—'; dispEl.style.color = 'var(--text-muted)'; }
+      else {
+        let label;
+        if (h > 0 && m > 0) label = `${h}h ${m}min`;
+        else if (h > 0) label = `${h}h`;
+        else label = `${m}min`;
+        dispEl.textContent = label;
+        dispEl.style.color = 'var(--text)';
+      }
+    }
+    // Sincronizează Ora final = Ora start + dur
+    const startEl = document.getElementById('tt-start');
+    const endEl = document.getElementById('tt-end');
+    if (startEl && endEl && dur > 0) {
+      const startMin = parseInt(startEl.value) || 0;
+      const newEnd = Math.min(startMin + dur, 24 * 60);
+      endEl.value = newEnd;
+    }
   },
 
   onProjectChange(projectId) {
@@ -547,21 +599,30 @@ const TimeTracking = {
 
   async saveEntry() {
     const taskName = document.getElementById('tt-task')?.value?.trim();
-    if (!taskName) { showToast('Completează descrierea activității', 'error'); return; }
+    if (!taskName) { showToast('Completă descrierea activității', 'error'); return; }
 
     const dateVal = document.getElementById('tt-date')?.value;
     if (!dateVal) { showToast('Selectează data', 'error'); return; }
 
-    // Citim Oră start și Oră final din dropdown-uri (valori în minute totale)
-    const startTotalMin = parseInt(document.getElementById('tt-start')?.value);
-    const endTotalMin = parseInt(document.getElementById('tt-end')?.value);
-    if (isNaN(startTotalMin) || isNaN(endTotalMin) || endTotalMin <= startTotalMin) {
-      showToast('Verifică ora de start și ora finală', 'error');
+    // Citim durata din câmpurile manuale Ore + Minute (prioritar)
+    const manualH = Math.max(0, parseInt(document.getElementById('tt-manual-h')?.value) || 0);
+    const manualM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-manual-m')?.value) || 0));
+    const manualDur = manualH * 60 + manualM;
+
+    // Citim Ora start și Ora final
+    const startTotalMin = parseInt(document.getElementById('tt-start')?.value) || 0;
+    const endTotalMin = parseInt(document.getElementById('tt-end')?.value) || 0;
+    const startEndDur = endTotalMin > startTotalMin ? endTotalMin - startTotalMin : 0;
+
+    // Prioritate: câmpuri manuale dacă sunt completate, altfel start/end
+    const durationMinutes = manualDur > 0 ? manualDur : startEndDur;
+    if (durationMinutes <= 0) {
+      showToast('Completează timpul lucrat (Ore/Minute) sau selectează Oră start și Oră final', 'error');
       return;
     }
+
     const startHour = Math.floor(startTotalMin / 60);
     const startMin = startTotalMin % 60;
-    const durationMinutes = endTotalMin - startTotalMin;
     const projectId = document.getElementById('tt-project')?.value || null;
     const taskId = document.getElementById('tt-task-id')?.value || null;
     const userId = this.getNumericUserId();
@@ -649,6 +710,8 @@ const TimeTracking = {
     const taskOptions = currentTasks.map(t =>
       `<option value="${t.id}"${e.project_task_id === t.id ? ' selected' : ''}>${t.name}</option>`
     ).join('');
+    const editDurH = Math.floor((e.duration_minutes || 0) / 60);
+    const editDurM = (e.duration_minutes || 0) % 60;
     openModal('Editează activitate', `
       <div class="space-y-3">
         <div class="flex gap-3">
@@ -657,18 +720,26 @@ const TimeTracking = {
             <input type="date" id="tt-edit-date" class="input" value="${e.date}">
           </div>
           <div style="flex:1">
-            <label class="label">Durată *</label>
-            <select id="tt-edit-duration" class="select">${this._buildDurationOptions(e.duration_minutes)}</select>
+            <label class="label">Ora start</label>
+            <div class="flex gap-2">
+              <input type="number" id="tt-edit-hour" class="input" value="${st.h}" min="0" max="23" style="text-align:center">
+              <span style="align-self:center;font-weight:700">:</span>
+              <input type="number" id="tt-edit-min" class="input" value="${st.m}" min="0" max="59" style="text-align:center">
+            </div>
           </div>
         </div>
-        <div class="flex gap-3">
-          <div style="flex:1">
-            <label class="label">Ora start</label>
-            <input type="number" id="tt-edit-hour" class="input" value="${st.h}" min="0" max="23">
-          </div>
-          <div style="flex:1">
-            <label class="label">Minut start</label>
-            <input type="number" id="tt-edit-min" class="input" value="${st.m}" min="0" max="59">
+        <div>
+          <label class="label">Timp lucrat *</label>
+          <div class="flex gap-3" style="align-items:center">
+            <div style="flex:1">
+              <input type="number" id="tt-edit-dur-h" class="input" min="0" max="99" step="1" value="${editDurH}" style="text-align:center">
+              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Ore</div>
+            </div>
+            <div style="font-size:20px;font-weight:700;color:var(--text-muted);padding-bottom:16px">:</div>
+            <div style="flex:1">
+              <input type="number" id="tt-edit-dur-m" class="input" min="0" max="59" step="1" value="${editDurM}" style="text-align:center">
+              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Minute</div>
+            </div>
           </div>
         </div>
         <div>
@@ -712,7 +783,10 @@ const TimeTracking = {
     if (!dateVal) { showToast('Selectează data', 'error'); return; }
     const startHour = parseInt(document.getElementById('tt-edit-hour')?.value) || 0;
     const startMin = parseInt(document.getElementById('tt-edit-min')?.value) || 0;
-    const durationMinutes = parseInt(document.getElementById('tt-edit-duration')?.value) || 60;
+    const durH = Math.max(0, parseInt(document.getElementById('tt-edit-dur-h')?.value) || 0);
+    const durM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-edit-dur-m')?.value) || 0));
+    const durationMinutes = durH * 60 + durM;
+    if (durationMinutes <= 0) { showToast('Completează timpul lucrat (Ore/Minute)', 'error'); return; }
     const projectId = document.getElementById('tt-edit-project')?.value || null;
     const taskId = document.getElementById('tt-edit-task-id')?.value || null;
     const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
