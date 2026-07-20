@@ -1755,7 +1755,16 @@ const Proiecte = {
     if (!confirm('Elimini acest membru din proiect?')) return;
     const member = this.members.find(m => m.id === memberId);
     const memberName = member ? this.getUserName(member.user_id) : 'Necunoscut';
-    await dbQuery('project_members', q => q.delete().eq('id', memberId), null);
+    const sb = getSupabase();
+    if (!sb) { showToast('Eroare: conexiune indisponibilă', 'error'); return; }
+    console.log('[removeMember] Șterg membrul cu id:', memberId, 'din project_members');
+    const { error } = await sb.from('project_members').delete().eq('id', memberId);
+    if (error) {
+      console.error('[removeMember] Eroare Supabase:', error);
+      showToast('Eroare la ștergere: ' + error.message, 'error');
+      return;
+    }
+    console.log('[removeMember] Succes — membrul a fost eliminat');
     this.logChange('delete', 'echipă', memberName, null, null, 'Membru eliminat din proiect');
     showToast('Membru eliminat', 'success');
     await this.loadProjectDetails(this.currentProject.id);
@@ -2083,6 +2092,15 @@ const Proiecte = {
     try {
       const sb = getSupabase();
       if (!sb) { showToast('Nu ești conectat la baza de date', 'error'); return; }
+      // Șterge înregistrările de timp asociate proiectului (FK time_entries_project_id_fkey)
+      await sb.from('time_entries').delete().eq('project_id', projectId);
+      // Șterge manual_hours_log pentru sarcinile proiectului
+      const taskIds = (await sb.from('project_tasks').select('id').eq('project_id', projectId)).data?.map(t => t.id) || [];
+      if (taskIds.length > 0) {
+        await sb.from('manual_hours_log').delete().in('task_id', taskIds);
+        // Șterge și asignările de task-uri
+        await sb.from('project_task_assignments').delete().in('task_id', taskIds);
+      }
       // Șterge sarcinile proiectului
       await sb.from('project_tasks').delete().eq('project_id', projectId);
       // Șterge etapele proiectului
