@@ -593,12 +593,10 @@ const Proiecte = {
       const dt = new Date(d);
       return dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' });
     };
-    // canAssign = admin/coord poate asigna/seta perioade indiferent de editMode
-    const canAssign = isAdminOrCoord;
     let periodHtml;
     if (taskAssigns.length === 0) {
       // Fără perioadă alocată
-      periodHtml = canAssign
+      periodHtml = canEdit
         ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:2px 6px;border:1px dashed var(--border);border-radius:4px" title="Setează perioadă">+ Perioadă</button>`
         : `<span style="color:var(--text-muted);font-size:11px">—</span>`;
     } else if (taskAssigns.length === 1) {
@@ -607,7 +605,7 @@ const Proiecte = {
       const s = fmtShort(a.start_date);
       const e = fmtShort(a.end_date);
       const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
-      periodHtml = canAssign
+      periodHtml = canEdit
         ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă">📅 ${label}</button>`
         : `<span style="font-size:11px;white-space:nowrap">📅 ${label}</span>`;
     } else {
@@ -621,12 +619,12 @@ const Proiecte = {
         const s = fmtShort(starts[0]);
         const e = fmtShort(ends[0]);
         const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
-        periodHtml = canAssign
+        periodHtml = canEdit
           ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă (${taskAssigns.length} angajați)">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></button>`
           : `<span style="font-size:11px;white-space:nowrap">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></span>`;
       } else {
         // Perioade diferite per angajat
-        periodHtml = canAssign
+        periodHtml = canEdit
           ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--primary);padding:2px 6px;border:1px solid var(--primary);border-radius:4px;white-space:nowrap" title="Perioade diferite per angajat">📅 ${taskAssigns.length} perioade</button>`
           : `<span style="font-size:11px;color:var(--primary);white-space:nowrap">📅 ${taskAssigns.length} perioade</span>`;
       }
@@ -681,9 +679,9 @@ const Proiecte = {
           </div>
         </td>
         <td style="padding:8px 12px;font-size:12px">
-          ${canAssign ? `
+          ${canEdit && isAdminOrCoord ? `
             <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="Asignează responsabili">
-              ${avatarsHtml || '<span style="color:var(--text-muted);font-size:12px">—</span>'}
+              ${avatarsHtml}
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
@@ -1829,32 +1827,45 @@ const Proiecte = {
   },
 
   async assignTask(taskId) {
+    const sb = getSupabase();
+    if (!sb) { showToast('Eroare: conexiune indisponibilă', 'error'); return; }
+
     const checkboxes = document.querySelectorAll('input[name="assign-cb"]:checked');
     const userIds = Array.from(checkboxes).map(cb => cb.value);
     const primaryUserId = userIds[0] || null;
     const projectId = this.currentProject?.id;
 
-    // Actualizează project_tasks (compatibilitate)
-    await dbQuery('project_tasks', q => q.update({
+    console.log('[assignTask] taskId:', taskId, 'userIds:', userIds, 'projectId:', projectId);
+
+    // Actualizează project_tasks (assigned_user_id + assigned_users)
+    const { error: taskErr } = await sb.from('project_tasks').update({
       assigned_user_id: primaryUserId,
       assigned_users: userIds.length > 0 ? userIds : null,
-    }).eq('id', taskId), null);
+    }).eq('id', taskId);
+    if (taskErr) { console.error('[assignTask] Eroare update project_tasks:', taskErr); showToast('Eroare la salvare: ' + taskErr.message, 'error'); return; }
 
-    // Șterge assignment-urile vechi și inserează cele noi cu perioadă
-    await dbQuery('project_task_assignments', q => q.delete().eq('task_id', taskId), null);
+    // Șterge assignment-urile vechi
+    const { error: delErr } = await sb.from('project_task_assignments').delete().eq('task_id', taskId);
+    if (delErr) { console.error('[assignTask] Eroare delete project_task_assignments:', delErr); showToast('Eroare la ștergere alocari vechi: ' + delErr.message, 'error'); return; }
+
+    // Inserează noile assignment-uri cu perioadă
     if (userIds.length > 0 && projectId) {
       const rows = userIds.map(uid => {
         const startInput = document.querySelector(`input[name="assign-start"][data-uid="${uid}"]`);
         const endInput = document.querySelector(`input[name="assign-end"][data-uid="${uid}"]`);
-        return {
+        const row = {
           task_id: taskId,
           project_id: projectId,
           user_id: uid,
           start_date: startInput?.value || null,
           end_date: endInput?.value || null,
         };
+        console.log('[assignTask] Row de inserat:', row);
+        return row;
       });
-      await dbQuery('project_task_assignments', q => q.insert(rows), null);
+      const { error: insErr } = await sb.from('project_task_assignments').insert(rows);
+      if (insErr) { console.error('[assignTask] Eroare insert project_task_assignments:', insErr); showToast('Eroare la salvare perioadă: ' + insErr.message, 'error'); return; }
+      console.log('[assignTask] Insert reusit pentru', rows.length, 'randuri');
     }
 
     closeModalForce();
