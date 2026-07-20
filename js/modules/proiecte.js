@@ -403,16 +403,19 @@ const Proiecte = {
       progressBar.style.width = totalPct + '%';
       progressBar.style.background = totalBarColor;
     }
-    // Re-renderizează doar tab-content fără a reseta scroll-ul containerului
+    // Fix 2: salvează scroll-ul pe page-content (containerul principal) și pe data-etape-scroll
+    const pageContent = document.getElementById('page-content');
+    const savedPageScroll = pageContent ? pageContent.scrollTop : 0;
     const tabContent = document.getElementById('tab-content');
     if (tabContent) {
-      // Salvează scroll-ul containerului de etape
       const etapeContainer = tabContent.querySelector('[data-etape-scroll]');
-      const savedScroll = etapeContainer ? etapeContainer.scrollTop : 0;
+      const savedEtapeScroll = etapeContainer ? etapeContainer.scrollTop : 0;
       tabContent.innerHTML = this.renderTab(this.currentTab, canEdit);
-      // Restaurează scroll-ul
+      // Restaurează scroll-ul pe page-content
+      if (pageContent && savedPageScroll > 0) pageContent.scrollTop = savedPageScroll;
+      // Restaurează scroll-ul pe containerul de etape
       const newEtapeContainer = tabContent.querySelector('[data-etape-scroll]');
-      if (newEtapeContainer && savedScroll > 0) newEtapeContainer.scrollTop = savedScroll;
+      if (newEtapeContainer && savedEtapeScroll > 0) newEtapeContainer.scrollTop = savedEtapeScroll;
     } else {
       this.renderProjectDetail();
     }
@@ -818,10 +821,16 @@ const Proiecte = {
     const profileIdStr = String(profile?.id || '');
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const totalBudget = this.phases.reduce((s, p) => s + (p.budget_hours || 0), 0);
-    const totalWorked = this.tasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
-    const totalRemaining = Math.max(0, totalBudget - totalWorked);
-    const pct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
-    const pctColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    // Fix 3: suma minute→ore o singură dată pentru a evita acumularea erorilor float
+    const totalMinutes = this.tasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
+    const totalWorked = Math.round(totalMinutes / 60 * 10) / 10;
+    const totalRemaining = Math.round(Math.max(0, totalBudget - totalWorked) * 10) / 10;
+    const rawPct = totalBudget > 0 ? Math.round((totalWorked / totalBudget) * 100) : 0;  // Fix 4: pct real
+    const pct = Math.min(100, rawPct);
+    const isExact100 = rawPct === 100;
+    const isOverBudget = rawPct > 100;
+    // Fix 4: 100% exact = verde, >100% = roşu
+    const pctColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const totalTasks = this.tasks.length;
     const doneTasks = this.tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
     const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
@@ -830,7 +839,9 @@ const Proiecte = {
     const phaseRows = this.phases.map(phase => {
       const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
       const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
-      const worked = phaseTasks.reduce((s, t) => s + Math.round((t.minutes_worked || 0) / 60 * 10) / 10, 0);
+      // Fix 3: suma minute→ore o singură dată
+      const phaseMinutes = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
+      const worked = Math.round(phaseMinutes / 60 * 10) / 10;
       const budget = phase.budget_hours || 0;
       const p = budget > 0 ? Math.min(100, Math.round((worked / budget) * 100)) : 0;
       const barColor = p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
@@ -873,9 +884,9 @@ const Proiecte = {
           <div style="font-size:32px;font-weight:800;line-height:1">${totalRemaining}<span style="font-size:16px;font-weight:500;opacity:0.8">h</span></div>
           <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">📅</div>
         </div>
-        <div style="padding:18px 20px;background:${pct > 90 ? 'linear-gradient(135deg,#7f1d1d 0%,#ef4444 100%)' : 'linear-gradient(135deg,#78350f 0%,#f59e0b 100%)'};border-radius:12px;color:#fff;position:relative;overflow:hidden">
+        <div style="padding:18px 20px;background:${isOverBudget ? 'linear-gradient(135deg,#7f1d1d 0%,#ef4444 100%)' : isExact100 ? 'linear-gradient(135deg,#065f46 0%,#059669 100%)' : 'linear-gradient(135deg,#78350f 0%,#f59e0b 100%)'};border-radius:12px;color:#fff;position:relative;overflow:hidden">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;opacity:0.75;margin-bottom:8px">Consum buget</div>
-          <div style="font-size:32px;font-weight:800;line-height:1">${pct}<span style="font-size:16px;font-weight:500;opacity:0.8">%</span></div>
+          <div style="font-size:32px;font-weight:800;line-height:1">${rawPct}<span style="font-size:16px;font-weight:500;opacity:0.8">%</span></div>
           <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">📊</div>
         </div>
         <div style="padding:18px 20px;background:linear-gradient(135deg,#1e3a5f 0%,#0ea5e9 100%);border-radius:12px;color:#fff;position:relative;overflow:hidden">
@@ -890,12 +901,12 @@ const Proiecte = {
       <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <div style="font-size:14px;font-weight:700">Progres general buget</div>
-          <div style="font-size:13px;color:${pctColor};font-weight:700">${totalWorked}h din ${totalBudget}h (${pct}%)</div>
+          <div style="font-size:13px;color:${pctColor};font-weight:700">${totalWorked}h din ${totalBudget}h (${rawPct}%)</div>
         </div>
         <div style="height:14px;background:var(--border);border-radius:7px;overflow:hidden;position:relative">
           <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${pctColor},${pctColor}cc);border-radius:7px;transition:width 0.6s ease"></div>
         </div>
-        ${pct > 80 ? `<div style="margin-top:8px;font-size:12px;color:${pctColor};font-weight:600">⚠️ ${pct > 100 ? 'Buget depășit!' : 'Atenție: buget aproape epuizat'}</div>` : ''}
+        ${isExact100 ? `<div style="margin-top:8px;font-size:12px;color:#10B981;font-weight:600">✓ Buget consumat complet</div>` : isOverBudget ? `<div style="margin-top:8px;font-size:12px;color:#EF4444;font-weight:600">⚠ Buget depăşit cu ${rawPct - 100}%</div>` : rawPct > 80 ? `<div style="margin-top:8px;font-size:12px;color:#F59E0B;font-weight:600">⚠ Atenție: buget aproape epuizat</div>` : ''}
       </div>
 
       <!-- Ore pe etapa -->
