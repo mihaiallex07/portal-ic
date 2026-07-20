@@ -593,19 +593,21 @@ const Proiecte = {
       const dt = new Date(d);
       return dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' });
     };
+    // canAssign = admin/coord poate asigna/seta perioade indiferent de editMode
+    const canAssign = isAdminOrCoord;
     let periodHtml;
     if (taskAssigns.length === 0) {
       // Fără perioadă alocată
-      periodHtml = canEdit
+      periodHtml = canAssign
         ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:2px 6px;border:1px dashed var(--border);border-radius:4px" title="Setează perioadă">+ Perioadă</button>`
         : `<span style="color:var(--text-muted);font-size:11px">—</span>`;
     } else if (taskAssigns.length === 1) {
-      // Un singur angajat — afișează start–end
+      // Un singur angajat — afișază start–end
       const a = taskAssigns[0];
       const s = fmtShort(a.start_date);
       const e = fmtShort(a.end_date);
       const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
-      periodHtml = canEdit
+      periodHtml = canAssign
         ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă">📅 ${label}</button>`
         : `<span style="font-size:11px;white-space:nowrap">📅 ${label}</span>`;
     } else {
@@ -619,12 +621,12 @@ const Proiecte = {
         const s = fmtShort(starts[0]);
         const e = fmtShort(ends[0]);
         const label = (s && e) ? `${s} – ${e}` : (s || e || '—');
-        periodHtml = canEdit
+        periodHtml = canAssign
           ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text);padding:2px 6px;border:1px solid var(--border);border-radius:4px;white-space:nowrap" title="Editează perioadă (${taskAssigns.length} angajați)">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></button>`
           : `<span style="font-size:11px;white-space:nowrap">📅 ${label} <span style='color:var(--text-muted)'>×${taskAssigns.length}</span></span>`;
       } else {
         // Perioade diferite per angajat
-        periodHtml = canEdit
+        periodHtml = canAssign
           ? `<button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--primary);padding:2px 6px;border:1px solid var(--primary);border-radius:4px;white-space:nowrap" title="Perioade diferite per angajat">📅 ${taskAssigns.length} perioade</button>`
           : `<span style="font-size:11px;color:var(--primary);white-space:nowrap">📅 ${taskAssigns.length} perioade</span>`;
       }
@@ -679,9 +681,9 @@ const Proiecte = {
           </div>
         </td>
         <td style="padding:8px 12px;font-size:12px">
-          ${canEdit && isAdminOrCoord ? `
+          ${canAssign ? `
             <button onclick="Proiecte.openAssignModal(${task.id})" style="background:none;border:none;cursor:pointer;padding:0" title="Asignează responsabili">
-              ${avatarsHtml}
+              ${avatarsHtml || '<span style="color:var(--text-muted);font-size:12px">—</span>'}
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
