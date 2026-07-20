@@ -1788,11 +1788,15 @@ const Proiecte = {
             const avatarEl = u.avatar_url
               ? '<img src="' + u.avatar_url + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">'
               : '<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dark);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">' + initials + '</div>';
-            const checked = currentAssigned.includes(m.user_id) ? 'checked' : '';
+            // Bifat dacă există în project_task_assignments SAU în assigned_users
+            const isInAssignments = !!existingMap[m.user_id];
+            const isInAssigned = currentAssigned.some(id => String(id) === String(m.user_id));
+            const isChecked = isInAssignments || isInAssigned;
+            const checked = isChecked ? 'checked' : '';
             const ex = existingMap[m.user_id] || {};
             const startVal = ex.start_date || '';
             const endVal = ex.end_date || '';
-            const datesDisplay = checked ? 'flex' : 'none';
+            const datesDisplay = isChecked ? 'flex' : 'none';
             return '<div style="border-bottom:1px solid var(--border);padding:10px 12px">'
               + '<label style="display:flex;align-items:center;gap:10px;cursor:pointer">'
               + '<input type="checkbox" name="assign-cb" value="' + m.user_id + '" ' + checked
