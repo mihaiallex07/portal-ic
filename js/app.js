@@ -81,10 +81,23 @@ function showApp(user, profile) {
   // Validare timer după login (verifică că timer-ul aparține utilizatorului curent)
   if (typeof _timerValidateUser === 'function') _timerValidateUser();
 
-  // Hash routing
+  // Hash routing — suport pentru proiect specific: #/proiecte (restaurează proiectul din localStorage)
   const hash = window.location.hash.replace('#/', '');
   const route = ROUTES[hash] ? hash : 'dashboard';
-  navigate(route, null);
+  // Dacă era un proiect deschis, navighează la proiecte și redeschide proiectul
+  const savedProjectId = localStorage.getItem('ic_last_project_id');
+  if (savedProjectId && (route === 'proiecte' || route === 'dashboard')) {
+    navigate('proiecte', null).then(() => {
+      // Așteptăm ca Proiecte să se inițializeze, apoi redeschide proiectul
+      setTimeout(() => {
+        if (window.Proiecte && Proiecte.projects && Proiecte.projects.length > 0) {
+          Proiecte.openProject(parseInt(savedProjectId));
+        }
+      }, 600);
+    });
+  } else {
+    navigate(route, null);
+  }
 
   window.addEventListener('hashchange', () => {
     const h = window.location.hash.replace('#/', '');

@@ -92,17 +92,20 @@ const Dashboard = {
               const proj = projects.find(p => p.id === t.project_id);
               const workedH = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
               const budgetH = t.budget_hours || 0;
-              const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
+              const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;  // Fix 4: pct real
+              const pct = Math.min(100, rawPct);
               let alert = null;
-              if (pct >= 100) alert = 'exceeded';
-              else if (pct >= 90) alert = 'critical';
-              else if (pct >= 75) alert = 'warning';
-              return { ...t, proj, workedH, budgetH, pct, alert };
+              if (rawPct > 100) alert = 'exceeded';  // Fix 4: >100 = Depăşit, 100 exact = Done
+              else if (rawPct === 100) alert = 'done';
+              else if (rawPct >= 90) alert = 'critical';
+              else if (rawPct >= 75) alert = 'warning';
+              return { ...t, proj, workedH, budgetH, pct, rawPct, alert };
             }).filter(t => t.alert || (window.activeTimerData?.taskId === t.id))
               .sort((a, b) => {
-                const ao = a.alert === 'exceeded' ? 0 : a.alert === 'critical' ? 1 : 2;
-                const bo = b.alert === 'exceeded' ? 0 : b.alert === 'critical' ? 1 : 2;
-                return ao !== bo ? ao - bo : b.pct - a.pct;
+                const order = { exceeded: 0, done: 1, critical: 2, warning: 3 };
+                const ao = order[a.alert] ?? 4;
+                const bo = order[b.alert] ?? 4;
+                return ao !== bo ? ao - bo : b.rawPct - a.rawPct;
               }).slice(0, 5);
           }
         }
@@ -224,8 +227,12 @@ const Dashboard = {
               </div>
               <div class="card-body" style="padding:0">
                 ${urgentTasks.map(t => {
-                  const barColor = t.pct >= 100 ? '#EF4444' : t.pct >= 90 ? '#EF4444' : '#F59E0B';
-                  const alertLabel = t.alert === 'exceeded' ? '⚠ Depășit' : t.alert === 'critical' ? '🔴 <10%' : '🟡 <25%';
+                  // Fix 4: 100% exact = verde Done, >100% = roşu Depăşit cu pct real
+                  const isExact100 = t.rawPct === 100;
+                  const isOverBudget = t.rawPct > 100;
+                  const barColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : t.pct >= 90 ? '#EF4444' : '#F59E0B';
+                  const displayPct = isOverBudget ? t.rawPct : t.pct;
+                  const alertLabel = isOverBudget ? '⚠ Depăşit' : isExact100 ? '✓ Done' : t.alert === 'critical' ? '🔴 <10%' : '🟡 <25%';
                   return `
                     <div class="flex items-center gap-3 p-3 cursor-pointer" style="border-bottom:1px solid var(--border)" onclick="navigate('task-manager', null)">
                       <div style="width:3px;height:36px;border-radius:2px;background:${barColor};flex-shrink:0"></div>
@@ -234,7 +241,7 @@ const Dashboard = {
                         <div class="text-xs text-muted">${t.proj?.emoji || '📁'} ${t.proj?.name || 'Proiect'}</div>
                       </div>
                       <div style="text-align:right;flex-shrink:0">
-                        <div style="font-size:12px;font-weight:700;color:${barColor}">${t.pct}%</div>
+                        <div style="font-size:12px;font-weight:700;color:${barColor}">${displayPct}%</div>
                         <div style="font-size:10px;color:${barColor};white-space:nowrap">${alertLabel}</div>
                       </div>
                     </div>

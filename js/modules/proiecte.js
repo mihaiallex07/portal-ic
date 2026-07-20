@@ -325,6 +325,7 @@ const Proiecte = {
     await this.loadProjectDetails(projectId);
     this.currentTab = 'etape';
     this.editMode = false;  // reset la fiecare deschidere
+    localStorage.setItem('ic_last_project_id', projectId);  // Fix 1: persistă proiectul curent
     this.renderProjectDetail();
   },
 
@@ -375,6 +376,48 @@ const Proiecte = {
       console.warn('logChange error:', e.message);
     }
   },
+  // Fix 2: re-renderizează doar tab-ul Etape fără scroll-reset
+  async _refreshEtapeOnly() {
+    await this.loadProjectDetails(this.currentProject.id);
+    const profile = Auth.currentProfile;
+    const isAdmin = profile && profile.role === 'admin';
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
+    const canEdit = (isAdmin || isCoord) && this.editMode;
+    // Actualizează header-ul de progres total
+    const totalConsumed = this.tasks.length > 0
+      ? Math.round(this.tasks.reduce((s, t) => s + (t.minutes_worked || 0), 0) / 60 * 10) / 10
+      : (this.currentProject.consumed_hours || 0);
+    const totalBudget = this.tasks.length > 0
+      ? this.tasks.reduce((s, t) => s + (t.budget_hours || 0), 0)
+      : (this.currentProject.budget_hours || 0);
+    const totalPct = totalBudget > 0 ? Math.min(100, Math.round((totalConsumed / totalBudget) * 100)) : 0;
+    const totalBarColor = totalPct > 90 ? '#EF4444' : totalPct > 70 ? '#F59E0B' : '#10B981';
+    const progressHeader = document.querySelector('#page-content .progress-header-text');
+    if (progressHeader) {
+      progressHeader.textContent = `${totalConsumed}h lucrate din ${totalBudget}h bugetate (${totalPct}%)`;
+      progressHeader.style.color = totalBarColor;
+    }
+    const progressBar = document.querySelector('#page-content .progress-header-bar');
+    if (progressBar) {
+      progressBar.style.width = totalPct + '%';
+      progressBar.style.background = totalBarColor;
+    }
+    // Re-renderizează doar tab-content fără a reseta scroll-ul containerului
+    const tabContent = document.getElementById('tab-content');
+    if (tabContent) {
+      // Salvează scroll-ul containerului de etape
+      const etapeContainer = tabContent.querySelector('[data-etape-scroll]');
+      const savedScroll = etapeContainer ? etapeContainer.scrollTop : 0;
+      tabContent.innerHTML = this.renderTab(this.currentTab, canEdit);
+      // Restaurează scroll-ul
+      const newEtapeContainer = tabContent.querySelector('[data-etape-scroll]');
+      if (newEtapeContainer && savedScroll > 0) newEtapeContainer.scrollTop = savedScroll;
+    } else {
+      this.renderProjectDetail();
+    }
+  },
+
   renderProjectDetail() {
     const p = this.currentProject;
     if (!p) return;
@@ -435,10 +478,10 @@ const Proiecte = {
         <div style="margin-top:16px;padding:12px 16px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
             <span style="color:var(--text-muted)">Progres total ore</span>
-            <span style="font-weight:600;color:${barColor}">${consumed}h lucrate din ${budget}h bugetate (${pct}%)</span>
+            <span class="progress-header-text" style="font-weight:600;color:${barColor}">${consumed}h lucrate din ${budget}h bugetate (${pct}%)</span>
           </div>
           <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
-            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width 0.4s"></div>
+            <div class="progress-header-bar" style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width 0.4s"></div>
           </div>
         </div>
       </div>
@@ -486,7 +529,7 @@ const Proiecte = {
           ${canEdit ? `<button class="btn-primary btn-sm" onclick="Proiecte.openAddPhaseModal()">+ Adaugă etapă</button>` : ''}
         </div>
 
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:65vh;overflow-y:auto">
+        <div data-etape-scroll style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:65vh;overflow-y:auto">
           <table style="width:100%;border-collapse:collapse;table-layout:fixed">
             <thead style="position:sticky;top:0;z-index:5">
               <tr style="background:var(--bg-secondary);font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;box-shadow:0 1px 0 var(--border)">
@@ -518,16 +561,19 @@ const Proiecte = {
     const budgetH = phase.budget_hours || 0;
     const workedMin = phaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
     const workedH = Math.round(workedMin / 60 * 10) / 10;
-    const remainH = Math.round(Math.max(0, budgetH - workedH) * 100) / 100;
-    const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
-    const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    const remainH = Math.round(Math.max(0, budgetH - workedH) * 10) / 10;  // Fix 3: max 1 zecimală
+    const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;  // Fix 4: pct real
+    const pct = Math.min(100, rawPct);
+    const isExact100 = rawPct === 100;
+    const isOverBudget = rawPct > 100;
+    const barColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const color = phase.color || '#3B82F6';
     const phaseBodyId = 'phasebody-' + phase.id;
 
     const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
     const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
     // Fix: remainH trebuie calculat din displayBudget (suma sarcinilor), nu din budgetH (valoarea DB care poate fi desincronizată)
-    const remainHPhase = Math.round(Math.max(0, displayBudget - workedH) * 100) / 100;
+    const remainHPhase = Math.round(Math.max(0, displayBudget - workedH) * 10) / 10;  // Fix 3: max 1 zecimală
     const phaseRow = `
       <tbody>
         <tr style="border-top:2px solid var(--border);background:var(--bg-secondary)">
@@ -577,9 +623,13 @@ const Proiecte = {
   renderTaskRow(task, idx, canEdit, phaseBudget) {
     const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
     const budgetH = task.budget_hours || 0;
-    const remainH = Math.round(Math.max(0, budgetH - workedH) * 100) / 100;
-    const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
-    const barColor = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
+    const remainH = Math.round(Math.max(0, budgetH - workedH) * 10) / 10;  // Fix 3: max 1 zecimală
+    const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;  // Fix 4: pct real fără clamp
+    const pct = Math.min(100, rawPct);  // pentru progress bar (nu depășeşte 100%)
+    // Fix 4: culoare și label corect: 100% exact = verde, >100% = roşu Depăşit
+    const isExact100 = rawPct === 100;
+    const isOverBudget = rawPct > 100;
+    const barColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
     // canManage = admin/coord indiferent de editMode (pentru butoane Start, Asignare vizualizare, Consum manual)
     // Verifică atât rolul global (profiles.role) cât și rolul în proiect (project_members.role)
@@ -675,8 +725,10 @@ const Proiecte = {
             <div style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
               <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px"></div>
             </div>
-            <span style="font-size:11px;color:var(--text-muted);width:30px">${pct}%</span>
+            <span style="font-size:11px;color:${isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : 'var(--text-muted)'};width:36px">${isOverBudget ? rawPct + '%' : pct + '%'}</span>
           </div>
+          ${isExact100 ? `<div style="font-size:10px;color:#10B981;font-weight:600;margin-top:2px">✓ Done</div>` : ''}
+          ${isOverBudget ? `<div style="font-size:10px;color:#EF4444;font-weight:600;margin-top:2px">⚠ Depăşit</div>` : ''}
         </td>
         <td style="padding:8px 12px;font-size:12px">
           ${canEdit && isAdminOrCoord ? `
@@ -995,6 +1047,7 @@ const Proiecte = {
 
   backToList() {
     this.currentProject = null;
+    localStorage.removeItem('ic_last_project_id');  // Fix 1: șterge proiectul salvat
     this.renderList();
   },
 
@@ -1359,8 +1412,7 @@ const Proiecte = {
     const hStr = h > 0 ? h + 'h ' : '';
     const mStr = m > 0 ? m + 'min' : '';
     showToast(`✅ Ore recalculate: ${hStr}${mStr || '0min'} (manual: ${Math.round(manualMin/60*10)/10}h + time-tracking: ${Math.round(timeMin/60*10)/10}h)`, 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   async saveManualConsume(taskId) {
@@ -1392,8 +1444,7 @@ const Proiecte = {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     showToast(`✅ ${h > 0 ? h + 'h ' : ''}${m > 0 ? m + 'min ' : ''}adăugate manual pe sarcină`, 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   async openEditManualLog(logId, currentMinutes, taskId) {
@@ -1437,8 +1488,7 @@ const Proiecte = {
     await this._recalcAndSaveTaskMinutes(taskId);
     closeModalForce();
     showToast('✅ Consum manual actualizat', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   async deleteManualLog(logId, minutes, taskId) {
@@ -1484,16 +1534,14 @@ const Proiecte = {
     }
     closeModalForce();
     showToast('Sarcină actualizată!', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
   async deleteTask(taskId) {
     if (!confirm('Sigur vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
     const result = await dbQuery('project_tasks', q => q.delete().eq('id', taskId), null);
     if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
     showToast('Sarcină ștearsă!', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   openAddPhaseModal() {
@@ -1621,8 +1669,7 @@ const Proiecte = {
       this.logChange('insert', 'etapă', name, null, budgetH > 0 ? budgetH + 'h' : null, 'Etapă personalizată adăugată');
       showToast('Etapă adăugată!', 'success');
     }
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   openAddTaskModal(phaseId) {
@@ -1690,8 +1737,7 @@ const Proiecte = {
     showToast('Sarcină adăugată!', 'success');
     // Recalculează bugetul etapei din suma task-urilor
     await this.recalcPhaseBudget(phaseId);
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
   openAddMemberModal(role) {
     const existingIds = this.members.map(m => m.user_id);
@@ -1870,8 +1916,7 @@ const Proiecte = {
 
     closeModalForce();
     showToast(userIds.length > 0 ? `${userIds.length} responsabil${userIds.length !== 1 ? 'i asignați' : ' asignat'}` : 'Sarcină neasignată', 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.renderProjectDetail();
+    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
   openEditProject() {
