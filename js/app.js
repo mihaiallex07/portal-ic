@@ -81,9 +81,10 @@ function showApp(user, profile) {
   // Validare timer după login (verifică că timer-ul aparține utilizatorului curent)
   if (typeof _timerValidateUser === 'function') _timerValidateUser();
 
-  // Fix 1: la refresh, restaurează pagina curentă din hash (funcționează pentru orice pagină)
-  const hash = window.location.hash.replace('#/', '');
-  const route = ROUTES[hash] ? hash : 'dashboard';
+  // Fix routing: citește ruta din hash SAU din localStorage (fallback robust)
+  const hash = window.location.hash.replace('#/', '').replace('#', '');
+  const savedRoute = (() => { try { return localStorage.getItem('ic_last_route'); } catch(e) { return null; } })();
+  const route = ROUTES[hash] ? hash : (ROUTES[savedRoute] ? savedRoute : 'dashboard');
   // Dacă era un proiect deschis, navighează la proiecte și redeschide proiectul
   const savedProjectId = localStorage.getItem('ic_last_project_id');
   if (savedProjectId && route === 'proiecte') {
@@ -125,6 +126,9 @@ function showLogin() {
 async function navigate(route, linkEl, fromHash = false) {
   if (!ROUTES[route]) return;
   currentRoute = route;
+
+  // Fix routing: salvează ruta curentă în localStorage (fallback pentru refresh)
+  try { localStorage.setItem('ic_last_route', route); } catch(e) {}
 
   if (!fromHash) window.location.hash = '/' + route;
 
