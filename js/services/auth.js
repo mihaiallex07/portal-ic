@@ -73,18 +73,37 @@ const Auth = {
     const sb = getSupabase();
     if (!sb) return;
 
+    const user = this.currentUser;
+    // SECURITATE: verifică domeniul înainte de orice altă operație
+    const isInternalDomain = user?.email?.endsWith('@ingineriecreativa.ro');
+
     // 1. Caută profilul după id (cazul normal)
     const { data: profileById } = await sb.from('profiles').select('*').eq('id', userId).single();
     if (profileById) {
+      // SECURITATE: dacă emailul nu e intern, verifică că este colaborator_extern invitat
+      if (!isInternalDomain) {
+        if (profileById.role !== 'colaborator_extern') {
+          console.warn('[Auth] Acces refuzat (profil existent, rol invalid):', user.email);
+          this.currentProfile = null;
+          this._accessDenied = true;
+          return;
+        }
+      }
       this.currentProfile = profileById;
       return;
     }
 
     // 2. Caută profilul după email (profil pre-creat de admin cu UUID temporar)
-    const user = this.currentUser;
     if (user?.email) {
       const { data: profileByEmail } = await sb.from('profiles').select('*').eq('email', user.email).single();
       if (profileByEmail) {
+        // SECURITATE: dacă emailul nu e intern, verifică că este colaborator_extern
+        if (!isInternalDomain && profileByEmail.role !== 'colaborator_extern') {
+          console.warn('[Auth] Acces refuzat (profil by email, rol invalid):', user.email);
+          this.currentProfile = null;
+          this._accessDenied = true;
+          return;
+        }
         // Actualizăm id-ul cu UUID-ul real din Google Auth
         await sb.from('profiles').update({ id: userId, is_pre_created: false }).eq('email', user.email);
         this.currentProfile = { ...profileByEmail, id: userId, is_pre_created: false };
@@ -102,7 +121,6 @@ const Auth = {
       .slice(0, 4);
     // Dacă emailul nu este @ingineriecreativa.ro, verifică dacă este colaborator extern invitat
     // SECURITATE: doar emailurile @ingineriecreativa.ro SAU colaboratorii externi invitați explicit pot accesa HUB-ul
-    const isInternalDomain = user.email.endsWith('@ingineriecreativa.ro');
     if (!isInternalDomain) {
       // Verifică dacă există un profil pre-creat cu role='colaborator_extern' pentru acest email
       const { data: extProfile } = await sb.from('profiles').select('*').eq('email', user.email).eq('role', 'colaborator_extern').limit(1);

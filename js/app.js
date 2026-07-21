@@ -96,11 +96,30 @@ function showApp(user, profile) {
   // Validare timer după login (verifică că timer-ul aparține utilizatorului curent)
   if (typeof _timerValidateUser === 'function') _timerValidateUser();
 
-  // Fix routing: citește ruta din hash SAU din localStorage (fallback robust)
+  // COLABORATOR EXTERN: acces limitat — vede DOAR pagina Proiecte
+  const isExternColaborator = profile?.role === 'colaborator_extern';
+  if (isExternColaborator) {
+    // Ascunde sidebar-ul complet
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.style.display = 'none';
+    const mainWrapper = document.getElementById('main-wrapper');
+    if (mainWrapper) mainWrapper.style.marginLeft = '0';
+    // Ascunde butonul de start task şi notificări din topbar
+    document.querySelectorAll('#topbar-start-task, #topbar-notif').forEach(el => { if(el) el.style.display='none'; });
+    // Navighează direct la proiecte şi blochează orice altă rută
+    navigate('proiecte', null);
+    window.addEventListener('hashchange', () => {
+      const h = window.location.hash.replace('#/', '');
+      if (h !== 'proiecte') { navigate('proiecte', null, false); }
+    });
+    return;
+  }
+
+  // Fix routing: citeşte ruta din hash SAU din localStorage (fallback robust)
   const hash = window.location.hash.replace('#/', '').replace('#', '');
   const savedRoute = (() => { try { return localStorage.getItem('ic_last_route'); } catch(e) { return null; } })();
   const route = ROUTES[hash] ? hash : (ROUTES[savedRoute] ? savedRoute : 'dashboard');
-  // Dacă era un proiect deschis, navighează la proiecte și redeschide proiectul
+  // Dacă era un proiect deschis, navighează la proiecte şi redeschide proiectul
   const savedProjectId = localStorage.getItem('ic_last_project_id');
   if (savedProjectId && route === 'proiecte') {
     navigate('proiecte', null).then(() => {
