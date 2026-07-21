@@ -529,7 +529,6 @@ const Proiecte = {
                 <th style="padding:10px 12px;text-align:center;width:100px">Rămas (H)</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Progres</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Responsabil</th>
-                <th style="padding:10px 12px;text-align:center;width:110px">Status</th>
                 <th style="padding:10px 12px;width:120px"></th>
               </tr>
             </thead>
@@ -728,27 +727,7 @@ const Proiecte = {
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
-        <td style="padding:8px 12px;text-align:center">
-          ${(() => {
-            const s = task.status || 'todo';
-            const canChangeStatus = isAdminOrCoord || isAssigned;
-            const statusCfg = {
-              todo:        { label: 'To Do',       bg: '#374151', color: '#9CA3AF' },
-              'in-progress':{ label: 'În lucru',   bg: '#1e3a5f', color: '#60A5FA' },
-              done:        { label: '✓ Finalizat', bg: '#064e3b', color: '#34D399' },
-            };
-            const cfg = statusCfg[s] || statusCfg.todo;
-            if (canChangeStatus) {
-              return `<select onchange="Proiecte.updateTaskStatus(${task.id},this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;border:none;background:${cfg.bg};color:${cfg.color};cursor:pointer;font-weight:600;max-width:100px">
-                <option value="todo" ${s==='todo'?'selected':''}>To Do</option>
-                <option value="in-progress" ${s==='in-progress'?'selected':''}>În lucru</option>
-                <option value="done" ${s==='done'?'selected':''}>✓ Finalizat</option>
-              </select>`;
-            } else {
-              return `<span style="font-size:11px;padding:3px 8px;border-radius:6px;background:${cfg.bg};color:${cfg.color};font-weight:600;white-space:nowrap">${cfg.label}</span>`;
-            }
-          })()}
-        </td>
+
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           ${canStart ? this.renderTimerBtn(task) : ''}
           ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
@@ -876,7 +855,12 @@ const Proiecte = {
     // Fix 4: 100% exact = verde, >100% = roşu
     const pctColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const totalTasks = this.tasks.length;
-    const doneTasks = this.tasks.filter(t => t.status === 'done' || t.status === 'completed').length;
+    // Task e finalizat dacă orele consumate >= bugetul de ore
+    const doneTasks = this.tasks.filter(t => {
+      const worked = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+      const budget = t.budget_hours || 0;
+      return budget > 0 && worked >= budget;
+    }).length;
     const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
     // Calcul ore pe etapa
@@ -1591,18 +1575,7 @@ const Proiecte = {
     showToast('Sarcină actualizată!', 'success');
     await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
-  async updateTaskStatus(taskId, newStatus) {
-    // Actualizează statusul task-ului în DB și local (fără refresh complet)
-    const result = await dbQuery('project_tasks', q => q.update({ status: newStatus }).eq('id', taskId), null);
-    if (result && result.error) { showToast('Eroare la actualizare status: ' + result.error.message, 'error'); return; }
-    // Actualizează local this.tasks pentru a reflecta imediat în Rapoarte
-    const task = this.tasks.find(t => t.id === taskId);
-    if (task) task.status = newStatus;
-    // Refresh ușor fără scroll-reset
-    await this._refreshEtapeOnly();
-    const labels = { todo: 'To Do', 'in-progress': 'În lucru', done: 'Finalizat' };
-    showToast('Status actualizat: ' + (labels[newStatus] || newStatus), 'success');
-  },
+
   async deleteTask(taskId) {
     if (!confirm('Sigur vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
     const result = await dbQuery('project_tasks', q => q.delete().eq('id', taskId), null);
