@@ -50,15 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (!Auth.currentProfile || Auth._accessDenied) {
             Auth._accessDenied = false;
             await sb.auth.signOut();
-            showLogin();
-            // Afişează mesaj de eroare clar
-            setTimeout(() => {
-              const errEl = document.getElementById('login-error');
-              if (errEl) {
-                errEl.textContent = 'Acces neautorizat. Adresa de email nu este înregistrată în sistem. Contactează administratorul.';
-                errEl.style.display = 'block';
-              }
-            }, 300);
+            showLogin('⛔ Acces neautorizat. Adresa de email <strong>' + (session.user.email || '') + '</strong> nu este înregistrată în sistem. Contactează administratorul.');
             return;
           }
           showApp(session.user, Auth.currentProfile);
@@ -144,7 +136,7 @@ function showApp(user, profile) {
 }
 
 // ── SHOW LOGIN ────────────────────────────────────────────────
-function showLogin() {
+function showLogin(errorMsg) {
   document.getElementById('app').style.display = 'none';
   document.getElementById('auth-page').style.display = 'flex';
   document.body.classList.add('auth-bg');
@@ -153,10 +145,19 @@ function showLogin() {
   const passEl = document.getElementById('login-password');
   if (emailEl) emailEl.value = '';
   if (passEl) passEl.value = '';
+  // Resetează erorile
   ['login-error', 'register-error'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   });
+  // Afişează mesajul de eroare dacă există
+  if (errorMsg) {
+    const errEl = document.getElementById('login-error');
+    if (errEl) {
+      errEl.innerHTML = errorMsg;
+      errEl.style.display = 'block';
+    }
+  }
 }
 
 // ── NAVIGATION ────────────────────────────────────────────────
