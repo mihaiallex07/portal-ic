@@ -543,6 +543,7 @@ const Proiecte = {
                 <th style="padding:10px 12px;text-align:center;width:100px">Rămas (H)</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Progres</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Responsabil</th>
+                <th style="padding:10px 12px;text-align:center;width:110px">Status</th>
                 <th style="padding:10px 12px;width:120px"></th>
               </tr>
             </thead>
@@ -601,6 +602,7 @@ const Proiecte = {
             </div>
           </td>
           <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)"></td>
+          <td style="padding:10px 12px;text-align:center"></td>
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
@@ -613,7 +615,7 @@ const Proiecte = {
         ${phaseTasks.map((task, idx) => this.renderTaskRow(task, idx + 1, canEdit, budgetH)).join('')}
         ${canEdit ? `
           <tr style="border-top:1px solid var(--border)">
-            <td colspan="8" style="padding:6px 16px 6px 52px">
+            <td colspan="9" style="padding:6px 16px 6px 52px">
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:12px">＋ Adaugă sarcină</button>
             </td>
           </tr>
@@ -740,6 +742,27 @@ const Proiecte = {
             </button>
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
+        <td style="padding:8px 12px;text-align:center">
+          ${(() => {
+            const s = task.status || 'todo';
+            const canChangeStatus = isAdminOrCoord || isAssigned;
+            const statusCfg = {
+              todo:        { label: 'To Do',       bg: '#374151', color: '#9CA3AF' },
+              'in-progress':{ label: 'În lucru',   bg: '#1e3a5f', color: '#60A5FA' },
+              done:        { label: '✓ Finalizat', bg: '#064e3b', color: '#34D399' },
+            };
+            const cfg = statusCfg[s] || statusCfg.todo;
+            if (canChangeStatus) {
+              return `<select onchange="Proiecte.updateTaskStatus(${task.id},this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;border:none;background:${cfg.bg};color:${cfg.color};cursor:pointer;font-weight:600;max-width:100px">
+                <option value="todo" ${s==='todo'?'selected':''}>To Do</option>
+                <option value="in-progress" ${s==='in-progress'?'selected':''}>În lucru</option>
+                <option value="done" ${s==='done'?'selected':''}>✓ Finalizat</option>
+              </select>`;
+            } else {
+              return `<span style="font-size:11px;padding:3px 8px;border-radius:6px;background:${cfg.bg};color:${cfg.color};font-weight:600;white-space:nowrap">${cfg.label}</span>`;
+            }
+          })()}
+        </td>
         <td style="padding:8px 12px;text-align:right;white-space:nowrap">
           ${canStart ? this.renderTimerBtn(task) : ''}
           ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
@@ -773,10 +796,10 @@ const Proiecte = {
 
   renderEchipaTab(canEdit) {
     const coords = this.members.filter(m => m.role === 'coordonator');
-    const angajati = this.members.filter(m => m.role === 'angajat');
-
+    const membri = this.members.filter(m => m.role === 'angajat');
+    const colaboratori = this.members.filter(m => m.role === 'colaborator_extern');
     return `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
         <div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <h3 style="font-size:15px;font-weight:600;margin:0">Coordonatori (${coords.length})</h3>
@@ -787,12 +810,47 @@ const Proiecte = {
         </div>
         <div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <h3 style="font-size:15px;font-weight:600;margin:0">Angajați (${angajati.length})</h3>
+            <h3 style="font-size:15px;font-weight:600;margin:0">Membri echipă (${membri.length})</h3>
             ${canEdit ? `<button class="btn-sm btn-secondary" onclick="Proiecte.openAddMemberModal('angajat')">+ Adaugă</button>` : ''}
           </div>
-          ${angajati.length === 0 ? `<p style="color:var(--text-muted);font-size:13px">Niciun angajat asignat.</p>` : ''}
-          ${angajati.map(m => this.renderMemberCard(m, canEdit)).join('')}
+          ${membri.length === 0 ? `<p style="color:var(--text-muted);font-size:13px">Niciun membru asignat.</p>` : ''}
+          ${membri.map(m => this.renderMemberCard(m, canEdit)).join('')}
         </div>
+      </div>
+      <!-- Colaboratori externi -->
+      <div style="border-top:1px solid var(--border);padding-top:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h3 style="font-size:15px;font-weight:600;margin:0">Colaboratori externi (${colaboratori.length})</h3>
+            <span style="font-size:11px;background:#78350f20;color:#F59E0B;padding:2px 8px;border-radius:12px;font-weight:600">Acces limitat la proiect</span>
+          </div>
+          ${canEdit ? `<button class="btn-sm btn-secondary" onclick="Proiecte.openAddCollaboratorModal()" style="border-color:#F59E0B;color:#F59E0B">+ Invită colaborator</button>` : ''}
+        </div>
+        ${colaboratori.length === 0 ? `
+          <div style="padding:20px;background:var(--bg-secondary);border-radius:8px;border:1px dashed var(--border);text-align:center">
+            <div style="font-size:24px;margin-bottom:8px">🤝</div>
+            <p style="color:var(--text-muted);font-size:13px;margin:0">Niciun colaborator extern invitat. Colaboratorii pot fi asignați la task-uri și văd doar proiectul lor.</p>
+          </div>
+        ` : colaboratori.map(m => this.renderCollaboratorCard(m, canEdit)).join('')}
+      </div>
+    `;
+  },
+  renderCollaboratorCard(m, canEdit) {
+    const u = m.profiles || {};
+    const name = u.full_name || u.name || u.email || 'Colaborator extern';
+    const email = u.email || m.external_email || '';
+    const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2) || 'CE';
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--card-bg);border:1px solid #F59E0B40;border-radius:8px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#78350f;display:flex;align-items:center;justify-content:center;color:#F59E0B;font-weight:700;font-size:13px">${initials}</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">${name}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${email}</div>
+            <div style="font-size:10px;color:#F59E0B;margin-top:2px">🔒 Acces limitat — vede doar task-urile lui</div>
+          </div>
+        </div>
+        ${canEdit ? `<button onclick="Proiecte.removeMember(${m.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Elimină">✕</button>` : ''}
       </div>
     `;
   },
@@ -1547,6 +1605,18 @@ const Proiecte = {
     showToast('Sarcină actualizată!', 'success');
     await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
+  async updateTaskStatus(taskId, newStatus) {
+    // Actualizează statusul task-ului în DB și local (fără refresh complet)
+    const result = await dbQuery('project_tasks', q => q.update({ status: newStatus }).eq('id', taskId), null);
+    if (result && result.error) { showToast('Eroare la actualizare status: ' + result.error.message, 'error'); return; }
+    // Actualizează local this.tasks pentru a reflecta imediat în Rapoarte
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) task.status = newStatus;
+    // Refresh ușor fără scroll-reset
+    await this._refreshEtapeOnly();
+    const labels = { todo: 'To Do', 'in-progress': 'În lucru', done: 'Finalizat' };
+    showToast('Status actualizat: ' + (labels[newStatus] || newStatus), 'success');
+  },
   async deleteTask(taskId) {
     if (!confirm('Sigur vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
     const result = await dbQuery('project_tasks', q => q.delete().eq('id', taskId), null);
@@ -1824,6 +1894,76 @@ const Proiecte = {
     console.log('[removeMember] Succes — membrul a fost eliminat');
     this.logChange('delete', 'echipă', memberName, null, null, 'Membru eliminat din proiect');
     showToast('Membru eliminat', 'success');
+    await this.loadProjectDetails(this.currentProject.id);
+    this.switchTab('echipa');
+  },
+
+  openAddCollaboratorModal() {
+    openModal('Invită colaborator extern', `
+      <div style="display:grid;gap:14px">
+        <div style="padding:12px;background:#78350f15;border:1px solid #F59E0B40;border-radius:8px;font-size:12px;color:#F59E0B">
+          🔒 Colaboratorul extern va putea să se autentifice pe hub.ingineriecreativa.ro cu adresa de email introdusă și va vedea <strong>doar proiectul curent</strong> și task-urile asignate lui.
+        </div>
+        <div>
+          <label class="form-label">Adresă email colaborator *</label>
+          <input id="collab-email" class="form-input" type="email" placeholder="exemplu@domeniu.ro">
+        </div>
+        <div>
+          <label class="form-label">Nume complet (opțional)</label>
+          <input id="collab-name" class="form-input" type="text" placeholder="Prenume Nume">
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">
+          ℹ️ Colaboratorul nu trebuie să aibă adresă @ingineriecreativa.ro. După invitare, poate fi asignat la task-uri din proiect. Orele nu sunt contorizate automat.
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" onclick="Proiecte.addCollaborator()" style="background:#F59E0B;border-color:#F59E0B;color:#000">🤝 Invită colaborator</button>
+    `);
+  },
+  async addCollaborator() {
+    const email = document.getElementById('collab-email')?.value?.trim().toLowerCase();
+    const name = document.getElementById('collab-name')?.value?.trim();
+    if (!email || !email.includes('@')) { showToast('Introdu o adresă de email validă', 'error'); return; }
+    const sb = getSupabase();
+    if (!sb) { showToast('Eroare: conexiune indisponibilă', 'error'); return; }
+    // Verifică dacă există deja un profil cu acest email
+    let userId = null;
+    const { data: existingProfiles } = await sb.from('profiles').select('id,email,full_name').eq('email', email).limit(1);
+    if (existingProfiles && existingProfiles.length > 0) {
+      userId = existingProfiles[0].id;
+    } else {
+      // Creează un profil minimal pentru colaboratorul extern (fără cont Supabase Auth)
+      // Folosim un UUID generat local ca placeholder
+      const { data: newProfile, error: profileErr } = await sb.from('profiles').insert({
+        email,
+        full_name: name || email.split('@')[0],
+        role: 'colaborator_extern',
+        employee_code: 'EXT',
+      }).select('id').single();
+      if (profileErr) {
+        // Dacă profilul există deja (conflict), încercă să-l găsim din nou
+        const { data: retry } = await sb.from('profiles').select('id').eq('email', email).limit(1);
+        if (retry && retry.length > 0) { userId = retry[0].id; }
+        else { showToast('Eroare la creare profil: ' + profileErr.message, 'error'); return; }
+      } else {
+        userId = newProfile.id;
+      }
+    }
+    // Verifică dacă este deja în proiect
+    const alreadyIn = this.members.some(m => String(m.user_id) === String(userId));
+    if (alreadyIn) { showToast('Acest colaborator este deja în proiect', 'error'); return; }
+    // Adaugă în project_members cu rol colaborator_extern
+    const { error: insertErr } = await sb.from('project_members').insert({
+      project_id: this.currentProject.id,
+      user_id: userId,
+      role: 'colaborator_extern',
+      added_by: Auth.currentProfile?.id || null,
+    });
+    if (insertErr) { showToast('Eroare la invitare: ' + insertErr.message, 'error'); return; }
+    closeModalForce();
+    this.logChange('assign', 'echipă', email, null, 'colaborator_extern', `Colaborator extern invitat: ${email}`);
+    showToast(`✅ Colaborator invitat: ${email}`, 'success');
     await this.loadProjectDetails(this.currentProject.id);
     this.switchTab('echipa');
   },

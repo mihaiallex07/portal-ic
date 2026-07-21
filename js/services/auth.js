@@ -100,6 +100,23 @@ const Auth = {
       .map(w => w[0].toUpperCase())
       .join('')
       .slice(0, 4);
+    // Dacă emailul nu este @ingineriecreativa.ro, verifică dacă este colaborator extern invitat
+    const isInternalDomain = user.email.endsWith('@ingineriecreativa.ro');
+    if (!isInternalDomain) {
+      // Verifică dacă există un profil pre-creat cu rol colaborator_extern pentru acest email
+      const { data: extProfile } = await sb.from('profiles').select('*').eq('email', user.email).limit(1);
+      if (extProfile && extProfile.length > 0 && extProfile[0].role === 'colaborator_extern') {
+        // Actualizează id-ul cu UUID-ul real din Google Auth
+        await sb.from('profiles').update({ id: userId, is_pre_created: false }).eq('email', user.email);
+        this.currentProfile = { ...extProfile[0], id: userId, is_pre_created: false };
+        return;
+      }
+      // Email extern fără invitație — refuză accesul
+      console.warn('[Auth] Email extern fără invitație:', user.email);
+      this.currentProfile = null;
+      this._accessDenied = true;
+      return;
+    }
     const newProfile = {
       id: userId,
       email: user.email,
@@ -113,7 +130,7 @@ const Auth = {
     const { error: insertError } = await sb.from('profiles').insert(newProfile);
     if (insertError) {
       console.error('[Auth] Eroare creare profil:', insertError);
-      // Încearcă upsert ca fallback
+      // Încercă upsert ca fallback
       await sb.from('profiles').upsert(newProfile, { onConflict: 'email' });
     }
     this.currentProfile = newProfile;
