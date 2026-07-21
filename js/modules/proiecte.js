@@ -1941,7 +1941,7 @@ const Proiecte = {
         id: tempId,
         email,
         full_name: name || email.split('@')[0],
-        role: 'angajat',  // enum profiles.role nu include 'colaborator_extern'; rolul extern e gestionat prin project_members.role
+        role: 'colaborator_extern',
         employee_code: 'EXT',
         is_pre_created: true,
       }).select('id').single();

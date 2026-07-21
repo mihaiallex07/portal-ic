@@ -46,6 +46,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (event === 'SIGNED_IN' && session?.user) {
           Auth.currentUser = session.user;
           await Auth.loadProfile(session.user.id);
+          // SECURITATE: dacă profilul e null după loadProfile, emailul nu este autorizat
+          if (!Auth.currentProfile || Auth._accessDenied) {
+            Auth._accessDenied = false;
+            await sb.auth.signOut();
+            showLogin();
+            // Afişează mesaj de eroare clar
+            setTimeout(() => {
+              const errEl = document.getElementById('login-error');
+              if (errEl) {
+                errEl.textContent = 'Acces neautorizat. Adresa de email nu este înregistrată în sistem. Contactează administratorul.';
+                errEl.style.display = 'block';
+              }
+            }, 300);
+            return;
+          }
           showApp(session.user, Auth.currentProfile);
         } else if (event === 'SIGNED_OUT') {
           Auth.currentUser = null;

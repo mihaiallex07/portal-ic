@@ -101,23 +101,19 @@ const Auth = {
       .join('')
       .slice(0, 4);
     // Dacă emailul nu este @ingineriecreativa.ro, verifică dacă este colaborator extern invitat
+    // SECURITATE: doar emailurile @ingineriecreativa.ro SAU colaboratorii externi invitați explicit pot accesa HUB-ul
     const isInternalDomain = user.email.endsWith('@ingineriecreativa.ro');
     if (!isInternalDomain) {
-      // Verifică dacă există un profil pre-creat pentru acest email (colaboratorul extern)
-      // Rolul extern e stocat în project_members.role, nu în profiles.role (din cauza enum-ului)
-      const { data: extProfile } = await sb.from('profiles').select('*').eq('email', user.email).limit(1);
+      // Verifică dacă există un profil pre-creat cu role='colaborator_extern' pentru acest email
+      const { data: extProfile } = await sb.from('profiles').select('*').eq('email', user.email).eq('role', 'colaborator_extern').limit(1);
       if (extProfile && extProfile.length > 0) {
-        // Verifică dacă este în vreun project_members cu rol colaborator_extern
-        const { data: extMembership } = await sb.from('project_members').select('project_id').eq('user_id', extProfile[0].id).eq('role', 'colaborator_extern').limit(1);
-        if (extMembership && extMembership.length > 0) {
-          // Actualizează id-ul cu UUID-ul real din Google Auth
-          await sb.from('profiles').update({ id: userId, is_pre_created: false }).eq('email', user.email);
-          this.currentProfile = { ...extProfile[0], id: userId, is_pre_created: false, _isExternColaborator: true };
-          return;
-        }
+        // Colaborator extern invitat — actualizează id-ul cu UUID-ul real din Google Auth
+        await sb.from('profiles').update({ id: userId, is_pre_created: false }).eq('email', user.email);
+        this.currentProfile = { ...extProfile[0], id: userId, is_pre_created: false };
+        return;
       }
-      // Email extern fără invitație — refuză accesul
-      console.warn('[Auth] Email extern fără invitație:', user.email);
+      // Email extern fără invitație — REFUZĂ ACCESUL (securitate)
+      console.warn('[Auth] Acces refuzat: email extern fără invitație:', user.email);
       this.currentProfile = null;
       this._accessDenied = true;
       return;
