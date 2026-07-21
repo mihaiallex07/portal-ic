@@ -1938,7 +1938,7 @@ const Proiecte = {
       const { data: newProfile, error: profileErr } = await sb.from('profiles').insert({
         email,
         full_name: name || email.split('@')[0],
-        role: 'colaborator_extern',
+        role: 'angajat',  // enum profiles.role nu include 'colaborator_extern'; rolul extern e gestionat prin project_members.role
         employee_code: 'EXT',
       }).select('id').single();
       if (profileErr) {
