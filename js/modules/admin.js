@@ -87,6 +87,12 @@ const Admin = {
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                       Profil
                     </button>
+                    <button class="btn-icon" onclick="Admin.confirmDeleteUser('${u.id}', '${(u.full_name||u.email||'').replace(/'/g,"&#39;")}')"
+                      title="Șterge utilizator"
+                      style="display:flex;align-items:center;gap:4px;padding:4px 8px;font-size:11px;border-radius:5px;color:#dc2626;border-color:#fca5a5">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                      Șterge
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -164,6 +170,47 @@ const Admin = {
     });
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = 'Profil angajat';
+  },
+
+  confirmDeleteUser(id, name) {
+    // Nu permite ștergerea propriului cont
+    if (id === Auth.currentProfile?.id) {
+      showToast('Nu poți șterge propriul cont', 'error');
+      return;
+    }
+    openModal('Șterge utilizator', `
+      <div class="space-y-3">
+        <div style="padding:12px;border-radius:8px;background:#fef2f2;border:1px solid #fca5a5;font-size:13px;color:#991b1b">
+          <strong>Atenție!</strong> Această acțiune este ireversibilă.
+        </div>
+        <p style="font-size:14px">Eşti sigur că vrei să ștergi utilizatorul <strong>${name}</strong>?</p>
+        <p style="font-size:13px;color:var(--text-muted)">Profilul va fi șters din portal. Dacă utilizatorul are un cont Google activ, va fi blocat la următoarea autentificare.</p>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" style="background:#dc2626;border-color:#dc2626" onclick="Admin.deleteUser('${id}', '${name}')">Da, șterge</button>
+    `);
+  },
+
+  async deleteUser(id, name) {
+    const sb = getSupabase();
+    if (!sb) { showToast('Eroare: Supabase nu este conectat', 'error'); return; }
+
+    // 1. Șterge din project_members
+    await sb.from('project_members').delete().eq('user_id', id);
+
+    // 2. Șterge din profiles
+    const { error } = await sb.from('profiles').delete().eq('id', id);
+    if (error) {
+      showToast('Eroare la ștergere: ' + error.message, 'error');
+      return;
+    }
+
+    // 3. Actualizează lista locală
+    this.users = this.users.filter(u => u.id !== id);
+    closeModalForce();
+    showToast('✅ Utilizatorul ' + name + ' a fost șters', 'success');
+    document.getElementById('admin-tab-content').innerHTML = this.renderTab();
   },
 
   async saveUser(id) {
