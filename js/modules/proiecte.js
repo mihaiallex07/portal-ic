@@ -1935,11 +1935,15 @@ const Proiecte = {
     } else {
       // Creează un profil minimal pentru colaboratorul extern (fără cont Supabase Auth)
       // Folosim un UUID generat local ca placeholder
+      // Generează UUID explicit (profiles.id este NOT NULL)
+      const tempId = crypto.randomUUID ? crypto.randomUUID() : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
       const { data: newProfile, error: profileErr } = await sb.from('profiles').insert({
+        id: tempId,
         email,
         full_name: name || email.split('@')[0],
         role: 'angajat',  // enum profiles.role nu include 'colaborator_extern'; rolul extern e gestionat prin project_members.role
         employee_code: 'EXT',
+        is_pre_created: true,
       }).select('id').single();
       if (profileErr) {
         // Dacă profilul există deja (conflict), încercă să-l găsim din nou
