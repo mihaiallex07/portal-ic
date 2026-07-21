@@ -199,6 +199,12 @@
           </button>
           <!-- User avatar -->
           <button class="topbar-avatar" id="topbar-avatar" onclick="navigate('profil', null)" title="Profilul meu">IC</button>
+          <!-- Logout pentru colaboratori externi (sidebar-ul e ascuns) -->
+          <button id="topbar-logout-ext" onclick="handleLogout()" title="Deconectare"
+            style="display:none;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1px solid #e5e7eb;background:transparent;cursor:pointer;font-size:12px;color:var(--text-muted);transition:all 0.15s">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Deconectare
+          </button>
         </div>
       </header>
 
@@ -257,6 +263,6 @@
   <script src="js/modules/formulare.js?v=300fe36f"></script>
   <script src="js/modules/task-manager.js?v=5dc4181f"></script>
   <script src="js/modules/placeholder.js?v=4047aa20"></script>
-  <script src="js/app.js?v=4db00bea"></script>
+  <script src="js/app.js?v=302346dc"></script>
 </body>
 </html>

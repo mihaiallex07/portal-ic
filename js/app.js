@@ -104,8 +104,11 @@ function showApp(user, profile) {
     if (sidebar) sidebar.style.display = 'none';
     const mainWrapper = document.getElementById('main-wrapper');
     if (mainWrapper) mainWrapper.style.marginLeft = '0';
-    // Ascunde butonul de start task şi notificări din topbar
-    document.querySelectorAll('#topbar-start-task, #topbar-notif').forEach(el => { if(el) el.style.display='none'; });
+    // Ascunde timer, notificări din topbar
+    document.querySelectorAll('#timer-widget, #notif-btn').forEach(el => { if(el) el.style.display='none'; });
+    // Arată butonul de logout din topbar
+    const logoutExt = document.getElementById('topbar-logout-ext');
+    if (logoutExt) logoutExt.style.display = 'flex';
     // Navighează direct la proiecte şi blochează orice altă rută
     navigate('proiecte', null);
     window.addEventListener('hashchange', () => {
