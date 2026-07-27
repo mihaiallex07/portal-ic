@@ -871,11 +871,12 @@ const Proiecte = {
       const phaseMinutes = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
       const worked = Math.round(phaseMinutes / 60 * 10) / 10;
       const budget = phase.budget_hours || 0;
-      const p = budget > 0 ? Math.min(100, Math.round((worked / budget) * 100)) : 0;
-      const barColor = p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
-      const statusDot = p > 90 ? '🔴' : p > 70 ? '🟡' : '🟢';
-      return { phase, worked, budget, p, barColor, statusDot };
-    });
+      const rawP = budget > 0 ? Math.round((worked / budget) * 100) : 0;  // Valoare reala, chiar daca >100%
+      const p = Math.min(100, rawP);  // Pentru bara de progres (capped la 100%)
+      const isOverBudgetPhase = rawP > 100;
+      const barColor = isOverBudgetPhase ? '#EF4444' : p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
+      const statusDot = isOverBudgetPhase ? '🔴' : p > 90 ? '🔴' : p > 70 ? '🟡' : '🟢';
+      return { phase, worked, budget, p, rawP, barColor, statusDot, isOverBudgetPhase };
 
     // Calcul ore pe membru (doar pentru admin/coord)
     const memberStats = (isAdmin || isCoord) ? (() => {
@@ -943,7 +944,7 @@ const Proiecte = {
           <span style="width:4px;height:16px;background:var(--brand);border-radius:2px;display:inline-block"></span>
           Ore pe etapă
         </h3>
-        ${phaseRows.length === 0 ? '<p style="color:var(--text-muted);font-size:13px">Nu există etape definite.</p>' : phaseRows.map(({phase, worked, budget, p, barColor, statusDot}) => `
+        ${phaseRows.length === 0 ? '<p style="color:var(--text-muted);font-size:13px">Nu există etape definite.</p>' : phaseRows.map(({phase, worked, budget, p, rawP, barColor, statusDot}) => `
           <div style="margin-bottom:16px;padding:14px;background:var(--bg-secondary);border-radius:8px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <div style="display:flex;align-items:center;gap:8px">
@@ -952,7 +953,7 @@ const Proiecte = {
               </div>
               <div style="display:flex;align-items:center;gap:12px">
                 <span style="font-size:12px;color:var(--text-muted)">${worked}h lucrate</span>
-                <span style="font-size:12px;font-weight:700;color:${barColor}">${p}%</span>
+                <span style="font-size:12px;font-weight:700;color:${barColor}">${rawP}%</span>
                 <span style="font-size:12px;color:var(--text-muted);background:var(--border);padding:2px 8px;border-radius:4px">${budget}h buget</span>
               </div>
             </div>
