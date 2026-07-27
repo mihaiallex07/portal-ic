@@ -877,6 +877,7 @@ const Proiecte = {
       const barColor = isOverBudgetPhase ? '#EF4444' : p > 90 ? '#EF4444' : p > 70 ? '#F59E0B' : '#10B981';
       const statusDot = isOverBudgetPhase ? '🔴' : p > 90 ? '🔴' : p > 70 ? '🟡' : '🟢';
       return { phase, worked, budget, p, rawP, barColor, statusDot, isOverBudgetPhase };
+    });
 
     // Calcul ore pe membru (doar pentru admin/coord)
     const memberStats = (isAdmin || isCoord) ? (() => {
