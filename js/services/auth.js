@@ -104,11 +104,10 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profilul pre-creat trebuie șters și recreat cu ID-ul real din Google Auth (nu se poate UPDATE primary key)
-        await sb.from('profiles').delete().eq('email', user.email);
+        // Profilul pre-creat: upsert cu ID-ul real din Google Auth (nu se poate UPDATE primary key)
         const updatedProfile = { ...profileByEmail, id: userId, is_pre_created: false };
         delete updatedProfile.created_at;  // Lasă Supabase să seteze timestamp-ul
-        await sb.from('profiles').insert(updatedProfile);
+        await sb.from('profiles').upsert(updatedProfile, { onConflict: 'email' });
         this.currentProfile = updatedProfile;
         return;
       }
@@ -128,11 +127,10 @@ const Auth = {
       // Verifică dacă există un profil pre-creat cu role='colaborator_extern' pentru acest email
       const { data: extProfile } = await sb.from('profiles').select('*').eq('email', user.email).eq('role', 'colaborator_extern').limit(1);
       if (extProfile && extProfile.length > 0) {
-        // Colaborator extern invitat — șterge și recreează cu ID-ul real din Google Auth
-        await sb.from('profiles').delete().eq('email', user.email);
+        // Colaborator extern invitat — upsert cu ID-ul real din Google Auth
         const updatedProfile = { ...extProfile[0], id: userId, is_pre_created: false };
         delete updatedProfile.created_at;
-        await sb.from('profiles').insert(updatedProfile);
+        await sb.from('profiles').upsert(updatedProfile, { onConflict: 'email' });
         this.currentProfile = updatedProfile;
         return;
       }
