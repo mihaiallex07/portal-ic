@@ -145,6 +145,8 @@ const Auth = {
       position: '',
       employee_code: employeeCode,
       is_pre_created: false,
+      is_active: true,
+      work_hours_per_day: 8,
     };
     const { error: insertError } = await sb.from('profiles').insert(newProfile);
     if (insertError) {
