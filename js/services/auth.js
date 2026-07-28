@@ -93,7 +93,7 @@ const Auth = {
       return;
     }
 
-    // 2. Caută profilul după email (profil pre-creat de admin cu UUID temporar)
+    // 2. Caută profilul după email (profil pre-creat de admin)
     if (user?.email) {
       const { data: profileByEmail } = await sb.from('profiles').select('*').eq('email', user.email).single();
       if (profileByEmail) {
@@ -104,11 +104,7 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profilul pre-creat: upsert cu ID-ul real din Google Auth (nu se poate UPDATE primary key)
-        const updatedProfile = { ...profileByEmail, id: userId, is_pre_created: false };
-        delete updatedProfile.created_at;  // Lasă Supabase să seteze timestamp-ul
-        await sb.from('profiles').upsert(updatedProfile, { onConflict: 'email' });
-        this.currentProfile = updatedProfile;
+        this.currentProfile = profileByEmail;
         return;
       }
     }
