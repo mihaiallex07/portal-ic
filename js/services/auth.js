@@ -104,53 +104,20 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profil pre-creat găsit: transformă-l în profil activ
-        // Nu putem UPDATE id (primary key), deci ștergem și recreez cu ID real
-        const oldId = profileByEmail.id;
-        await sb.from('profiles').delete().eq('id', oldId);
-        
-        // Creează profil nou cu ID-ul real din Google Auth, copiind datele pre-create
-        const newProfile = {
-          id: userId,
-          email: profileByEmail.email,
-          full_name: profileByEmail.full_name || user.user_metadata?.full_name || user.email.split('@')[0],
-          role: profileByEmail.role || 'angajat',
-          department: profileByEmail.department || '',
-          position: profileByEmail.position || '',
-          employee_code: profileByEmail.employee_code || '',
+        // Profil pre-creat găsit: UPDATE coloanele care pot fi actualizate (nu id)
+        const updateData = {
           is_pre_created: false,
           is_active: true,
           work_hours_per_day: profileByEmail.work_hours_per_day || 8,
-          phone: profileByEmail.phone,
-          avatar_url: profileByEmail.avatar_url,
-          hire_date: profileByEmail.hire_date,
-          manager_id: profileByEmail.manager_id,
         };
-        
-        const { error: insertError } = await sb.from('profiles').insert(newProfile);
-        if (insertError) {
-          console.error('[Auth] Eroare la activare profil pre-creat:', insertError);
-          // Dacă insert eșuează, creează profil minimal ca fallback
-          const minimalProfile = {
-            id: userId,
-            email: user.email,
-            full_name: user.user_metadata?.full_name || user.email.split('@')[0],
-            role: 'angajat',
-            is_active: true,
-            work_hours_per_day: 8,
-          };
-          const { error: fallbackError } = await sb.from('profiles').insert(minimalProfile);
-          if (fallbackError) {
-            console.error('[Auth] Eroare fallback:', fallbackError);
-            this.currentProfile = null;
-            this._accessDenied = true;
-            return;
-          }
-          this.currentProfile = minimalProfile;
+        const { error: updateError } = await sb.from('profiles').update(updateData).eq('id', profileByEmail.id);
+        if (updateError) {
+          console.error('[Auth] Eroare UPDATE profil pre-creat:', updateError);
+          this.currentProfile = null;
+          this._accessDenied = true;
           return;
         }
-        
-        this.currentProfile = newProfile;
+        this.currentProfile = { ...profileByEmail, ...updateData };
         return;
       }
     }
