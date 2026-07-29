@@ -93,7 +93,7 @@ const Auth = {
       return;
     }
 
-    // 2. Caută profilul după email (profil pre-creat de admin) și îl activează
+    // 2. Caută profilul după email (profil pre-creat de admin) și transformă-l în profil activ
     if (user?.email) {
       const { data: profileByEmail } = await sb.from('profiles').select('*').eq('email', user.email).single();
       if (profileByEmail) {
@@ -104,20 +104,60 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profil pre-creat găsit: UPDATE coloanele care pot fi actualizate (nu id)
-        const updateData = {
-          is_pre_created: false,
-          is_active: true,
-          work_hours_per_day: profileByEmail.work_hours_per_day || 8,
-        };
-        const { error: updateError } = await sb.from('profiles').update(updateData).eq('email', user.email);
-        if (updateError) {
-          console.error('[Auth] Eroare UPDATE profil pre-creat:', updateError);
+        // Profil pre-creat găsit: șterg și recreez cu ID-ul real din Google Auth
+        const oldProfile = { ...profileByEmail };
+        const { error: deleteError } = await sb.from('profiles').delete().eq('id', profileByEmail.id);
+        if (deleteError) {
+          console.error('[Auth] Eroare ștergere profil pre-creat:', deleteError);
           this.currentProfile = null;
           this._accessDenied = true;
           return;
         }
-        this.currentProfile = { ...profileByEmail, ...updateData };
+        // Creează profil nou cu ID-ul real, copiind datele pre-create
+        const newProfile = {
+          id: userId,
+          email: oldProfile.email,
+          full_name: oldProfile.full_name,
+          role: oldProfile.role,
+          department: oldProfile.department,
+          job_title: oldProfile.job_title,
+          avatar_url: oldProfile.avatar_url,
+          phone: oldProfile.phone,
+          is_active: true,
+          work_hours_per_day: oldProfile.work_hours_per_day || 8,
+          position: oldProfile.position,
+          employee_code: oldProfile.employee_code,
+          is_pre_created: false,
+          phone_mobile: oldProfile.phone_mobile,
+          phone_work: oldProfile.phone_work,
+          hire_date: oldProfile.hire_date,
+          birth_date: oldProfile.birth_date,
+          residence_address: oldProfile.residence_address,
+          cnp: oldProfile.cnp,
+          ci_series: oldProfile.ci_series,
+          ci_number: oldProfile.ci_number,
+          ci_expiry_date: oldProfile.ci_expiry_date,
+          ci_issued_by: oldProfile.ci_issued_by,
+          iban: oldProfile.iban,
+          bank_name: oldProfile.bank_name,
+          emergency_contact_name: oldProfile.emergency_contact_name,
+          emergency_contact_phone: oldProfile.emergency_contact_phone,
+          emergency_contact_relation: oldProfile.emergency_contact_relation,
+          blood_type: oldProfile.blood_type,
+          known_allergies: oldProfile.known_allergies,
+          manager_id: oldProfile.manager_id,
+          timer_auto_stop_hours: oldProfile.timer_auto_stop_hours,
+        };
+        const { error: insertError } = await sb.from('profiles').insert(newProfile);
+        if (insertError) {
+          console.error('[Auth] Eroare insert profil cu ID real:', insertError);
+          // Fallback: reinsert-ează profilul vechi pentru a nu pierde datele
+          await sb.from('profiles').insert(oldProfile);
+          this.currentProfile = null;
+          this._accessDenied = true;
+          return;
+        }
+        this.currentProfile = newProfile;
         return;
       }
     }
