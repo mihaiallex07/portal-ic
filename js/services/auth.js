@@ -104,60 +104,49 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profil pre-creat găsit: șterg și recreez cu ID-ul real din Google Auth
-        const oldProfile = { ...profileByEmail };
-        const { error: deleteError } = await sb.from('profiles').delete().eq('id', profileByEmail.id);
-        if (deleteError) {
-          console.error('[Auth] Eroare ștergere profil pre-creat:', deleteError);
-          this.currentProfile = null;
-          this._accessDenied = true;
-          return;
-        }
-        // Creează profil nou cu ID-ul real, copiind datele pre-create
-        const newProfile = {
+        // Profil pre-creat găsit: upsert cu ID-ul real din Google Auth
+        const upsertProfile = {
           id: userId,
-          email: oldProfile.email,
-          full_name: oldProfile.full_name,
-          role: oldProfile.role,
-          department: oldProfile.department,
-          job_title: oldProfile.job_title,
-          avatar_url: oldProfile.avatar_url,
-          phone: oldProfile.phone,
+          email: profileByEmail.email,
+          full_name: profileByEmail.full_name,
+          role: profileByEmail.role,
+          department: profileByEmail.department,
+          job_title: profileByEmail.job_title,
+          avatar_url: profileByEmail.avatar_url,
+          phone: profileByEmail.phone,
           is_active: true,
-          work_hours_per_day: oldProfile.work_hours_per_day || 8,
-          position: oldProfile.position,
-          employee_code: oldProfile.employee_code,
+          work_hours_per_day: profileByEmail.work_hours_per_day || 8,
+          position: profileByEmail.position,
+          employee_code: profileByEmail.employee_code,
           is_pre_created: false,
-          phone_mobile: oldProfile.phone_mobile,
-          phone_work: oldProfile.phone_work,
-          hire_date: oldProfile.hire_date,
-          birth_date: oldProfile.birth_date,
-          residence_address: oldProfile.residence_address,
-          cnp: oldProfile.cnp,
-          ci_series: oldProfile.ci_series,
-          ci_number: oldProfile.ci_number,
-          ci_expiry_date: oldProfile.ci_expiry_date,
-          ci_issued_by: oldProfile.ci_issued_by,
-          iban: oldProfile.iban,
-          bank_name: oldProfile.bank_name,
-          emergency_contact_name: oldProfile.emergency_contact_name,
-          emergency_contact_phone: oldProfile.emergency_contact_phone,
-          emergency_contact_relation: oldProfile.emergency_contact_relation,
-          blood_type: oldProfile.blood_type,
-          known_allergies: oldProfile.known_allergies,
-          manager_id: oldProfile.manager_id,
-          timer_auto_stop_hours: oldProfile.timer_auto_stop_hours,
+          phone_mobile: profileByEmail.phone_mobile,
+          phone_work: profileByEmail.phone_work,
+          hire_date: profileByEmail.hire_date,
+          birth_date: profileByEmail.birth_date,
+          residence_address: profileByEmail.residence_address,
+          cnp: profileByEmail.cnp,
+          ci_series: profileByEmail.ci_series,
+          ci_number: profileByEmail.ci_number,
+          ci_expiry_date: profileByEmail.ci_expiry_date,
+          ci_issued_by: profileByEmail.ci_issued_by,
+          iban: profileByEmail.iban,
+          bank_name: profileByEmail.bank_name,
+          emergency_contact_name: profileByEmail.emergency_contact_name,
+          emergency_contact_phone: profileByEmail.emergency_contact_phone,
+          emergency_contact_relation: profileByEmail.emergency_contact_relation,
+          blood_type: profileByEmail.blood_type,
+          known_allergies: profileByEmail.known_allergies,
+          manager_id: profileByEmail.manager_id,
+          timer_auto_stop_hours: profileByEmail.timer_auto_stop_hours,
         };
-        const { error: insertError } = await sb.from('profiles').insert(newProfile);
-        if (insertError) {
-          console.error('[Auth] Eroare insert profil cu ID real:', insertError);
-          // Fallback: reinsert-ează profilul vechi pentru a nu pierde datele
-          await sb.from('profiles').insert(oldProfile);
+        const { error: upsertError } = await sb.from('profiles').upsert(upsertProfile, { onConflict: 'email' });
+        if (upsertError) {
+          console.error('[Auth] Eroare upsert profil pre-creat:', upsertError);
           this.currentProfile = null;
           this._accessDenied = true;
           return;
         }
-        this.currentProfile = newProfile;
+        this.currentProfile = upsertProfile;
         return;
       }
     }
