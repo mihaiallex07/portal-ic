@@ -93,7 +93,7 @@ const Auth = {
       return;
     }
 
-    // 2. Caută profilul după email (profil pre-creat de admin)
+    // 2. Caută profilul după email (profil pre-creat de admin) și îl activează
     if (user?.email) {
       const { data: profileByEmail } = await sb.from('profiles').select('*').eq('email', user.email).single();
       if (profileByEmail) {
@@ -104,7 +104,42 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        this.currentProfile = profileByEmail;
+        // Profil pre-creat găsit: transformă-l în profil activ cu ID-ul real din Google Auth
+        // Șterg profilul vechi și creez altul cu ID-ul real (nu se poate UPDATE primary key)
+        await sb.from('profiles').delete().eq('id', profileByEmail.id);
+        const activatedProfile = {
+          id: userId,
+          email: profileByEmail.email,
+          full_name: profileByEmail.full_name || user.user_metadata?.full_name || user.email.split('@')[0],
+          role: profileByEmail.role || 'angajat',
+          department: profileByEmail.department || '',
+          position: profileByEmail.position || '',
+          employee_code: profileByEmail.employee_code || '',
+          is_pre_created: false,
+          is_active: true,
+          work_hours_per_day: profileByEmail.work_hours_per_day || 8,
+          phone: profileByEmail.phone || null,
+          avatar_url: profileByEmail.avatar_url || null,
+          hire_date: profileByEmail.hire_date || null,
+          manager_id: profileByEmail.manager_id || null,
+        };
+        const { error: insertError } = await sb.from('profiles').insert(activatedProfile);
+        if (insertError) {
+          console.error('[Auth] Eroare activare profil pre-creat:', insertError);
+          // Fallback: creează profil nou dacă insert eșuează
+          const fallbackProfile = {
+            id: userId,
+            email: user.email,
+            full_name: user.user_metadata?.full_name || user.email.split('@')[0],
+            role: 'angajat',
+            is_active: true,
+            work_hours_per_day: 8,
+          };
+          await sb.from('profiles').insert(fallbackProfile);
+          this.currentProfile = fallbackProfile;
+          return;
+        }
+        this.currentProfile = activatedProfile;
         return;
       }
     }
