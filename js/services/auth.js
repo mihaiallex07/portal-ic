@@ -104,49 +104,34 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profil pre-creat găsit: upsert cu ID-ul real din Google Auth
-        const upsertProfile = {
-          id: userId,
-          email: profileByEmail.email,
-          full_name: profileByEmail.full_name,
-          role: profileByEmail.role,
-          department: profileByEmail.department,
-          job_title: profileByEmail.job_title,
-          avatar_url: profileByEmail.avatar_url,
-          phone: profileByEmail.phone,
-          is_active: true,
-          work_hours_per_day: profileByEmail.work_hours_per_day || 8,
-          position: profileByEmail.position,
-          employee_code: profileByEmail.employee_code,
-          is_pre_created: false,
-          phone_mobile: profileByEmail.phone_mobile,
-          phone_work: profileByEmail.phone_work,
-          hire_date: profileByEmail.hire_date,
-          birth_date: profileByEmail.birth_date,
-          residence_address: profileByEmail.residence_address,
-          cnp: profileByEmail.cnp,
-          ci_series: profileByEmail.ci_series,
-          ci_number: profileByEmail.ci_number,
-          ci_expiry_date: profileByEmail.ci_expiry_date,
-          ci_issued_by: profileByEmail.ci_issued_by,
-          iban: profileByEmail.iban,
-          bank_name: profileByEmail.bank_name,
-          emergency_contact_name: profileByEmail.emergency_contact_name,
-          emergency_contact_phone: profileByEmail.emergency_contact_phone,
-          emergency_contact_relation: profileByEmail.emergency_contact_relation,
-          blood_type: profileByEmail.blood_type,
-          known_allergies: profileByEmail.known_allergies,
-          manager_id: profileByEmail.manager_id,
-          timer_auto_stop_hours: profileByEmail.timer_auto_stop_hours,
-        };
-        const { error: upsertError } = await sb.from('profiles').upsert(upsertProfile, { onConflict: 'email' });
-        if (upsertError) {
-          console.error('[Auth] Eroare upsert profil pre-creat:', upsertError);
+        // Profil pre-creat găsit: migrează cu funcția RPC (SECURITY DEFINER, bypass RLS)
+        const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+        const { data: migratedProfile, error: rpcError } = await sb.rpc('migrate_pre_created_profile', {
+          p_new_id: userId,
+          p_email: user.email,
+          p_avatar_url: avatarUrl,
+        });
+        if (rpcError) {
+          console.error('[Auth] Eroare migrare profil pre-creat (RPC):', rpcError);
+          // Fallback: dacă RPC eșuează, încearcă să folosească profilul existent direct
+          // (poate profilul are deja id-ul corect sau a fost deja migrat)
+          const { data: retryProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
+          if (retryProfile) {
+            this.currentProfile = retryProfile;
+            return;
+          }
           this.currentProfile = null;
           this._accessDenied = true;
           return;
         }
-        this.currentProfile = upsertProfile;
+        // RPC returnează profilul migrat ca JSON
+        if (migratedProfile && migratedProfile.id) {
+          this.currentProfile = migratedProfile;
+        } else {
+          // Reîncarcă profilul după migrare
+          const { data: freshProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
+          this.currentProfile = freshProfile;
+        }
         return;
       }
     }
