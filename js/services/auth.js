@@ -110,7 +110,7 @@ const Auth = {
           is_active: true,
           work_hours_per_day: profileByEmail.work_hours_per_day || 8,
         };
-        const { error: updateError } = await sb.from('profiles').update(updateData).eq('id', profileByEmail.id);
+        const { error: updateError } = await sb.from('profiles').update(updateData).eq('email', user.email);
         if (updateError) {
           console.error('[Auth] Eroare UPDATE profil pre-creat:', updateError);
           this.currentProfile = null;
