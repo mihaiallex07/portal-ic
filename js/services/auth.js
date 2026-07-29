@@ -47,20 +47,7 @@ const Auth = {
         return this.currentProfile;
       }
 
-      // Listen for auth changes
-      sb.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          this.currentUser = session.user;
-          this.providerToken = session.provider_token || null;
-          await this.loadProfile(session.user.id);
-          App.onAuthSuccess();
-        } else if (event === 'SIGNED_OUT') {
-          this.currentUser = null;
-          this.currentProfile = null;
-          this.providerToken = null;
-          App.onAuthLogout();
-        }
-      });
+      // Auth state changes sunt gestionate în app.js (DOMContentLoaded)
 
       return null;
     } catch (err) {
@@ -105,6 +92,7 @@ const Auth = {
           return;
         }
         // Profil pre-creat găsit: migrează cu funcția RPC (SECURITY DEFINER, bypass RLS)
+        console.log('[Auth] Profil pre-creat găsit, migrare cu RPC...', profileByEmail.email);
         const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
         const { data: migratedProfile, error: rpcError } = await sb.rpc('migrate_pre_created_profile', {
           p_new_id: userId,
@@ -113,24 +101,24 @@ const Auth = {
         });
         if (rpcError) {
           console.error('[Auth] Eroare migrare profil pre-creat (RPC):', rpcError);
-          // Fallback: dacă RPC eșuează, încearcă să folosească profilul existent direct
-          // (poate profilul are deja id-ul corect sau a fost deja migrat)
-          const { data: retryProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
-          if (retryProfile) {
-            this.currentProfile = retryProfile;
-            return;
-          }
-          this.currentProfile = null;
-          this._accessDenied = true;
+          // Fallback: folosește profilul pre-creat direct (fără migrare de ID)
+          // Asta permite accesul chiar dacă migrarea eșuează
+          this.currentProfile = profileByEmail;
           return;
         }
+        console.log('[Auth] RPC migrare rezultat:', migratedProfile);
         // RPC returnează profilul migrat ca JSON
         if (migratedProfile && migratedProfile.id) {
           this.currentProfile = migratedProfile;
         } else {
           // Reîncarcă profilul după migrare
           const { data: freshProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
-          this.currentProfile = freshProfile;
+          if (freshProfile) {
+            this.currentProfile = freshProfile;
+          } else {
+            // Fallback final: folosește profilul pre-creat
+            this.currentProfile = profileByEmail;
+          }
         }
         return;
       }
