@@ -110,11 +110,23 @@ const Auth = {
         // RPC returnează profilul migrat ca JSON
         if (migratedProfile && migratedProfile.id) {
           this.currentProfile = migratedProfile;
+          // Dacă avatar-ul din RPC e null dar avem avatar din Google, actualizează
+          if (!migratedProfile.avatar_url && avatarUrl) {
+            console.log('[Auth] Actualizez avatar din Google...');
+            await sb.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId);
+            this.currentProfile.avatar_url = avatarUrl;
+          }
         } else {
           // Reîncarcă profilul după migrare
           const { data: freshProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
           if (freshProfile) {
             this.currentProfile = freshProfile;
+            // Actualizează avatar dacă lipsește
+            if (!freshProfile.avatar_url && avatarUrl) {
+              console.log('[Auth] Actualizez avatar din Google (retry)...');
+              await sb.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId);
+              this.currentProfile.avatar_url = avatarUrl;
+            }
           } else {
             // Fallback final: folosește profilul pre-creat
             this.currentProfile = profileByEmail;
