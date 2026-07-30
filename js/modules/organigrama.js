@@ -12,7 +12,8 @@ const Organigrama = {
   async render() {
     const { data: users } = await DB.getUsers();
     const isAdmin = Auth.currentProfile?.role === 'admin';
-    this.users = (users || []).filter(u => isAdmin || !u.is_pre_created || u.id === Auth.currentUser?.id);
+    // Toți utilizatorii autentificați văd toți colegii (pre-creați sau nu)
+    this.users = users || [];
     this.editMode = false;
 
     document.getElementById('page-content').innerHTML = `
