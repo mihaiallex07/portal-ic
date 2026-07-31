@@ -1280,7 +1280,6 @@ const Proiecte = {
     
     this.renderJurnalProiectTab(true);
   },
-,
 
   switchTab(tab) {
     this.currentTab = tab;
