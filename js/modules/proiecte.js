@@ -2079,7 +2079,8 @@ const Proiecte = {
     const name = document.getElementById('new-task-name')?.value?.trim();
     if (!name) { showToast('Completează numele sarcinii', 'error'); return; }
     const budgetH = parseFloat(document.getElementById('new-task-budget')?.value) || 0;
-    if (phaseBudget > 0 && (allocated + budgetH) > phaseBudget) {
+    // Allow 0 hours budget - it doesn't count towards phase budget
+    if (budgetH > 0 && phaseBudget > 0 && (allocated + budgetH) > phaseBudget) {
       showToast('Depășești bugetul etapei! Disponibil: ' + Math.max(0, phaseBudget - allocated) + 'h', 'error');
       return;
     }
