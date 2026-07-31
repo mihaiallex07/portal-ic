@@ -1567,9 +1567,6 @@ const TaskManager = {
       userOptions = `<option value="${profile.id}">${profile.full_name || profile.name}</option>`;
     }
     
-    // Build project options
-    const projectOptions = this.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-    
     const today = new Date().toISOString().split('T')[0];
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     
@@ -1582,7 +1579,7 @@ const TaskManager = {
         
         <div style="margin-bottom:16px">
           <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Persoană</label>
-          <select id="report-user" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
+          <select id="report-user" onchange="TaskManager.updateReportProjects()" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
             <option value="">— Selectați —</option>
             ${userOptions}
           </select>
@@ -1603,7 +1600,6 @@ const TaskManager = {
           <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Proiect (opțional)</label>
           <select id="report-project" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
             <option value="">— Toate proiectele —</option>
-            ${projectOptions}
           </select>
         </div>
         
@@ -1614,6 +1610,23 @@ const TaskManager = {
       </div>
     `;
     document.body.appendChild(modal);
+    this.updateReportProjects();
+  },
+
+  updateReportProjects() {
+    const userId = document.getElementById('report-user')?.value;
+    const projectSelect = document.getElementById('report-project');
+    if (!projectSelect) return;
+    
+    let userProjects = [];
+    if (userId) {
+      const userAssignments = this.allAssignments.filter(a => a.user_id === userId);
+      const projectIds = [...new Set(userAssignments.map(a => a.project_id))];
+      userProjects = this.projects.filter(p => projectIds.includes(p.id));
+    }
+    
+    projectSelect.innerHTML = '<option value="">— Toate proiectele —</option>' + 
+      userProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   },
 
   async generateReport() {
@@ -1634,12 +1647,16 @@ const TaskManager = {
     const sb = getSupabase();
     if (!sb) { alert('Nu ești conectat'); return; }
     
-    // Fetch time entries
+    // Fetch time entries with correct date field
     let query = sb.from('time_entries')
-      .select('id,project_task_id,duration_minutes,created_at,user_id')
+      .select('id,project_task_id,project_id,duration_minutes,date,start_time,end_time,activity_type,description')
       .eq('user_id', userId)
-      .gte('created_at', dateFrom + 'T00:00:00')
-      .lte('created_at', dateTo + 'T23:59:59');
+      .gte('date', dateFrom)
+      .lte('date', dateTo);
+    
+    if (projectId) {
+      query = query.eq('project_id', parseInt(projectId));
+    }
     
     const { data: timeEntries, error } = await query;
     if (error) {
@@ -1647,29 +1664,49 @@ const TaskManager = {
       return;
     }
     
+    if (!timeEntries || timeEntries.length === 0) {
+      alert('Nu sunt ore înregistrate pentru perioada selectată!');
+      return;
+    }
+    
     // Fetch manual hours
-    const { data: manualHours } = await sb.from('manual_hours_log')
-      .select('id,task_id,minutes,created_at,added_by_profile_id')
+    let manualQuery = sb.from('manual_hours_log')
+      .select('id,task_id,minutes,created_at,description')
       .eq('added_by_profile_id', userId)
       .gte('created_at', dateFrom + 'T00:00:00')
       .lte('created_at', dateTo + 'T23:59:59');
     
-    // Fetch tasks with project info
-    const taskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id), ...(manualHours || []).map(m => m.task_id)])];
-    const { data: tasks } = await sb.from('project_tasks')
-      .select('id,name,project_id,phase_id')
-      .in('id', taskIds);
+    const { data: manualHours } = await manualQuery;
     
-    // Fetch projects and phases
-    const projectIds = [...new Set((tasks || []).map(t => t.project_id))];
-    const { data: projects } = await sb.from('projects')
-      .select('id,name')
-      .in('id', projectIds);
+    // Fetch tasks with project and phase info
+    const taskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id).filter(Boolean), ...(manualHours || []).map(m => m.task_id).filter(Boolean)])];
+    let tasksData = [];
+    if (taskIds.length > 0) {
+      const { data: tasks } = await sb.from('project_tasks')
+        .select('id,name,project_id,phase_id')
+        .in('id', taskIds);
+      tasksData = tasks || [];
+    }
     
-    const phaseIds = [...new Set((tasks || []).map(t => t.phase_id))];
-    const { data: phases } = await sb.from('project_phases')
-      .select('id,name,code')
-      .in('id', phaseIds);
+    // Fetch projects
+    const projectIds = [...new Set([...(timeEntries || []).map(t => t.project_id).filter(Boolean), ...tasksData.map(t => t.project_id).filter(Boolean)])];
+    let projectsData = [];
+    if (projectIds.length > 0) {
+      const { data: projects } = await sb.from('projects')
+        .select('id,name')
+        .in('id', projectIds);
+      projectsData = projects || [];
+    }
+    
+    // Fetch phases
+    const phaseIds = [...new Set(tasksData.map(t => t.phase_id).filter(Boolean))];
+    let phasesData = [];
+    if (phaseIds.length > 0) {
+      const { data: phases } = await sb.from('project_phases')
+        .select('id,name,code')
+        .in('id', phaseIds);
+      phasesData = phases || [];
+    }
     
     // Build report data
     const reportData = {
@@ -1678,9 +1715,9 @@ const TaskManager = {
       dateTo,
       timeEntries: timeEntries || [],
       manualHours: manualHours || [],
-      tasks: tasks || [],
-      projects: projects || [],
-      phases: phases || [],
+      tasks: tasksData,
+      projects: projectsData,
+      phases: phasesData,
       projectFilter: projectId
     };
     
@@ -1689,80 +1726,79 @@ const TaskManager = {
   },
 
   displayReport(data) {
-    // Group by project
+    // Group by project → phase → task
     const grouped = {};
-    const allHours = [
-      ...(data.timeEntries || []).map(t => ({ type: 'timer', minutes: t.duration_minutes, taskId: t.project_task_id, date: t.created_at })),
-      ...(data.manualHours || []).map(m => ({ type: 'manual', minutes: m.minutes, taskId: m.task_id, date: m.created_at }))
-    ];
+    let grandTotal = 0;
     
-    allHours.forEach(h => {
-      const task = data.tasks.find(t => t.id === h.taskId);
-      if (!task) return;
-      if (data.projectFilter && task.project_id !== parseInt(data.projectFilter)) return;
+    // Process time entries
+    (data.timeEntries || []).forEach(entry => {
+      if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
       
-      const projectId = task.project_id;
+      const projectId = entry.project_id;
+      const task = data.tasks.find(t => t.id === entry.project_task_id);
+      const phaseId = task?.phase_id;
+      const phase = data.phases.find(p => p.id === phaseId);
+      const project = data.projects.find(p => p.id === projectId);
+      
       if (!grouped[projectId]) {
-        grouped[projectId] = { tasks: {}, total: 0 };
+        grouped[projectId] = { project, phases: {} };
+      }
+      if (!grouped[projectId].phases[phaseId]) {
+        grouped[projectId].phases[phaseId] = { phase, tasks: {} };
+      }
+      if (!grouped[projectId].phases[phaseId].tasks[entry.project_task_id]) {
+        grouped[projectId].phases[phaseId].tasks[entry.project_task_id] = { task, hours: 0, entries: [] };
       }
       
-      const taskId = task.id;
-      if (!grouped[projectId].tasks[taskId]) {
-        grouped[projectId].tasks[taskId] = { name: task.name, hours: 0, entries: [] };
-      }
-      
-      const hours = h.minutes / 60;
-      grouped[projectId].tasks[taskId].hours += hours;
-      grouped[projectId].tasks[taskId].entries.push(h);
-      grouped[projectId].total += hours;
+      const hours = entry.duration_minutes / 60;
+      grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += hours;
+      grouped[projectId].phases[phaseId].tasks[entry.project_task_id].entries.push(entry);
+      grandTotal += hours;
     });
     
     // Generate HTML
     let html = '<div style="margin-top:20px">';
-    let grandTotal = 0;
     
     Object.keys(grouped).forEach(projectId => {
-      const project = data.projects.find(p => p.id === parseInt(projectId));
       const group = grouped[projectId];
-      grandTotal += group.total;
+      const project = group.project;
       
       html += `
         <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
           <h4 style="margin:0 0 12px 0;color:var(--text-primary)">${project?.name || 'Necunoscut'}</h4>
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border)">
-                <th style="padding:8px;text-align:left;color:var(--text-muted);font-weight:600">Task</th>
-                <th style="padding:8px;text-align:right;color:var(--text-muted);font-weight:600">Ore</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${Object.keys(group.tasks).map(taskId => {
-                const task = group.tasks[taskId];
-                return `
-                  <tr style="border-bottom:1px solid var(--border)">
-                    <td style="padding:8px;color:var(--text-primary)">${task.name}</td>
-                    <td style="padding:8px;text-align:right;color:var(--text-primary);font-weight:600">${task.hours.toFixed(2)}h</td>
-                  </tr>
-                `;
-              }).join('')}
-              <tr style="background:var(--card-bg);font-weight:600">
-                <td style="padding:8px;color:var(--text-primary)">Total proiect</td>
-                <td style="padding:8px;text-align:right;color:var(--primary)">${group.total.toFixed(2)}h</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       `;
+      
+      Object.keys(group.phases).forEach(phaseId => {
+        const phaseGroup = group.phases[phaseId];
+        const phase = phaseGroup.phase;
+        
+        html += `<div style="margin-bottom:12px"><strong style="color:var(--text-muted);font-size:12px">${phase?.name || 'Fără etapă'}</strong>`;
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">';
+        html += '<thead><tr style="border-bottom:1px solid var(--border)"><th style="padding:6px;text-align:left;color:var(--text-muted)">Task</th><th style="padding:6px;text-align:right;color:var(--text-muted)">Ore</th></tr></thead><tbody>';
+        
+        Object.keys(phaseGroup.tasks).forEach(taskId => {
+          const taskData = phaseGroup.tasks[taskId];
+          html += `
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:6px;color:var(--text-primary)">${taskData.task?.name || 'Necunoscut'}</td>
+              <td style="padding:6px;text-align:right;color:var(--text-primary);font-weight:600">${taskData.hours.toFixed(2)}h</td>
+            </tr>
+          `;
+        });
+        
+        html += '</tbody></table></div>';
+      });
+      
+      html += '</div>';
     });
     
     html += `
-      <div style="background:var(--primary);color:#fff;border-radius:8px;padding:16px;text-align:center;font-size:18px;font-weight:600;margin-bottom:20px">
+      <div style="background:var(--primary);color:#fff;border-radius:8px;padding:16px;text-align:center;font-size:18px;font-weight:600;margin:20px 0">
         Total: ${grandTotal.toFixed(2)} ore
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="TaskManager.exportReportPDF()" style="flex:1;background:#DC2626;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📄 Export PDF</button>
-        <button onclick="TaskManager.exportReportExcel()" style="flex:1;background:#059669;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📊 Export Excel</button>
+        <button onclick="TaskManager.exportReportPDF(${JSON.stringify(data).replace(/"/g, '&quot;')})" style="flex:1;background:#DC2626;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📄 Export PDF</button>
+        <button onclick="TaskManager.exportReportExcel(${JSON.stringify(data).replace(/"/g, '&quot;')})" style="flex:1;background:#059669;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📊 Export Excel</button>
       </div>
     `;
     
@@ -1770,11 +1806,11 @@ const TaskManager = {
     document.getElementById('reports-content').innerHTML = html;
   },
 
-  exportReportPDF() {
+  exportReportPDF(data) {
     alert('Export PDF - în dezvoltare');
   },
 
-  exportReportExcel() {
+  exportReportExcel(data) {
     alert('Export Excel - în dezvoltare');
   },
 
