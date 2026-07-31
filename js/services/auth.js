@@ -94,10 +94,12 @@ const Auth = {
         // Profil pre-creat găsit: migrează cu funcția RPC (SECURITY DEFINER, bypass RLS)
         console.log('[Auth] Profil pre-creat găsit, migrare cu RPC...', profileByEmail.email);
         const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+        const fullNameFromGoogle = user.user_metadata?.full_name || user.email.split('@')[0];
         const { data: migratedProfile, error: rpcError } = await sb.rpc('migrate_pre_created_profile', {
           p_new_id: userId,
           p_email: user.email,
           p_avatar_url: avatarUrl,
+          p_full_name: fullNameFromGoogle,
         });
         if (rpcError) {
           console.error('[Auth] Eroare migrare profil pre-creat (RPC):', rpcError);
