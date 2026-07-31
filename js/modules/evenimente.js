@@ -705,6 +705,75 @@ const Evenimente = {
     await this.loadEvents();
     this.renderPage();
   },
+
+  openBulkDeleteModal() {
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    if (!isAdmin) { showToast('Doar adminii pot șterge în masă', 'error'); return; }
+    
+    const modal = document.createElement('div');
+    modal.id = 'bulk-delete-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+    
+    const eventsList = this.events
+      .filter(e => e.is_recurring && !e.parent_event_id)
+      .map(e => `
+        <label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" class="bulk-delete-checkbox" value="${e.id}" style="width:18px;height:18px;cursor:pointer;accent-color:var(--brand)">
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:14px">${e.title}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${e.event_date} • ${e.start_time?.slice(0,5) || ''}</div>
+          </div>
+        </label>
+      `).join('');
+    
+    modal.innerHTML = `
+      <div style="background:var(--card-bg);border-radius:16px;padding:24px;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+        <h3 style="margin:0 0 16px;font-size:18px;font-weight:700">Ștergere în masă — Evenimente recurente</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">Selectează evenimentele recurente pe care vrei să le ștergi (inclusiv toate instanțele):</p>
+        <div style="max-height:400px;overflow-y:auto;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;padding:12px">
+          ${eventsList || '<p style="color:var(--text-muted);text-align:center;padding:20px">Niciun eveniment recurent</p>'}
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="document.getElementById('bulk-delete-modal').remove()" style="padding:10px 20px;border:1.5px solid var(--border);border-radius:8px;background:transparent;color:var(--text);cursor:pointer;font-size:14px;font-weight:600">Anulează</button>
+          <button onclick="Evenimente.confirmBulkDelete()" style="padding:10px 20px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Șterge selectate</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  },
+
+  async confirmBulkDelete() {
+    const checkboxes = document.querySelectorAll('.bulk-delete-checkbox:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (selectedIds.length === 0) {
+      showToast('Selectează cel puțin un eveniment', 'error');
+      return;
+    }
+    
+    if (!confirm(`Sigur vrei să ștergi ${selectedIds.length} eveniment(e) recurent(e) și toate instanțele lor?`)) {
+      return;
+    }
+    
+    try {
+      for (const eventId of selectedIds) {
+        const { error } = await DB.deleteCompanyEvent(eventId);
+        if (error) {
+          showToast('Eroare la ștergere: ' + error.message, 'error');
+          return;
+        }
+      }
+      
+      document.getElementById('bulk-delete-modal').remove();
+      showToast(`✓ ${selectedIds.length} eveniment(e) șters(e) cu succes!`, 'success');
+      await this.loadEvents();
+      this.renderPage();
+    } catch(e) {
+      showToast('Eroare: ' + e.message, 'error');
+    }
+  },
+
 };
 
 // Helper global pentru decline confirm
