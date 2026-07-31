@@ -492,16 +492,22 @@ const Evenimente = {
           const currentUserId = Auth.currentUser?.id;
           const notifRows = targetUsers
             .filter(u => u.id !== currentUserId)
-            .map(u => ({
-              user_id: u.id,
-              type: 'event',
-              title: `📅 Eveniment nou: ${payload.title}`,
-              message: `${payload.event_date} • ${payload.start_time?.slice(0,5)}–${payload.end_time?.slice(0,5)}${payload.location ? ' • ' + payload.location : ''}`,
-              link: '#evenimente',
-              is_read: false,
-            }));
+            .map(u => {
+              const st = payload.start_time ? payload.start_time.split('T')[1]?.slice(0,5) : '';
+              const et = payload.end_time ? payload.end_time.split('T')[1]?.slice(0,5) : '';
+              return {
+                user_id: u.id,
+                type: 'event',
+                title: `📅 Eveniment nou: ${payload.title}`,
+                message: `${payload.event_date} • ${st}${et ? '–' + et : ''}${payload.location ? ' • ' + payload.location : ''}`,
+                link: '#evenimente',
+                is_read: false,
+              };
+            });
           if (notifRows.length > 0) {
-            await sb.from('notifications').insert(notifRows);
+            const { error: notifError } = await sb.from('notifications').insert(notifRows);
+            if (notifError) console.warn('Notification insert error:', notifError);
+            else console.log('Notifications sent:', notifRows.length);
             // Actualizează badge notificări
             if (typeof updateNotifBadge === 'function') updateNotifBadge();
           }
