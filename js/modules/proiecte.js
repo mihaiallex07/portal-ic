@@ -1073,7 +1073,7 @@ const Proiecte = {
       .from('project_decisions')
       .select('*')
       .eq('project_id', this.currentProject.id)
-      .order('decision_date', { ascending: false })
+      .eq('is_latest', true).order('decision_date', { ascending: false })
       .limit(200);
     
     if (error) {
@@ -1239,22 +1239,91 @@ const Proiecte = {
     this.renderJurnalProiectTab(true);
   },
   openEditDecisionModal(decisionId, currentText) {
-    const newText = prompt('Editați decizia:', currentText);
-    if (newText === null) return;
-    if (!newText.trim()) {
+    const sb = getSupabase();
+    if (!sb) { alert('Nu ești conectat'); return; }
+    
+    // Fetch decision and history
+    sb.from('project_decisions')
+      .select('*')
+      .eq('id', decisionId)
+      .single()
+      .then(({ data: decision, error }) => {
+        if (error) { alert('Eroare: ' + error.message); return; }
+        
+        sb.from('project_decisions_history')
+          .select('*')
+          .eq('decision_id', decisionId)
+          .order('edited_at', { ascending: false })
+          .then(({ data: history, error: histError }) => {
+            if (histError) history = [];
+            this.showEditDecisionModal(decision, history || []);
+          });
+      });
+  },
+
+  showEditDecisionModal(decision, history) {
+    const profile = Auth.currentProfile;
+    const isAdmin = profile && profile.role === 'admin';
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
+    const canEdit = isAdmin || isCoord;
+    
+    let historyHtml = '';
+    if (history && history.length > 0) {
+      historyHtml = '<div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)"><h4 style="margin:0 0 12px 0;font-size:12px;color:var(--text-muted);font-weight:600">Istoricul reviziilor:</h4>';
+      historyHtml += history.map(h => {
+        const dt = new Date(h.edited_at);
+        const dateStr = dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const editorName = this.getUserName(h.edited_by) || 'Necunoscut';
+        return `
+          <div style="background:var(--bg-secondary);padding:10px;border-radius:6px;margin-bottom:8px;font-size:12px">
+            <div style="color:var(--text-muted);margin-bottom:6px"><strong>${editorName}</strong> — ${dateStr}</div>
+            <div style="color:var(--text-muted)"><strong>Veche:</strong> ${h.old_decision}</div>
+            <div style="color:var(--text-primary);margin-top:4px"><strong>Nouă:</strong> ${h.new_decision}</div>
+          </div>
+        `;
+      }).join('');
+      historyHtml += '</div>';
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'edit-decision-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;overflow-y:auto';
+    modal.innerHTML = `
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:600px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2);margin:20px auto">
+        <h3 style="margin:0 0 20px 0;color:var(--text-primary)">Editează decizie</h3>
+        
+        <div style="margin-bottom:20px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Decizia (în vigoare)</label>
+          <textarea id="edit-decision-text" placeholder="Descrieți decizia..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:80px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box;${canEdit ? '' : 'opacity:0.6;cursor:not-allowed'}" ${canEdit ? '' : 'disabled'}>${decision.decision}</textarea>
+        </div>
+        
+        ${historyHtml}
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+          <button onclick="document.getElementById('edit-decision-modal').remove()" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Închide</button>
+          ${canEdit ? `<button onclick="Proiecte.saveEditedDecision(${decision.id})" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Salvează</button>` : ''}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    if (canEdit) document.getElementById('edit-decision-text').focus();
+  },
+
+  async saveEditedDecision(decisionId) {
+    const newText = document.getElementById('edit-decision-text')?.value?.trim();
+    if (!newText) {
       alert('Decizia nu poate fi goală!');
       return;
     }
-    this.updateDecision(decisionId, newText.trim());
-  },
-
-  async updateDecision(decisionId, newText) {
+    
     const sb = getSupabase();
     if (!sb) { alert('Nu ești conectat'); return; }
     
     const profile = Auth.currentProfile;
     if (!profile) { alert('Profil necunoscut'); return; }
     
+    // Get old decision
     const { data: oldData, error: fetchError } = await sb
       .from('project_decisions')
       .select('decision')
@@ -1268,6 +1337,7 @@ const Proiecte = {
     
     const oldDecision = oldData.decision;
     
+    // Update decision
     const { error: updateError } = await sb
       .from('project_decisions')
       .update({ decision: newText })
@@ -1278,6 +1348,7 @@ const Proiecte = {
       return;
     }
     
+    // Add to history
     await sb.from('project_decisions_history').insert([
       {
         decision_id: decisionId,
@@ -1287,6 +1358,7 @@ const Proiecte = {
       }
     ]);
     
+    document.getElementById('edit-decision-modal').remove();
     this.renderJurnalProiectTab(true);
   },
 
