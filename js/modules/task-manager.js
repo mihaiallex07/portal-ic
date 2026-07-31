@@ -1840,30 +1840,61 @@ const TaskManager = {
       alert('Nu sunt date de exportat');
       return;
     }
+    
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    let yPosition = 20;
-    doc.setFontSize(16);
+    const margin = 15;
+    let yPosition = margin;
+    
+    // Header background
+    doc.setFillColor(41, 128, 185); // Blue
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
     doc.setFont(undefined, 'bold');
-    doc.text('Raport Ore Lucrate', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 15;
+    doc.text('RAPORT ORE LUCRATE', pageWidth / 2, 15, { align: 'center' });
+    
+    // Company name
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.text('Inginerie CREATIVA', pageWidth / 2, 25, { align: 'center' });
+    
+    // Reset text color
+    doc.setTextColor(0, 0, 0);
+    yPosition = 50;
+    
+    // Report metadata
     doc.setFontSize(10);
-    doc.setFont(undefined, 'normal');
-    doc.text('Inginerie CREATIVA', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 5;
-    doc.setFontSize(9);
     doc.setFont(undefined, 'bold');
-    doc.text('Raport generat pentru: ' + (data.user?.full_name || data.user?.name || 'Necunoscut'), 20, yPosition);
-    yPosition += 6;
+    doc.text('Raport generat pentru:', margin, yPosition);
     doc.setFont(undefined, 'normal');
-    doc.text('De către: ' + data.generatedBy + ' (' + data.userRole + ')', 20, yPosition);
-    yPosition += 6;
-    doc.text('Perioada: ' + data.dateFrom + ' - ' + data.dateTo, 20, yPosition);
-    yPosition += 6;
-    doc.text('Data generării: ' + data.dateTimeStr, 20, yPosition);
-    yPosition += 10;
+    doc.text(data.user?.full_name || data.user?.name || 'Necunoscut', margin + 50, yPosition);
+    yPosition += 7;
+    
+    doc.setFont(undefined, 'bold');
+    doc.text('De către:', margin, yPosition);
+    doc.setFont(undefined, 'normal');
+    doc.text(data.generatedBy + ' (' + data.userRole + ')', margin + 50, yPosition);
+    yPosition += 7;
+    
+    doc.setFont(undefined, 'bold');
+    doc.text('Perioada:', margin, yPosition);
+    doc.setFont(undefined, 'normal');
+    doc.text(data.dateFrom + ' - ' + data.dateTo, margin + 50, yPosition);
+    yPosition += 7;
+    
+    doc.setFont(undefined, 'bold');
+    doc.text('Data generării:', margin, yPosition);
+    doc.setFont(undefined, 'normal');
+    doc.text(data.dateTimeStr, margin + 50, yPosition);
+    yPosition += 12;
+    
+    // Group data
     const grouped = {};
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
@@ -1881,45 +1912,75 @@ const TaskManager = {
       }
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
     });
+    
+    // Add projects and tasks
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
-      if (yPosition > pageHeight - 40) {
+      
+      if (yPosition > pageHeight - 30) {
         doc.addPage();
-        yPosition = 20;
+        yPosition = margin;
       }
+      
+      // Project title
+      doc.setFillColor(230, 230, 230);
+      doc.rect(margin - 2, yPosition - 4, pageWidth - 2 * margin + 4, 8, 'F');
       doc.setFont(undefined, 'bold');
       doc.setFontSize(11);
-      doc.text(group.project?.name || 'Necunoscut', 20, yPosition);
-      yPosition += 8;
+      doc.text(group.project?.name || 'Necunoscut', margin, yPosition + 2);
+      yPosition += 10;
+      
+      // Phases
       Object.keys(group.phases).forEach(phaseId => {
         const phaseGroup = group.phases[phaseId];
+        
+        if (yPosition > pageHeight - 25) {
+          doc.addPage();
+          yPosition = margin;
+        }
+        
         doc.setFont(undefined, 'bold');
-        doc.setFontSize(9);
-        doc.text('  ' + (phaseGroup.phase?.name || 'Fără etapă'), 20, yPosition);
+        doc.setFontSize(10);
+        doc.text('  ' + (phaseGroup.phase?.name || 'Fără etapă'), margin, yPosition);
         yPosition += 6;
+        
+        // Tasks table
         doc.setFont(undefined, 'normal');
+        doc.setFontSize(9);
         Object.keys(phaseGroup.tasks).forEach(taskId => {
           const taskData = phaseGroup.tasks[taskId];
-          const taskText = '    • ' + (taskData.task?.name || 'Necunoscut') + ': ' + taskData.hours.toFixed(2) + 'h';
-          doc.setFontSize(8);
-          doc.text(taskText, 20, yPosition);
-          yPosition += 5;
-          if (yPosition > pageHeight - 20) {
+          const taskName = taskData.task?.name || 'Necunoscut';
+          const hours = taskData.hours.toFixed(2);
+          
+          if (yPosition > pageHeight - 15) {
             doc.addPage();
-            yPosition = 20;
+            yPosition = margin;
           }
+          
+          doc.text('    • ' + taskName, margin + 5, yPosition);
+          doc.text(hours + 'h', pageWidth - margin - 10, yPosition, { align: 'right' });
+          yPosition += 5;
         });
-        yPosition += 2;
+        
+        yPosition += 3;
       });
-      yPosition += 5;
+      
+      yPosition += 3;
     });
+    
+    // Total
     if (yPosition > pageHeight - 20) {
       doc.addPage();
-      yPosition = 20;
+      yPosition = margin;
     }
+    
+    doc.setFillColor(41, 128, 185);
+    doc.rect(margin - 2, yPosition - 4, pageWidth - 2 * margin + 4, 10, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFont(undefined, 'bold');
-    doc.setFontSize(11);
-    doc.text('Total: ' + data.grandTotal.toFixed(2) + ' ore', 20, yPosition);
+    doc.setFontSize(12);
+    doc.text('Total: ' + data.grandTotal.toFixed(2) + ' ore', pageWidth / 2, yPosition + 3, { align: 'center' });
+    
     const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
     doc.save(fileName);
   },
@@ -1929,13 +1990,69 @@ const TaskManager = {
       alert('Nu sunt date de exportat');
       return;
     }
-    let csv = 'Raport Ore Lucrate' + String.fromCharCode(10);
-    csv += 'Inginerie CREATIVA' + String.fromCharCode(10) + String.fromCharCode(10);
-    csv += 'Raport generat pentru,' + (data.user?.full_name || data.user?.name || 'Necunoscut') + String.fromCharCode(10);
-    csv += 'De către,' + data.generatedBy + ' (' + data.userRole + ')' + String.fromCharCode(10);
-    csv += 'Perioada,' + data.dateFrom + ' - ' + data.dateTo + String.fromCharCode(10);
-    csv += 'Data generării,' + data.dateTimeStr + String.fromCharCode(10) + String.fromCharCode(10);
-    csv += 'Proiect,Etapă,Task,Ore' + String.fromCharCode(10);
+    
+    // Check if ExcelJS is available
+    if (typeof ExcelJS === 'undefined') {
+      alert('ExcelJS nu e încărcat. încearcă din nou.');
+      return;
+    }
+    
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Raport Ore');
+    
+    // Set column widths
+    worksheet.columns = [
+      { header: 'Proiect', key: 'project', width: 25 },
+      { header: 'Etapă', key: 'phase', width: 20 },
+      { header: 'Task', key: 'task', width: 30 },
+      { header: 'Ore', key: 'hours', width: 12 }
+    ];
+    
+    // Header styling
+    const headerRow = worksheet.getRow(1);
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF2980B9' }
+    };
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+    headerRow.alignment = { horizontal: 'center', vertical: 'center' };
+    
+    // Title rows
+    const titleRow = worksheet.insertRow(1, ['RAPORT ORE LUCRATE']);
+    titleRow.font = { bold: true, size: 14, color: { argb: 'FF2980B9' } };
+    titleRow.alignment = { horizontal: 'center' };
+    worksheet.mergeCells('A1:D1');
+    
+    const companyRow = worksheet.insertRow(2, ['Inginerie CREATIVA']);
+    companyRow.font = { size: 11, color: { argb: 'FF666666' } };
+    companyRow.alignment = { horizontal: 'center' };
+    worksheet.mergeCells('A2:D2');
+    
+    worksheet.insertRow(3, []);
+    
+    // Metadata rows
+    const metaRow1 = worksheet.insertRow(4, ['Raport generat pentru:', data.user?.full_name || data.user?.name || 'Necunoscut']);
+    metaRow1.font = { size: 10 };
+    
+    const metaRow2 = worksheet.insertRow(5, ['De către:', data.generatedBy + ' (' + data.userRole + ')']);
+    metaRow2.font = { size: 10 };
+    
+    const metaRow3 = worksheet.insertRow(6, ['Perioada:', data.dateFrom + ' - ' + data.dateTo]);
+    metaRow3.font = { size: 10 };
+    
+    const metaRow4 = worksheet.insertRow(7, ['Data generării:', data.dateTimeStr]);
+    metaRow4.font = { size: 10 };
+    
+    worksheet.insertRow(8, []);
+    
+    // Data header
+    const dataHeaderRow = worksheet.insertRow(9, ['Proiect', 'Etapă', 'Task', 'Ore']);
+    dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2980B9' } };
+    dataHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    dataHeaderRow.alignment = { horizontal: 'center', vertical: 'center' };
+    
+    // Group data
     const grouped = {};
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
@@ -1953,30 +2070,53 @@ const TaskManager = {
       }
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
     });
+    
+    let rowNum = 10;
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
       Object.keys(group.phases).forEach(phaseId => {
         const phaseGroup = group.phases[phaseId];
         Object.keys(phaseGroup.tasks).forEach(taskId => {
           const taskData = phaseGroup.tasks[taskId];
-          csv += '"' + (group.project?.name || 'Necunoscut') + '","' + (phaseGroup.phase?.name || 'Fără etapă') + '","' + (taskData.task?.name || 'Necunoscut') + '",' + taskData.hours.toFixed(2) + String.fromCharCode(10);
+          const row = worksheet.insertRow(rowNum, [
+            group.project?.name || 'Necunoscut',
+            phaseGroup.phase?.name || 'Fără etapă',
+            taskData.task?.name || 'Necunoscut',
+            taskData.hours.toFixed(2)
+          ]);
+          row.font = { size: 10 };
+          row.alignment = { horizontal: 'left', vertical: 'center' };
+          row.getCell(4).alignment = { horizontal: 'right' };
+          rowNum++;
         });
       });
     });
-    csv += String.fromCharCode(10) + 'Total,,,,' + data.grandTotal.toFixed(2);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.csv';
-    link.setAttribute('download', fileName);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    
+    // Total row
+    worksheet.insertRow(rowNum, []);
+    rowNum++;
+    const totalRow = worksheet.insertRow(rowNum, ['', '', 'TOTAL:', data.grandTotal.toFixed(2)]);
+    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F4F8' } };
+    totalRow.font = { bold: true, size: 11 };
+    totalRow.getCell(3).alignment = { horizontal: 'right' };
+    totalRow.getCell(4).alignment = { horizontal: 'right' };
+    
+    // Save file
+    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
+    workbook.xlsx.writeBuffer().then(buffer => {
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
   },
 
-  injectStyles() {
+    injectStyles() {
     if (document.getElementById('tm-styles')) return;
     const style = document.createElement('style');
     style.id = 'tm-styles';
