@@ -716,30 +716,40 @@ const Evenimente = {
     
     const modal = document.createElement('div');
     modal.id = 'bulk-delete-modal';
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
     
-    const eventsList = this.events
-      .filter(e => e.is_recurring && !e.parent_event_id)
-      .map(e => `
-        <label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:8px">
-          <input type="checkbox" class="bulk-delete-checkbox" value="${e.id}" style="width:18px;height:18px;cursor:pointer;accent-color:var(--brand)">
-          <div style="flex:1">
-            <div style="font-weight:600;font-size:14px">${e.title}</div>
-            <div style="font-size:12px;color:var(--text-muted)">${e.event_date} • ${e.start_time?.slice(0,5) || ''}</div>
-          </div>
-        </label>
-      `).join('');
+    const allEvents = this.events.sort((a, b) => new Date(b.event_date) - new Date(a.event_date));
     
     modal.innerHTML = `
-      <div style="background:var(--card-bg);border-radius:16px;padding:24px;width:100%;max-width:500px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
-        <h3 style="margin:0 0 16px;font-size:18px;font-weight:700">Ștergere în masă — Evenimente recurente</h3>
-        <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">Selectează evenimentele recurente pe care vrei să le ștergi (inclusiv toate instanțele):</p>
-        <div style="max-height:400px;overflow-y:auto;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;padding:12px">
-          ${eventsList || '<p style="color:var(--text-muted);text-align:center;padding:20px">Niciun eveniment recurent</p>'}
+      <div style="background:var(--card-bg);border-radius:16px;padding:24px;width:100%;max-width:600px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+        <h3 style="margin:0 0 16px;font-size:18px;font-weight:700">Ștergere în masă — Evenimente</h3>
+        
+        <!-- Search box -->
+        <input type="text" id="bulk-delete-search" placeholder="Caută după titlu..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--card-bg);color:var(--text-primary);margin-bottom:12px;box-sizing:border-box" onkeyup="Evenimente._filterBulkDeleteEvents()">
+        
+        <!-- Select all / None buttons -->
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button onclick="Evenimente._selectAllBulkDelete(true)" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;background:transparent;color:var(--text);cursor:pointer;font-size:13px;font-weight:600">✓ Selectează tot</button>
+          <button onclick="Evenimente._selectAllBulkDelete(false)" style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:6px;background:transparent;color:var(--text);cursor:pointer;font-size:13px;font-weight:600">✕ Deselectează tot</button>
         </div>
+        
+        <!-- Events list -->
+        <div id="bulk-delete-events" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px">
+          ${allEvents.map(e => `
+            <label class="bulk-delete-event-item" data-title="${e.title.toLowerCase()}" style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;margin-bottom:8px;background:var(--bg-primary)">
+              <input type="checkbox" class="bulk-delete-checkbox" value="${e.id}" style="width:18px;height:18px;cursor:pointer;accent-color:var(--brand)">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:13px;color:var(--text-primary)">${e.title}</div>
+                <div style="font-size:11px;color:var(--text-muted)">${e.event_date} • ${e.start_time?.slice(0,5) || '—'} ${e.is_recurring ? '(↻ Recurent)' : ''}</div>
+              </div>
+            </label>
+          `).join('')}
+        </div>
+        
+        <!-- Action buttons -->
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button onclick="document.getElementById('bulk-delete-modal').remove()" style="padding:10px 20px;border:1.5px solid var(--border);border-radius:8px;background:transparent;color:var(--text);cursor:pointer;font-size:14px;font-weight:600">Anulează</button>
-          <button onclick="Evenimente.confirmBulkDelete()" style="padding:10px 20px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;font-size:14px;font-weight:600">Șterge selectate</button>
+          <button onclick="Evenimente.confirmBulkDelete()" style="padding:10px 20px;border:none;border-radius:8px;background:#dc2626;color:#fff;cursor:pointer;font-size:14px;font-weight:600">🗑️ Șterge selectate</button>
         </div>
       </div>
     `;
@@ -747,6 +757,19 @@ const Evenimente = {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   },
 
+  _filterBulkDeleteEvents() {
+    const searchVal = document.getElementById('bulk-delete-search')?.value?.toLowerCase() || '';
+    const items = document.querySelectorAll('.bulk-delete-event-item');
+    items.forEach(item => {
+      const title = item.dataset.title || '';
+      item.style.display = title.includes(searchVal) ? 'flex' : 'none';
+    });
+  },
+
+  _selectAllBulkDelete(selectAll) {
+    const checkboxes = document.querySelectorAll('.bulk-delete-event-item:not([style*="display: none"]) .bulk-delete-checkbox');
+    checkboxes.forEach(cb => cb.checked = selectAll);
+  },
   async confirmBulkDelete() {
     const checkboxes = document.querySelectorAll('.bulk-delete-checkbox:checked');
     const selectedIds = Array.from(checkboxes).map(cb => cb.value);
