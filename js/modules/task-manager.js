@@ -1836,11 +1836,144 @@ const TaskManager = {
   },
 
   exportReportPDF(data) {
-    alert('Export PDF - în dezvoltare');
+    if (!data || !data.timeEntries || data.timeEntries.length === 0) {
+      alert('Nu sunt date de exportat');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let yPosition = 20;
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('Raport Ore Lucrate', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text('Inginerie CREATIVA', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 5;
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.text('Raport generat pentru: ' + (data.user?.full_name || data.user?.name || 'Necunoscut'), 20, yPosition);
+    yPosition += 6;
+    doc.setFont(undefined, 'normal');
+    doc.text('De către: ' + data.generatedBy + ' (' + data.userRole + ')', 20, yPosition);
+    yPosition += 6;
+    doc.text('Perioada: ' + data.dateFrom + ' - ' + data.dateTo, 20, yPosition);
+    yPosition += 6;
+    doc.text('Data generării: ' + data.dateTimeStr, 20, yPosition);
+    yPosition += 10;
+    const grouped = {};
+    (data.timeEntries || []).forEach(entry => {
+      if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
+      const projectId = entry.project_id;
+      const task = data.tasks.find(t => t.id === entry.project_task_id);
+      const phaseId = task?.phase_id;
+      if (!grouped[projectId]) {
+        grouped[projectId] = { project: data.projects.find(p => p.id === projectId), phases: {} };
+      }
+      if (!grouped[projectId].phases[phaseId]) {
+        grouped[projectId].phases[phaseId] = { phase: data.phases.find(p => p.id === phaseId), tasks: {} };
+      }
+      if (!grouped[projectId].phases[phaseId].tasks[entry.project_task_id]) {
+        grouped[projectId].phases[phaseId].tasks[entry.project_task_id] = { task, hours: 0 };
+      }
+      grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
+    });
+    Object.keys(grouped).forEach(projectId => {
+      const group = grouped[projectId];
+      if (yPosition > pageHeight - 40) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.text(group.project?.name || 'Necunoscut', 20, yPosition);
+      yPosition += 8;
+      Object.keys(group.phases).forEach(phaseId => {
+        const phaseGroup = group.phases[phaseId];
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(9);
+        doc.text('  ' + (phaseGroup.phase?.name || 'Fără etapă'), 20, yPosition);
+        yPosition += 6;
+        doc.setFont(undefined, 'normal');
+        Object.keys(phaseGroup.tasks).forEach(taskId => {
+          const taskData = phaseGroup.tasks[taskId];
+          const taskText = '    • ' + (taskData.task?.name || 'Necunoscut') + ': ' + taskData.hours.toFixed(2) + 'h';
+          doc.setFontSize(8);
+          doc.text(taskText, 20, yPosition);
+          yPosition += 5;
+          if (yPosition > pageHeight - 20) {
+            doc.addPage();
+            yPosition = 20;
+          }
+        });
+        yPosition += 2;
+      });
+      yPosition += 5;
+    });
+    if (yPosition > pageHeight - 20) {
+      doc.addPage();
+      yPosition = 20;
+    }
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(11);
+    doc.text('Total: ' + data.grandTotal.toFixed(2) + ' ore', 20, yPosition);
+    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+    doc.save(fileName);
   },
 
   exportReportExcel(data) {
-    alert('Export Excel - în dezvoltare');
+    if (!data || !data.timeEntries || data.timeEntries.length === 0) {
+      alert('Nu sunt date de exportat');
+      return;
+    }
+    let csv = 'Raport Ore Lucrate' + String.fromCharCode(10);
+    csv += 'Inginerie CREATIVA' + String.fromCharCode(10) + String.fromCharCode(10);
+    csv += 'Raport generat pentru,' + (data.user?.full_name || data.user?.name || 'Necunoscut') + String.fromCharCode(10);
+    csv += 'De către,' + data.generatedBy + ' (' + data.userRole + ')' + String.fromCharCode(10);
+    csv += 'Perioada,' + data.dateFrom + ' - ' + data.dateTo + String.fromCharCode(10);
+    csv += 'Data generării,' + data.dateTimeStr + String.fromCharCode(10) + String.fromCharCode(10);
+    csv += 'Proiect,Etapă,Task,Ore' + String.fromCharCode(10);
+    const grouped = {};
+    (data.timeEntries || []).forEach(entry => {
+      if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
+      const projectId = entry.project_id;
+      const task = data.tasks.find(t => t.id === entry.project_task_id);
+      const phaseId = task?.phase_id;
+      if (!grouped[projectId]) {
+        grouped[projectId] = { project: data.projects.find(p => p.id === projectId), phases: {} };
+      }
+      if (!grouped[projectId].phases[phaseId]) {
+        grouped[projectId].phases[phaseId] = { phase: data.phases.find(p => p.id === phaseId), tasks: {} };
+      }
+      if (!grouped[projectId].phases[phaseId].tasks[entry.project_task_id]) {
+        grouped[projectId].phases[phaseId].tasks[entry.project_task_id] = { task, hours: 0 };
+      }
+      grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
+    });
+    Object.keys(grouped).forEach(projectId => {
+      const group = grouped[projectId];
+      Object.keys(group.phases).forEach(phaseId => {
+        const phaseGroup = group.phases[phaseId];
+        Object.keys(phaseGroup.tasks).forEach(taskId => {
+          const taskData = phaseGroup.tasks[taskId];
+          csv += '"' + (group.project?.name || 'Necunoscut') + '","' + (phaseGroup.phase?.name || 'Fără etapă') + '","' + (taskData.task?.name || 'Necunoscut') + '",' + taskData.hours.toFixed(2) + String.fromCharCode(10);
+        });
+      });
+    });
+    csv += String.fromCharCode(10) + 'Total,,,,' + data.grandTotal.toFixed(2);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.csv';
+    link.setAttribute('download', fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 
   injectStyles() {
