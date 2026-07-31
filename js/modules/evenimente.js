@@ -493,8 +493,15 @@ const Evenimente = {
           const notifRows = targetUsers
             .filter(u => u.id !== currentUserId)
             .map(u => {
-              const st = payload.start_time ? payload.start_time.split('T')[1]?.slice(0,5) : '';
-              const et = payload.end_time ? payload.end_time.split('T')[1]?.slice(0,5) : '';
+              let st = '', et = '';
+              if (payload.start_time) {
+                const parts = payload.start_time.split('T');
+                if (parts[1]) st = parts[1].slice(0,5);
+              }
+              if (payload.end_time) {
+                const parts = payload.end_time.split('T');
+                if (parts[1]) et = parts[1].slice(0,5);
+              }
               return {
                 user_id: u.id,
                 type: 'event',
