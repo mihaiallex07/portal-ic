@@ -426,12 +426,25 @@ const MiniCalendar = {
   renderUpcomingEvents() {
     const today = new Date();
     const upcoming = [];
+    const addedParents = new Set(); // Track parent events to avoid duplicates
+    
     // Caută evenimente în următoarele 30 de zile
     for (let i = 0; i <= 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const dayEvents = this.getEventsForDay(d.getDate(), d.getMonth());
       for (const ev of dayEvents) {
+        // Skip recurring instances - show only parent events
+        if (ev.ev?.recurrence_parent_id || ev.ev?.is_instance) {
+          continue;
+        }
+        
+        // For recurring parent events, add only once
+        if (ev.ev?.is_recurring && ev.ev?.id) {
+          if (addedParents.has(ev.ev.id)) continue;
+          addedParents.add(ev.ev.id);
+        }
+        
         upcoming.push({ ...ev, date: new Date(d), daysUntil: i });
       }
     }
@@ -451,12 +464,14 @@ const MiniCalendar = {
         <div style="padding:0">
           ${upcoming.slice(0, 7).map(ev => {
             const cfg = typeConfig[ev.type] || typeConfig.birthday;
+            const recurrenceInfo = ev.ev?.is_recurring ? `<div class="text-xs" style="color:#999;margin-top:2px">↻ Recurent</div>` : '';
             return `
               <div class="flex items-center gap-3 p-3" style="border-bottom:1px solid var(--border)${ev.type === 'company' ? ';cursor:pointer' : ''}" ${ev.type === 'company' ? 'onclick="navigate(&quot;evenimente&quot;,null)"' : ''}>
                 <div style="width:36px;height:36px;border-radius:8px;background:${cfg.bg};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${cfg.icon}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:13px;font-weight:600;color:var(--text)">${ev.name}</div>
                   <div class="text-xs text-muted">${cfg.label(ev)}</div>
+                  ${recurrenceInfo}
                 </div>
                 <div style="text-align:right;flex-shrink:0">
                   <div style="font-size:12px;font-weight:700;color:${ev.daysUntil === 0 ? cfg.color : 'var(--brand-dark)'}">${ev.daysUntil === 0 ? 'Azi!' : ev.daysUntil === 1 ? 'Mâine' : `${ev.date.getDate()} ${monthNames[ev.date.getMonth()]}`}</div>
