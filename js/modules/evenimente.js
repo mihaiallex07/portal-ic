@@ -42,7 +42,7 @@ const Evenimente = {
     else if (this.filterStatus === 'past') filtered = filtered.filter(e => e.event_date < today);
 
     // Hide recurring event instances - show only parent events
-    const displayEvents = filtered.filter(e => !e.parent_event_id);
+    const displayEvents = filtered.filter(e => !e.recurrence_parent_id && !e.is_instance);
 
     // Grupează pe luni
     const grouped = {};
