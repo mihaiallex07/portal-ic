@@ -1797,9 +1797,17 @@ const TaskManager = {
           <h4 style="margin:0 0 12px 0;color:var(--text-primary)">${project?.name || 'Necunoscut'}</h4>
       `;
       
+      let projectTotal = 0;
       Object.keys(group.phases).forEach(phaseId => {
         const phaseGroup = group.phases[phaseId];
         const phase = phaseGroup.phase;
+        
+        // Calculate phase total
+        let phaseTotal = 0;
+        Object.keys(phaseGroup.tasks).forEach(taskId => {
+          phaseTotal += phaseGroup.tasks[taskId].hours;
+        });
+        projectTotal += phaseTotal;
         
         html += `<div style="margin-bottom:12px"><strong style="color:var(--text-muted);font-size:12px">${phase?.name || 'Fără etapă'}</strong>`;
         html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">';
@@ -1815,9 +1823,16 @@ const TaskManager = {
           `;
         });
         
+        html += `<tr style="border-top:1.5px solid var(--border);background:var(--bg-primary)">
+          <td style="padding:8px;color:var(--text-primary);font-weight:600">Total ${phase?.name || 'Fără etapă'}</td>
+          <td style="padding:8px;text-align:right;color:var(--text-primary);font-weight:700">${phaseTotal.toFixed(2)}h</td>
+        </tr>`;
         html += '</tbody></table></div>';
       });
       
+      html += `<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;text-align:right">
+        <strong style="color:var(--text-primary);font-size:13px">Total ${project?.name || 'Necunoscut'}: ${projectTotal.toFixed(2)}h</strong>
+      </div>`;
       html += '</div>';
     });
     
