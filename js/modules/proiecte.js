@@ -477,9 +477,9 @@ const Proiecte = {
 
       ${canManage && this.editMode ? `<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:13px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span style="color:#92400E"><strong>Mod editare activ</strong> — modifică bugetele și responsabilii, apoi apasă <strong>Salvează</strong>.</span></div>` : ''}
       <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-        ${['etape','echipa','rapoarte','jurnal'].map(tab => `
+        ${['etape','echipa','rapoarte','jurnal','jurnal-proiect'].map(tab => `
           <button onclick="Proiecte.switchTab('${tab}')" id="tab-${tab}" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:${this.currentTab===tab?'600':'400'};color:${this.currentTab===tab?'var(--primary)':'var(--text-muted)'};border-bottom:${this.currentTab===tab?'2px solid var(--primary)':'2px solid transparent'};margin-bottom:-2px;transition:all 0.2s">
-            ${{etape:'Etape & Sarcini',echipa:'Echipă',rapoarte:'Rapoarte',jurnal:'Jurnal modificări'}[tab]}
+            ${{etape:'Etape & Sarcini',echipa:'Echipă',rapoarte:'Rapoarte',jurnal:'Jurnal modificări','jurnal-proiect':'Jurnal Proiect'}[tab]}
           </button>
         `).join('')}
       </div>
@@ -496,6 +496,7 @@ const Proiecte = {
     if (tab === 'echipa') return this.renderEchipaTab(canEdit);
     if (tab === 'rapoarte') return this.renderRapoarteTab();
     if (tab === 'jurnal') { setTimeout(() => this.renderJurnalTab(), 80); return '<div id="jurnal-content"><div style="text-align:center;padding:40px;color:var(--text-muted)">Se încarcă jurnalul...</div></div>'; }
+    if (tab === 'jurnal-proiect') { setTimeout(() => this.renderJurnalProiectTab(canEdit), 80); return '<div id="jurnal-proiect-content"><div style="text-align:center;padding:40px;color:var(--text-muted)">Se încarcă jurnalul proiectului...</div></div>'; }
     return '';
   },
 
@@ -1060,6 +1061,132 @@ const Proiecte = {
       </div>`;
   },
 
+  // ── Tab Jurnal Proiect (Design Diary) ────────────────────────────────────────────────────
+  async renderJurnalProiectTab(canEdit) {
+    const container = document.getElementById('jurnal-proiect-content');
+    if (!container || !this.currentProject) return;
+    const sb = getSupabase();
+    if (!sb) { container.innerHTML = '<p style="color:var(--text-muted);padding:20px">Nu ești conectat la baza de date.</p>'; return; }
+    
+    // Fetch decisions
+    const { data, error } = await sb
+      .from('project_decisions')
+      .select('*')
+      .eq('project_id', this.currentProject.id)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    
+    if (error) {
+      container.innerHTML = `<p style="color:var(--danger);padding:20px">Eroare la încărcare: ${error.message}</p>`;
+      return;
+    }
+    
+    const profile = Auth.currentProfile;
+    const isAdmin = profile && profile.role === 'admin';
+    const profileIdStr = String(profile?.id || '');
+    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
+    const canAddDecision = isAdmin || isCoord;
+    
+    let html = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">';
+    
+    if (canAddDecision) {
+      html += `
+        <div style="padding:16px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <textarea id="decision-text" placeholder="Descrieți decizia luată..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:60px;background:var(--card-bg);color:var(--text-primary)"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="decision-maker" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary)">
+              <option value="">— Cine a luat decizia? —</option>
+              ${this.allUsers.map(u => `<option value="${u.id}">${u.full_name || u.name || u.email}</option>`).join('')}
+            </select>
+            <button onclick="Proiecte.saveDecision()" style="background:var(--primary);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Salvează decizie</button>
+          </div>
+        </div>
+      `;
+    }
+    
+    if (!data || data.length === 0) {
+      html += `
+        <div style="text-align:center;padding:60px;color:var(--text-muted)">
+          <div style="font-size:48px;margin-bottom:12px">📋</div>
+          <p>Nu există decizii înregistrate încă pentru acest proiect.</p>
+        </div>
+      `;
+    } else {
+      const rows = data.map(dec => {
+        const dt = new Date(dec.created_at);
+        const dateStr = dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
+        const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+        const createdByName = this.getUserName(dec.created_by) || 'Necunoscut';
+        const decisionMakerName = this.getUserName(dec.decision_maker) || 'Necunoscut';
+        return `
+          <tr style="border-top:1px solid var(--border);font-size:13px">
+            <td style="padding:10px 12px;white-space:nowrap;color:var(--text-muted)">${dateStr}<br><span style="font-size:11px">${timeStr}</span></td>
+            <td style="padding:10px 12px;font-weight:600">${createdByName}</td>
+            <td style="padding:10px 12px;font-weight:600;color:var(--primary)">${decisionMakerName}</td>
+            <td style="padding:10px 12px">${dec.decision}</td>
+          </tr>
+        `;
+      }).join('');
+      
+      html += `
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--bg-secondary)">
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600;white-space:nowrap">Data</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Completat de</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Decizie luată de</th>
+              <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Decizia</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+  },
+
+  async saveDecision() {
+    const decisionText = document.getElementById('decision-text')?.value?.trim();
+    const decisionMakerId = document.getElementById('decision-maker')?.value;
+    
+    if (!decisionText) {
+      alert('Descrieți decizia!');
+      return;
+    }
+    if (!decisionMakerId) {
+      alert('Selectați cine a luat decizia!');
+      return;
+    }
+    
+    const sb = getSupabase();
+    if (!sb) { alert('Nu ești conectat'); return; }
+    
+    const profile = Auth.currentProfile;
+    if (!profile) { alert('Profil necunoscut'); return; }
+    
+    const { error } = await sb.from('project_decisions').insert([
+      {
+        project_id: this.currentProject.id,
+        decision: decisionText,
+        created_by: profile.id,
+        decision_maker: decisionMakerId,
+      }
+    ]);
+    
+    if (error) {
+      alert('Eroare la salvare: ' + error.message);
+      return;
+    }
+    
+    document.getElementById('decision-text').value = '';
+    document.getElementById('decision-maker').value = '';
+    this.renderJurnalProiectTab(true);
+  },
+
   switchTab(tab) {
     this.currentTab = tab;
     const profile = Auth.currentProfile;
@@ -1068,7 +1195,7 @@ const Proiecte = {
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canEdit = (isAdmin || isCoord) && this.editMode;
     console.log('📑 switchTab:', { tab, canEdit, editMode: this.editMode });
-    ['etape', 'echipa', 'rapoarte', 'jurnal'].forEach(t => {
+    ['etape', 'echipa', 'rapoarte', 'jurnal', 'jurnal-proiect'].forEach(t => {
       const btn = document.getElementById('tab-' + t);
       if (btn) {
         btn.style.fontWeight = t === tab ? '600' : '400';
