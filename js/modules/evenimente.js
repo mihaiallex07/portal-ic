@@ -41,9 +41,12 @@ const Evenimente = {
     if (this.filterStatus === 'upcoming') filtered = filtered.filter(e => e.event_date >= today);
     else if (this.filterStatus === 'past') filtered = filtered.filter(e => e.event_date < today);
 
+    // Hide recurring event instances - show only parent events
+    const displayEvents = filtered.filter(e => !e.parent_event_id);
+
     // Grupează pe luni
     const grouped = {};
-    for (const ev of filtered) {
+    for (const ev of displayEvents) {
       const d = new Date(ev.event_date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!grouped[key]) grouped[key] = [];
@@ -72,6 +75,7 @@ const Evenimente = {
             <p class="page-subtitle">Calendarul evenimentelor interne Inginerie Creativă</p>
           </div>
           <div class="flex gap-2 items-center flex-wrap">
+            ${isAdmin ? `<button class="btn-secondary" onclick="Evenimente.openBulkDeleteModal()" style="background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5">🗑️ Ștergere în masă</button>` : ''}
             ${canManage ? `<button class="btn-primary" onclick="Evenimente.openCreateModal()">+ Eveniment nou</button>` : ''}
           </div>
         </div>
@@ -87,7 +91,7 @@ const Evenimente = {
 
         <!-- Lista evenimente -->
         <div id="events-list">
-          ${filtered.length === 0 ? `
+          ${displayEvents.length === 0 ? `
             <div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 16px;display:block;opacity:.4"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               <p style="font-size:15px;font-weight:500">Niciun eveniment ${this.filterStatus === 'upcoming' ? 'viitor' : this.filterStatus === 'past' ? 'trecut' : ''}</p>
