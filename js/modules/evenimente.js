@@ -779,24 +779,48 @@ const Evenimente = {
       return;
     }
     
-    if (!confirm(`Sigur vrei să ștergi ${selectedIds.length} eveniment(e) recurent(e) și toate instanțele lor?`)) {
+    if (!confirm(`Sigur vrei să ștergi ${selectedIds.length} eveniment(e) și toate instanțele lor?`)) {
       return;
     }
     
     try {
+      setPageLoading(true);
+      let deleted = 0;
+      let failed = 0;
+      
       for (const eventId of selectedIds) {
-        const { error } = await DB.deleteCompanyEventHard(eventId);
-        if (error) {
-          showToast('Eroare la ștergere: ' + error.message, 'error');
-          return;
+        try {
+          const result = await DB.deleteCompanyEventHard(eventId);
+          if (result?.error) {
+            console.error('Delete error:', result.error);
+            failed++;
+          } else {
+            deleted++;
+          }
+        } catch(err) {
+          console.error('Delete exception:', err);
+          failed++;
         }
       }
       
-      document.getElementById('bulk-delete-modal').remove();
-      showToast(`✓ ${selectedIds.length} eveniment(e) șters(e) cu succes!`, 'success');
+      setPageLoading(false);
+      
+      if (document.getElementById('bulk-delete-modal')) {
+        document.getElementById('bulk-delete-modal').remove();
+      }
+      
+      if (deleted > 0) {
+        showToast(`✓ ${deleted} eveniment(e) șters(e) cu succes!`, 'success');
+      }
+      if (failed > 0) {
+        showToast(`⚠ ${failed} eveniment(e) nu au putut fi șterse`, 'error');
+      }
+      
       await this.loadEvents();
       this.renderPage();
     } catch(e) {
+      setPageLoading(false);
+      console.error('Bulk delete error:', e);
       showToast('Eroare: ' + e.message, 'error');
     }
   },
