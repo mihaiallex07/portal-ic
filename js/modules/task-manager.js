@@ -1726,6 +1726,21 @@ const TaskManager = {
   },
 
   displayReport(data) {
+    const profile = Auth.currentProfile;
+    const now = new Date();
+    const dateTimeStr = now.toLocaleDateString('ro-RO', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    const generatedBy = profile?.full_name || profile?.name || 'Necunoscut';
+    const userRole = profile?.role === 'admin' ? 'admin' : 
+                     profile?.role === 'coordonator' ? 'coordonator' : 
+                     'persoană';
+    
     // Group by project → phase → task
     const grouped = {};
     let grandTotal = 0;
@@ -1757,7 +1772,21 @@ const TaskManager = {
     });
     
     // Generate HTML
-    let html = '<div style="margin-top:20px">';
+    let html = `
+      <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+          <div>
+            <h3 style="margin:0 0 8px 0;color:var(--text-primary)">Raport generat pentru <strong>${data.user?.full_name || data.user?.name || 'Necunoscut'}</strong></h3>
+            <p style="margin:0;font-size:12px;color:var(--text-muted)">De către: <strong>${generatedBy}</strong> (${userRole})</p>
+            <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">Perioada: <strong>${data.dateFrom}</strong> - <strong>${data.dateTo}</strong></p>
+          </div>
+          <div style="text-align:right">
+            <p style="margin:0;font-size:12px;color:var(--text-muted)">Generat: <strong>${dateTimeStr}</strong></p>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:20px">
+    `;
     
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
@@ -1797,8 +1826,8 @@ const TaskManager = {
         Total: ${grandTotal.toFixed(2)} ore
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="TaskManager.exportReportPDF(${JSON.stringify(data).replace(/"/g, '&quot;')})" style="flex:1;background:#DC2626;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📄 Export PDF</button>
-        <button onclick="TaskManager.exportReportExcel(${JSON.stringify(data).replace(/"/g, '&quot;')})" style="flex:1;background:#059669;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📊 Export Excel</button>
+        <button onclick="TaskManager.exportReportPDF(${JSON.stringify({...data, grandTotal, generatedBy, userRole, dateTimeStr}).replace(/"/g, '&quot;')})" style="flex:1;background:#DC2626;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📄 Export PDF</button>
+        <button onclick="TaskManager.exportReportExcel(${JSON.stringify({...data, grandTotal, generatedBy, userRole, dateTimeStr}).replace(/"/g, '&quot;')})" style="flex:1;background:#059669;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📊 Export Excel</button>
       </div>
     `;
     
