@@ -1849,24 +1849,24 @@ const TaskManager = {
     const margin = 15;
     let yPosition = margin;
     
-    // Header background
-    doc.setFillColor(41, 128, 185); // Blue
-    doc.rect(0, 0, pageWidth, 40, 'F');
+    // Header background - YELLOW (#FFC700)
+    doc.setFillColor(255, 199, 0);
+    doc.rect(0, 0, pageWidth, 35, 'F');
     
     // Title
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(22);
     doc.setFont(undefined, 'bold');
-    doc.text('RAPORT ORE LUCRATE', pageWidth / 2, 15, { align: 'center' });
+    doc.text('RAPORT ORE LUCRATE', pageWidth / 2, 12, { align: 'center' });
     
     // Company name
     doc.setFontSize(11);
     doc.setFont(undefined, 'normal');
-    doc.text('Inginerie CREATIVA', pageWidth / 2, 25, { align: 'center' });
+    doc.text('Inginerie CREATIVA', pageWidth / 2, 22, { align: 'center' });
     
     // Reset text color
     doc.setTextColor(0, 0, 0);
-    yPosition = 50;
+    yPosition = 45;
     
     // Report metadata
     doc.setFontSize(10);
@@ -1877,7 +1877,7 @@ const TaskManager = {
     yPosition += 7;
     
     doc.setFont(undefined, 'bold');
-    doc.text('De către:', margin, yPosition);
+    doc.text('De ctre:', margin, yPosition);
     doc.setFont(undefined, 'normal');
     doc.text(data.generatedBy + ' (' + data.userRole + ')', margin + 50, yPosition);
     yPosition += 7;
@@ -1889,7 +1889,7 @@ const TaskManager = {
     yPosition += 7;
     
     doc.setFont(undefined, 'bold');
-    doc.text('Data generării:', margin, yPosition);
+    doc.text('Data generrii:', margin, yPosition);
     doc.setFont(undefined, 'normal');
     doc.text(data.dateTimeStr, margin + 50, yPosition);
     yPosition += 12;
@@ -1922,7 +1922,7 @@ const TaskManager = {
         yPosition = margin;
       }
       
-      // Project title
+      // Project title with gray background
       doc.setFillColor(230, 230, 230);
       doc.rect(margin - 2, yPosition - 4, pageWidth - 2 * margin + 4, 8, 'F');
       doc.setFont(undefined, 'bold');
@@ -1941,10 +1941,10 @@ const TaskManager = {
         
         doc.setFont(undefined, 'bold');
         doc.setFontSize(10);
-        doc.text('  ' + (phaseGroup.phase?.name || 'Fără etapă'), margin, yPosition);
+        doc.text('  ' + (phaseGroup.phase?.name || 'Fara etapa'), margin, yPosition);
         yPosition += 6;
         
-        // Tasks table
+        // Tasks
         doc.setFont(undefined, 'normal');
         doc.setFontSize(9);
         Object.keys(phaseGroup.tasks).forEach(taskId => {
@@ -1957,7 +1957,7 @@ const TaskManager = {
             yPosition = margin;
           }
           
-          doc.text('    • ' + taskName, margin + 5, yPosition);
+          doc.text('  ' + taskName, margin + 5, yPosition);
           doc.text(hours + 'h', pageWidth - margin - 10, yPosition, { align: 'right' });
           yPosition += 5;
         });
@@ -1968,20 +1968,20 @@ const TaskManager = {
       yPosition += 3;
     });
     
-    // Total
+    // Total - YELLOW background
     if (yPosition > pageHeight - 20) {
       doc.addPage();
       yPosition = margin;
     }
     
-    doc.setFillColor(41, 128, 185);
+    doc.setFillColor(255, 199, 0);
     doc.rect(margin - 2, yPosition - 4, pageWidth - 2 * margin + 4, 10, 'F');
-    doc.setTextColor(255, 255, 255);
+    doc.setTextColor(0, 0, 0);
     doc.setFont(undefined, 'bold');
     doc.setFontSize(12);
     doc.text('Total: ' + data.grandTotal.toFixed(2) + ' ore', pageWidth / 2, yPosition + 3, { align: 'center' });
     
-    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
+    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport').replace(/[^a-zA-Z0-9]/g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf';
     doc.save(fileName);
   },
 
@@ -1991,9 +1991,8 @@ const TaskManager = {
       return;
     }
     
-    // Check if ExcelJS is available
     if (typeof ExcelJS === 'undefined') {
-      alert('ExcelJS nu e încărcat. încearcă din nou.');
+      alert('ExcelJS nu e incarcat. Incearca din nou.');
       return;
     }
     
@@ -2003,31 +2002,25 @@ const TaskManager = {
     // Set column widths
     worksheet.columns = [
       { header: 'Proiect', key: 'project', width: 25 },
-      { header: 'Etapă', key: 'phase', width: 20 },
+      { header: 'Etapa', key: 'phase', width: 20 },
       { header: 'Task', key: 'task', width: 30 },
       { header: 'Ore', key: 'hours', width: 12 }
     ];
     
-    // Header styling
-    const headerRow = worksheet.getRow(1);
-    headerRow.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF2980B9' }
-    };
-    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
-    headerRow.alignment = { horizontal: 'center', vertical: 'center' };
-    
-    // Title rows
+    // Title row - YELLOW background
     const titleRow = worksheet.insertRow(1, ['RAPORT ORE LUCRATE']);
-    titleRow.font = { bold: true, size: 14, color: { argb: 'FF2980B9' } };
-    titleRow.alignment = { horizontal: 'center' };
+    titleRow.font = { bold: true, size: 16, color: { argb: 'FF000000' } };
+    titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
+    titleRow.alignment = { horizontal: 'center', vertical: 'center' };
     worksheet.mergeCells('A1:D1');
+    titleRow.height = 25;
     
     const companyRow = worksheet.insertRow(2, ['Inginerie CREATIVA']);
-    companyRow.font = { size: 11, color: { argb: 'FF666666' } };
+    companyRow.font = { size: 11, color: { argb: 'FF000000' } };
+    companyRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     companyRow.alignment = { horizontal: 'center' };
     worksheet.mergeCells('A2:D2');
+    companyRow.height = 20;
     
     worksheet.insertRow(3, []);
     
@@ -2035,21 +2028,21 @@ const TaskManager = {
     const metaRow1 = worksheet.insertRow(4, ['Raport generat pentru:', data.user?.full_name || data.user?.name || 'Necunoscut']);
     metaRow1.font = { size: 10 };
     
-    const metaRow2 = worksheet.insertRow(5, ['De către:', data.generatedBy + ' (' + data.userRole + ')']);
+    const metaRow2 = worksheet.insertRow(5, ['De catre:', data.generatedBy + ' (' + data.userRole + ')']);
     metaRow2.font = { size: 10 };
     
     const metaRow3 = worksheet.insertRow(6, ['Perioada:', data.dateFrom + ' - ' + data.dateTo]);
     metaRow3.font = { size: 10 };
     
-    const metaRow4 = worksheet.insertRow(7, ['Data generării:', data.dateTimeStr]);
+    const metaRow4 = worksheet.insertRow(7, ['Data generrii:', data.dateTimeStr]);
     metaRow4.font = { size: 10 };
     
     worksheet.insertRow(8, []);
     
-    // Data header
-    const dataHeaderRow = worksheet.insertRow(9, ['Proiect', 'Etapă', 'Task', 'Ore']);
-    dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2980B9' } };
-    dataHeaderRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    // Data header - YELLOW background
+    const dataHeaderRow = worksheet.insertRow(9, ['Proiect', 'Etapa', 'Task', 'Ore']);
+    dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
+    dataHeaderRow.font = { bold: true, color: { argb: 'FF000000' }, size: 11 };
     dataHeaderRow.alignment = { horizontal: 'center', vertical: 'center' };
     
     // Group data
@@ -2080,7 +2073,7 @@ const TaskManager = {
           const taskData = phaseGroup.tasks[taskId];
           const row = worksheet.insertRow(rowNum, [
             group.project?.name || 'Necunoscut',
-            phaseGroup.phase?.name || 'Fără etapă',
+            phaseGroup.phase?.name || 'Fara etapa',
             taskData.task?.name || 'Necunoscut',
             taskData.hours.toFixed(2)
           ]);
@@ -2092,17 +2085,17 @@ const TaskManager = {
       });
     });
     
-    // Total row
+    // Total row - YELLOW background
     worksheet.insertRow(rowNum, []);
     rowNum++;
     const totalRow = worksheet.insertRow(rowNum, ['', '', 'TOTAL:', data.grandTotal.toFixed(2)]);
-    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F4F8' } };
-    totalRow.font = { bold: true, size: 11 };
+    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
+    totalRow.font = { bold: true, size: 11, color: { argb: 'FF000000' } };
     totalRow.getCell(3).alignment = { horizontal: 'right' };
     totalRow.getCell(4).alignment = { horizontal: 'right' };
     
     // Save file
-    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport') + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
+    const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport').replace(/[^a-zA-Z0-9]/g, '_') + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
     workbook.xlsx.writeBuffer().then(buffer => {
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
