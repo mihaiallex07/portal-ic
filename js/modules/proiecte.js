@@ -1090,12 +1090,14 @@ const Proiecte = {
     let html = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">';
     
     if (canAddDecision) {
+      const today = new Date().toISOString().split('T')[0];
       html += `
         <div style="padding:16px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <textarea id="decision-text" placeholder="Descrieți decizia luată..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:60px;background:var(--card-bg);color:var(--text-primary)"></textarea>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="date" id="decision-date" value="${today}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary)" />
             <select id="decision-maker" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary)">
               <option value="">— Cine a luat decizia? —</option>
               ${this.allUsers.map(u => `<option value="${u.id}">${u.full_name || u.name || u.email}</option>`).join('')}
@@ -1114,18 +1116,31 @@ const Proiecte = {
         </div>
       `;
     } else {
+      const profile = Auth.currentProfile;
+      const isAdmin = profile && profile.role === 'admin';
+      const profileIdStr = String(profile?.id || '');
+      const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
+      const canEditDelete = isAdmin || isCoord;
+      
       const rows = data.map(dec => {
-        const dt = new Date(dec.created_at);
-        const dateStr = dt.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
-        const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+        const decisionDate = dec.decision_date || new Date(dec.created_at).toISOString().split('T')[0];
+        const dateStr = new Date(decisionDate + 'T00:00:00').toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
         const createdByName = this.getUserName(dec.created_by) || 'Necunoscut';
         const decisionMakerName = this.getUserName(dec.decision_maker) || 'Necunoscut';
+        const revisionBadge = !dec.is_latest ? '<span style="background:#EF4444;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600">Arhivat</span>' : '';
+        const actionButtons = canEditDelete ? `
+          <button onclick="Proiecte.openEditDecisionModal(${dec.id}, '${(dec.decision || '').replace(/'/g, "\\'")}')"
+            style="background:none;border:1px solid var(--primary);color:var(--primary);padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px">Editează</button>
+          <button onclick="Proiecte.deleteDecision(${dec.id})"
+            style="background:none;border:1px solid #EF4444;color:#EF4444;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">Șterge</button>
+        ` : '';
         return `
           <tr style="border-top:1px solid var(--border);font-size:13px">
-            <td style="padding:10px 12px;white-space:nowrap;color:var(--text-muted)">${dateStr}<br><span style="font-size:11px">${timeStr}</span></td>
+            <td style="padding:10px 12px;white-space:nowrap;color:var(--text-muted)">${dateStr}</td>
             <td style="padding:10px 12px;font-weight:600">${createdByName}</td>
             <td style="padding:10px 12px;font-weight:600;color:var(--primary)">${decisionMakerName}</td>
-            <td style="padding:10px 12px">${dec.decision}</td>
+            <td style="padding:10px 12px">${dec.decision}${revisionBadge ? '<br>' + revisionBadge : ''}</td>
+            <td style="padding:10px 12px;white-space:nowrap;font-size:12px">${actionButtons}</td>
           </tr>
         `;
       }).join('');
@@ -1138,6 +1153,7 @@ const Proiecte = {
               <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Completat de</th>
               <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Decizie luată de</th>
               <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Decizia</th>
+              ${canEditDelete ? '<th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-weight:600">Acțiuni</th>' : ''}
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -1151,10 +1167,15 @@ const Proiecte = {
 
   async saveDecision() {
     const decisionText = document.getElementById('decision-text')?.value?.trim();
+    const decisionDate = document.getElementById('decision-date')?.value;
     const decisionMakerId = document.getElementById('decision-maker')?.value;
     
     if (!decisionText) {
       alert('Descrieți decizia!');
+      return;
+    }
+    if (!decisionDate) {
+      alert('Selectați data!');
       return;
     }
     if (!decisionMakerId) {
@@ -1172,6 +1193,7 @@ const Proiecte = {
       {
         project_id: this.currentProject.id,
         decision: decisionText,
+        decision_date: decisionDate,
         created_by: profile.id,
         decision_maker: decisionMakerId,
       }
@@ -1183,9 +1205,82 @@ const Proiecte = {
     }
     
     document.getElementById('decision-text').value = '';
+    document.getElementById('decision-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('decision-maker').value = '';
     this.renderJurnalProiectTab(true);
   },
+
+  openEditDecisionModal(decisionId, currentText) {
+    const newText = prompt('Editați decizia:', currentText);
+    if (newText === null) return;
+    if (!newText.trim()) {
+      alert('Decizia nu poate fi goală!');
+      return;
+    }
+    this.updateDecision(decisionId, newText.trim());
+  },
+
+  async updateDecision(decisionId, newText) {
+    const sb = getSupabase();
+    if (!sb) { alert('Nu ești conectat'); return; }
+    
+    const profile = Auth.currentProfile;
+    if (!profile) { alert('Profil necunoscut'); return; }
+    
+    const { data: oldData, error: fetchError } = await sb
+      .from('project_decisions')
+      .select('decision')
+      .eq('id', decisionId)
+      .single();
+    
+    if (fetchError) {
+      alert('Eroare la preluare: ' + fetchError.message);
+      return;
+    }
+    
+    const oldDecision = oldData.decision;
+    
+    const { error: updateError } = await sb
+      .from('project_decisions')
+      .update({ decision: newText })
+      .eq('id', decisionId);
+    
+    if (updateError) {
+      alert('Eroare la actualizare: ' + updateError.message);
+      return;
+    }
+    
+    await sb.from('project_decisions_history').insert([
+      {
+        decision_id: decisionId,
+        old_decision: oldDecision,
+        new_decision: newText,
+        edited_by: profile.id,
+      }
+    ]);
+    
+    this.renderJurnalProiectTab(true);
+  },
+
+  async deleteDecision(decisionId) {
+    if (!confirm('Sigur doriți să ștergeți această decizie?')) return;
+    
+    const sb = getSupabase();
+    if (!sb) { alert('Nu ești conectat'); return; }
+    
+    const { error } = await sb
+      .from('project_decisions')
+      .delete()
+      .eq('id', decisionId);
+    
+    if (error) {
+      alert('Eroare la ștergere: ' + error.message);
+      return;
+    }
+    
+    this.renderJurnalProiectTab(true);
+  },
+,
 
   switchTab(tab) {
     this.currentTab = tab;
