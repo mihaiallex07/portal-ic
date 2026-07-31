@@ -457,7 +457,8 @@ const DB = {
     if (APP_CONFIG.demoMode) return { error: null };
     const sb = getSupabase();
     const rows = userIds.map(uid => ({ event_id: eventId, user_id: uid, status: 'pending' }));
-    return sb.from('event_participants').upsert(rows, { onConflict: 'event_id,user_id', ignoreDuplicates: true });
+    // Use upsert to update existing participants or insert new ones
+    return sb.from('event_participants').upsert(rows, { onConflict: 'event_id,user_id' });
   },
   async markEventAttended(eventId, userId, timeEntryId) {
     if (APP_CONFIG.demoMode) return { error: null };
