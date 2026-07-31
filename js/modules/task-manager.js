@@ -15,7 +15,7 @@ const TaskManager = {
   allAssignments: [], // toate assignments (pentru tab admin)
   coordProjectIds: new Set(), // proiectele pe care userul le coordonează
 
-  activeTab: 'personal', // 'personal' | 'todo' | 'overview'
+  activeTab: 'personal', // 'personal' | 'todo' | 'overview' | 'reports'
   filterStatus: 'all',
   filterProject: 'all',
   searchQuery: '',
@@ -235,6 +235,10 @@ const TaskManager = {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             Overview echipă
           </button>` : ''}
+          <button class="tm-tab-btn ${this.activeTab === 'reports' ? 'active' : ''}" onclick="TaskManager.setTab('reports')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M9 9h2v6H9z"/><path d="M13 11h2v4h-2z"/><path d="M17 7h2v8h-2z"/></svg>
+            Rapoarte
+          </button>
         </div>
 
         <!-- Tab content -->
@@ -249,6 +253,7 @@ const TaskManager = {
     if (this.activeTab === 'personal') return this.renderPersonalTab();
     if (this.activeTab === 'todo') return this.renderTodoTab();
     if (this.activeTab === 'overview') return this.renderOverviewTab();
+    if (this.activeTab === 'reports') return this.renderReportsTab();
     return '';
   },
 
@@ -262,6 +267,7 @@ const TaskManager = {
         if (tab === 'personal') btn.classList.toggle('active', txt.includes('mele'));
         else if (tab === 'todo') btn.classList.toggle('active', txt.includes('To-Do'));
         else if (tab === 'overview') btn.classList.toggle('active', txt.includes('echipă'));
+        else if (tab === 'reports') btn.classList.toggle('active', txt.includes('Rapoarte'));
         else btn.classList.remove('active');
       });
     }
@@ -1517,6 +1523,261 @@ const TaskManager = {
   },
 
   // ── INJECT STYLES ─────────────────────────────────────────────
+  // ── TAB RAPOARTE ────────────────────────────────────────────────
+  renderReportsTab() {
+    const profile = Auth.currentProfile;
+    const isAdmin = profile?.role === 'admin';
+    const isCoord = profile?.role === 'coordonator';
+    
+    return `
+      <div style="padding:20px;max-width:1200px;margin:0 auto">
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px">
+          <h2 style="margin:0 0 20px 0;color:var(--text-primary)">Rapoarte ore lucrate</h2>
+          <button onclick="TaskManager.openReportsModal()" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">📊 Generează raport</button>
+          
+          <div id="reports-content" style="margin-top:20px">
+            <p style="color:var(--text-muted);text-align:center;padding:40px">Selectează filtrul și generează un raport</p>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  openReportsModal() {
+    const profile = Auth.currentProfile;
+    const isAdmin = profile?.role === 'admin';
+    const isCoord = profile?.role === 'coordonator';
+    
+    // Build user options based on role
+    let userOptions = '';
+    if (isAdmin) {
+      userOptions = this.allProfiles.map(u => `<option value="${u.id}">${u.full_name || u.name || u.email}</option>`).join('');
+    } else if (isCoord) {
+      // Doar oamenii coordonați
+      const coordMembers = this.allAssignments
+        .filter(a => this.coordProjectIds.has(String(a.project_id)))
+        .map(a => a.user_id);
+      const uniqueMembers = [...new Set(coordMembers)];
+      userOptions = uniqueMembers.map(uid => {
+        const user = this.allProfiles.find(u => u.id === uid);
+        return user ? `<option value="${uid}">${user.full_name || user.name || user.email}</option>` : '';
+      }).join('');
+    } else {
+      // Doar el însuși
+      userOptions = `<option value="${profile.id}">${profile.full_name || profile.name}</option>`;
+    }
+    
+    // Build project options
+    const projectOptions = this.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    
+    const today = new Date().toISOString().split('T')[0];
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    const modal = document.createElement('div');
+    modal.id = 'reports-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;overflow-y:auto';
+    modal.innerHTML = `
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:600px;width:90%;margin:20px auto">
+        <h3 style="margin:0 0 20px 0;color:var(--text-primary)">Generează raport ore</h3>
+        
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Persoană</label>
+          <select id="report-user" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
+            <option value="">— Selectați —</option>
+            ${userOptions}
+          </select>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">De la</label>
+            <input type="date" id="report-date-from" value="${twoWeeksAgo}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box" />
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Până la</label>
+            <input type="date" id="report-date-to" value="${today}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box" />
+          </div>
+        </div>
+        
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Proiect (opțional)</label>
+          <select id="report-project" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
+            <option value="">— Toate proiectele —</option>
+            ${projectOptions}
+          </select>
+        </div>
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+          <button onclick="document.getElementById('reports-modal').remove()" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Anulează</button>
+          <button onclick="TaskManager.generateReport()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Generează</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  },
+
+  async generateReport() {
+    const userId = document.getElementById('report-user')?.value;
+    const dateFrom = document.getElementById('report-date-from')?.value;
+    const dateTo = document.getElementById('report-date-to')?.value;
+    const projectId = document.getElementById('report-project')?.value;
+    
+    if (!userId) {
+      alert('Selectați o persoană!');
+      return;
+    }
+    if (!dateFrom || !dateTo) {
+      alert('Selectați perioada!');
+      return;
+    }
+    
+    const sb = getSupabase();
+    if (!sb) { alert('Nu ești conectat'); return; }
+    
+    // Fetch time entries
+    let query = sb.from('time_entries')
+      .select('id,project_task_id,duration_minutes,created_at,user_id')
+      .eq('user_id', userId)
+      .gte('created_at', dateFrom + 'T00:00:00')
+      .lte('created_at', dateTo + 'T23:59:59');
+    
+    const { data: timeEntries, error } = await query;
+    if (error) {
+      alert('Eroare: ' + error.message);
+      return;
+    }
+    
+    // Fetch manual hours
+    const { data: manualHours } = await sb.from('manual_hours_log')
+      .select('id,task_id,minutes,created_at,added_by_profile_id')
+      .eq('added_by_profile_id', userId)
+      .gte('created_at', dateFrom + 'T00:00:00')
+      .lte('created_at', dateTo + 'T23:59:59');
+    
+    // Fetch tasks with project info
+    const taskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id), ...(manualHours || []).map(m => m.task_id)])];
+    const { data: tasks } = await sb.from('project_tasks')
+      .select('id,name,project_id,phase_id')
+      .in('id', taskIds);
+    
+    // Fetch projects and phases
+    const projectIds = [...new Set((tasks || []).map(t => t.project_id))];
+    const { data: projects } = await sb.from('projects')
+      .select('id,name')
+      .in('id', projectIds);
+    
+    const phaseIds = [...new Set((tasks || []).map(t => t.phase_id))];
+    const { data: phases } = await sb.from('project_phases')
+      .select('id,name,code')
+      .in('id', phaseIds);
+    
+    // Build report data
+    const reportData = {
+      user: this.allProfiles.find(u => u.id === userId),
+      dateFrom,
+      dateTo,
+      timeEntries: timeEntries || [],
+      manualHours: manualHours || [],
+      tasks: tasks || [],
+      projects: projects || [],
+      phases: phases || [],
+      projectFilter: projectId
+    };
+    
+    document.getElementById('reports-modal').remove();
+    this.displayReport(reportData);
+  },
+
+  displayReport(data) {
+    // Group by project
+    const grouped = {};
+    const allHours = [
+      ...(data.timeEntries || []).map(t => ({ type: 'timer', minutes: t.duration_minutes, taskId: t.project_task_id, date: t.created_at })),
+      ...(data.manualHours || []).map(m => ({ type: 'manual', minutes: m.minutes, taskId: m.task_id, date: m.created_at }))
+    ];
+    
+    allHours.forEach(h => {
+      const task = data.tasks.find(t => t.id === h.taskId);
+      if (!task) return;
+      if (data.projectFilter && task.project_id !== parseInt(data.projectFilter)) return;
+      
+      const projectId = task.project_id;
+      if (!grouped[projectId]) {
+        grouped[projectId] = { tasks: {}, total: 0 };
+      }
+      
+      const taskId = task.id;
+      if (!grouped[projectId].tasks[taskId]) {
+        grouped[projectId].tasks[taskId] = { name: task.name, hours: 0, entries: [] };
+      }
+      
+      const hours = h.minutes / 60;
+      grouped[projectId].tasks[taskId].hours += hours;
+      grouped[projectId].tasks[taskId].entries.push(h);
+      grouped[projectId].total += hours;
+    });
+    
+    // Generate HTML
+    let html = '<div style="margin-top:20px">';
+    let grandTotal = 0;
+    
+    Object.keys(grouped).forEach(projectId => {
+      const project = data.projects.find(p => p.id === parseInt(projectId));
+      const group = grouped[projectId];
+      grandTotal += group.total;
+      
+      html += `
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
+          <h4 style="margin:0 0 12px 0;color:var(--text-primary)">${project?.name || 'Necunoscut'}</h4>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="padding:8px;text-align:left;color:var(--text-muted);font-weight:600">Task</th>
+                <th style="padding:8px;text-align:right;color:var(--text-muted);font-weight:600">Ore</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${Object.keys(group.tasks).map(taskId => {
+                const task = group.tasks[taskId];
+                return `
+                  <tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:8px;color:var(--text-primary)">${task.name}</td>
+                    <td style="padding:8px;text-align:right;color:var(--text-primary);font-weight:600">${task.hours.toFixed(2)}h</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr style="background:var(--card-bg);font-weight:600">
+                <td style="padding:8px;color:var(--text-primary)">Total proiect</td>
+                <td style="padding:8px;text-align:right;color:var(--primary)">${group.total.toFixed(2)}h</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+    
+    html += `
+      <div style="background:var(--primary);color:#fff;border-radius:8px;padding:16px;text-align:center;font-size:18px;font-weight:600;margin-bottom:20px">
+        Total: ${grandTotal.toFixed(2)} ore
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="TaskManager.exportReportPDF()" style="flex:1;background:#DC2626;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📄 Export PDF</button>
+        <button onclick="TaskManager.exportReportExcel()" style="flex:1;background:#059669;color:#fff;border:none;padding:10px;border-radius:6px;font-weight:600;cursor:pointer">📊 Export Excel</button>
+      </div>
+    `;
+    
+    html += '</div>';
+    document.getElementById('reports-content').innerHTML = html;
+  },
+
+  exportReportPDF() {
+    alert('Export PDF - în dezvoltare');
+  },
+
+  exportReportExcel() {
+    alert('Export Excel - în dezvoltare');
+  },
+
   injectStyles() {
     if (document.getElementById('tm-styles')) return;
     const style = document.createElement('style');
