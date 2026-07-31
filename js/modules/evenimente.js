@@ -762,7 +762,7 @@ const Evenimente = {
     
     try {
       for (const eventId of selectedIds) {
-        const { error } = await DB.deleteCompanyEvent(eventId);
+        const { error } = await DB.deleteCompanyEventHard(eventId);
         if (error) {
           showToast('Eroare la ștergere: ' + error.message, 'error');
           return;
