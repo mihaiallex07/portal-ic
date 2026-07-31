@@ -1073,7 +1073,7 @@ const Proiecte = {
       .from('project_decisions')
       .select('*')
       .eq('project_id', this.currentProject.id)
-      .order('created_at', { ascending: false })
+      .order('decision_date', { ascending: false })
       .limit(200);
     
     if (error) {
@@ -1090,20 +1090,9 @@ const Proiecte = {
     let html = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">';
     
     if (canAddDecision) {
-      const today = new Date().toISOString().split('T')[0];
       html += `
         <div style="padding:16px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
-          <div style="display:flex;gap:8px;margin-bottom:12px">
-            <textarea id="decision-text" placeholder="Descrieți decizia luată..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:60px;background:var(--card-bg);color:var(--text-primary)"></textarea>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <input type="date" id="decision-date" value="${today}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary)" />
-            <select id="decision-maker" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary)">
-              <option value="">— Cine a luat decizia? —</option>
-              ${this.allUsers.map(u => `<option value="${u.id}">${u.full_name || u.name || u.email}</option>`).join('')}
-            </select>
-            <button onclick="Proiecte.saveDecision()" style="background:var(--primary);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Salvează decizie</button>
-          </div>
+          <button onclick="Proiecte.openAddDecisionModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">+ Adaugă decizie</button>
         </div>
       `;
     }
@@ -1129,7 +1118,7 @@ const Proiecte = {
         const decisionMakerName = this.getUserName(dec.decision_maker) || 'Necunoscut';
         const revisionBadge = !dec.is_latest ? '<span style="background:#EF4444;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600">Arhivat</span>' : '';
         const actionButtons = canEditDelete ? `
-          <button onclick="Proiecte.openEditDecisionModal(${dec.id}, '${(dec.decision || '').replace(/'/g, "\\'")}')"
+          <button onclick="Proiecte.openEditDecisionModal(${dec.id}, '${(dec.decision || '').replace(/'/g, "\'")}')"
             style="background:none;border:1px solid var(--primary);color:var(--primary);padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px">Editează</button>
           <button onclick="Proiecte.deleteDecision(${dec.id})"
             style="background:none;border:1px solid #EF4444;color:#EF4444;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">Șterge</button>
@@ -1165,10 +1154,52 @@ const Proiecte = {
     container.innerHTML = html;
   },
 
-  async saveDecision() {
-    const decisionText = document.getElementById('decision-text')?.value?.trim();
-    const decisionDate = document.getElementById('decision-date')?.value;
-    const decisionMakerId = document.getElementById('decision-maker')?.value;
+  openAddDecisionModal() {
+    const today = new Date().toISOString().split('T')[0];
+    const memberOptions = this.members.map(m => {
+      const user = this.allUsers.find(u => u.id === m.user_id);
+      return `<option value="${m.user_id}">${user?.full_name || user?.name || user?.email || 'Necunoscut'}</option>`;
+    }).join('');
+    
+    const modal = document.createElement('div');
+    modal.id = 'decision-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+    modal.innerHTML = `
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:500px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+        <h3 style="margin:0 0 20px 0;color:var(--text-primary)">Adaugă decizie</h3>
+        
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Data (când intră în vigoare)</label>
+          <input type="date" id="modal-decision-date" value="${today}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box" />
+        </div>
+        
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Cine a luat decizia?</label>
+          <select id="modal-decision-maker" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
+            <option value="">— Selectați —</option>
+            ${memberOptions}
+          </select>
+        </div>
+        
+        <div style="margin-bottom:20px">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Decizia</label>
+          <textarea id="modal-decision-text" placeholder="Descrieți decizia..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:80px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box"></textarea>
+        </div>
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button onclick="document.getElementById('decision-modal').remove()" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Anulează</button>
+          <button onclick="Proiecte.saveDecisionFromModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Salvează</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('modal-decision-text').focus();
+  },
+
+  async saveDecisionFromModal() {
+    const decisionText = document.getElementById('modal-decision-text')?.value?.trim();
+    const decisionDate = document.getElementById('modal-decision-date')?.value;
+    const decisionMakerId = document.getElementById('modal-decision-maker')?.value;
     
     if (!decisionText) {
       alert('Descrieți decizia!');
@@ -1204,12 +1235,9 @@ const Proiecte = {
       return;
     }
     
-    document.getElementById('decision-text').value = '';
-    document.getElementById('decision-date').value = new Date().toISOString().split('T')[0];
-    document.getElementById('decision-maker').value = '';
+    document.getElementById('decision-modal').remove();
     this.renderJurnalProiectTab(true);
   },
-
   openEditDecisionModal(decisionId, currentText) {
     const newText = prompt('Editați decizia:', currentText);
     if (newText === null) return;
