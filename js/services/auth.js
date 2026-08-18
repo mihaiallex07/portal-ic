@@ -69,9 +69,9 @@ const Auth = {
           .eq('project_id', row.project_id)
           .eq('user_id', userId)
           .maybeSingle();
-        if (currentMember?.id && currentMember.id !== row.id) {
-          await sb.from('project_members').delete().eq('id', row.id);
-        } else if (row.user_id !== userId) {
+        // Autentificarea nu șterge niciodată membri. Dacă există deja o
+        // asociere pe ID-ul nou, păstrăm rândul istoric intact; altfel îl remapăm.
+        if (!currentMember?.id && row.user_id !== userId) {
           await sb.from('project_members').update({ user_id: userId, is_pre_created: false }).eq('id', row.id);
         }
       }
@@ -125,6 +125,10 @@ const Auth = {
     const sb = getSupabase();
     if (!sb) return;
 
+    // Fiecare încercare de login pornește curat; o eroare anterioară nu poate
+    // bloca o autentificare ulterioară validă.
+    this.currentProfile = null;
+    this._accessDenied = false;
     const user = this.currentUser;
     // SECURITATE: verifică domeniul înainte de orice altă operație
     const isInternalDomain = user?.email?.endsWith('@ingineriecreativa.ro');
@@ -199,20 +203,17 @@ const Auth = {
           migratedProfile = profileAfterRpc;
         }
 
-        const profileFromRpc = migratedProfile?.id ? migratedProfile : null;
-        if (profileFromRpc) {
-          this.currentProfile = await this.syncAvatar(sb, userId, profileFromRpc, avatarUrl);
-        } else {
-          const { data: freshProfile } = await sb.from('profiles')
-            .select('*').eq('id', userId).maybeSingle();
-          if (!freshProfile) {
-            this.currentProfile = null;
-            this._accessDenied = true;
-            return;
-          }
-          this.currentProfile = await this.syncAvatar(sb, userId, freshProfile, avatarUrl);
+        // Nu folosim obiectul returnat de RPC ca sursă de adevăr: unele versiuni
+        // ale funcției întorc încă profilul vechi. Verificăm rândul pe ID-ul Auth real.
+        const { data: verifiedProfile } = await sb.from('profiles')
+          .select('*').eq('id', userId).maybeSingle();
+        if (!verifiedProfile) {
+          console.error('[Auth] Migrarea nu a creat profilul pe ID-ul Auth real.');
+          this.currentProfile = null;
+          this._accessDenied = true;
+          return;
         }
-
+        this.currentProfile = await this.syncAvatar(sb, userId, verifiedProfile, avatarUrl);
         await this.restoreOrphanedProjectLinks(sb, userId, user.email);
         return;
       }
