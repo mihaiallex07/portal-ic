@@ -1,14 +1,33 @@
 // ============================================================
 // Dashboard Module — Portal Inginerie Creativă
+// Stil: păstrează cardurile existente și brandingul IC (#FFC700); calculele de dată folosesc fusul orar local.
 // ============================================================
+
+function getCurrentCalendarWeek() {
+  const today = new Date();
+  const isoDay = today.getDay() || 7; // luni=1 ... duminică=7
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - isoDay + 1);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const weekThursday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3);
+  const yearStart = new Date(weekThursday.getFullYear(), 0, 1);
+  const weekNumber = Math.ceil((((weekThursday - yearStart) / 86400000) + 1) / 7);
+  const toLocalDate = date => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  return { start: toLocalDate(monday), end: toLocalDate(sunday), number: weekNumber };
+}
 
 const Dashboard = {
   async render() {
     const userId = Auth.currentUser?.id;
     const isAdmin = Auth.currentProfile?.role === 'admin';
+    const currentWeek = getCurrentCalendarWeek();
     const [projectsRes, timeRes, newsRes, notifRes, profilesRes, tasksRes, membershipsRes] = await Promise.all([
       DB.getProjects(),
-      DB.getTimeEntries(userId, getDateStr(-7), getTodayStr()),
+      DB.getTimeEntries(userId, currentWeek.start, currentWeek.end),
       DB.getNews(),
       DB.getNotifications(userId),
       DB.getUsers(),
@@ -50,18 +69,17 @@ const Dashboard = {
     // Calculează evenimentele (zile de naștere + aniversări angajare) pentru luna curentă și viitoare
     MiniCalendar.setEvents(allProfiles);
     // Încarcă evenimentele firmă pentru calendar
-    const _evFrom = new Date(); _evFrom.setMonth(_evFrom.getMonth() - 1);
-    const _evTo = new Date(); _evTo.setMonth(_evTo.getMonth() + 3);
-    const _compEvRes = await DB.getCompanyEvents(
-      _evFrom.toISOString().split('T')[0],
-      _evTo.toISOString().split('T')[0]
-    );
+    // Folosește getDateStr pentru a obține data locală în loc de UTC
+    const _evFrom = getDateStr(-30); // 1 lună în urmă
+    const _evTo = getDateStr(90);    // 3 luni în viitor
+    const _compEvRes = await DB.getCompanyEvents(_evFrom, _evTo);
     MiniCalendar.setCompanyEvents(_compEvRes.data || [], Auth.currentUser?.id);
 
     const activeProjects = projects.filter(p => p.status === 'activ');
     const todayEntries = timeEntries.filter(e => e.date === getTodayStr());
+    const weekEntries = timeEntries.filter(e => e.date >= currentWeek.start && e.date <= currentWeek.end);
     const todayMinutes = todayEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
-    const weekMinutes = timeEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
+    const weekMinutes = weekEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
     const unreadNotifs = notifications.length;
 
     // Task-uri urgente pentru widget dashboard (top 5 cu alertă buget sau în lucru)
@@ -146,7 +164,7 @@ const Dashboard = {
           <div class="metric-card">
             <div class="metric-label">Ore săptămâna</div>
             <div class="metric-value">${(weekMinutes / 60).toFixed(1)}h</div>
-            <div class="metric-sub">ultimele 7 zile</div>
+            <div class="metric-sub">Săptămâna ${currentWeek.number}</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Notificări noi</div>
