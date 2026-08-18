@@ -23,6 +23,71 @@ const Auth = {
     avatar_url: null,
   },
 
+  // Stil: păstrează fluxul existent de autentificare; sincronizarea profilului folosește datele Google și nu suprascrie datele HR.
+  getGoogleAvatar(user) {
+    return user?.user_metadata?.avatar_url
+      || user?.user_metadata?.picture
+      || user?.identities?.[0]?.identity_data?.avatar_url
+      || user?.identities?.[0]?.identity_data?.picture
+      || null;
+  },
+
+  getGoogleFullName(user) {
+    return user?.user_metadata?.full_name
+      || user?.user_metadata?.name
+      || user?.identities?.[0]?.identity_data?.full_name
+      || user?.identities?.[0]?.identity_data?.name
+      || user?.email?.split('@')[0]
+      || 'Utilizator';
+  },
+
+  async syncAvatar(sb, userId, profile, avatarUrl) {
+    if (!avatarUrl || !profile || profile.avatar_url === avatarUrl) return profile;
+    const { data: updatedProfile, error } = await sb.from('profiles')
+      .update({ avatar_url: avatarUrl })
+      .eq('id', userId)
+      .select('*')
+      .maybeSingle();
+    if (!error && updatedProfile) return updatedProfile;
+    if (error) console.warn('[Auth] Nu am putut sincroniza avatarul Google:', error.message);
+    return profile;
+  },
+
+  async restoreOrphanedProjectLinks(sb, userId, email) {
+    // Compatibilitate pentru date istorice: dacă project_members păstrează emailul,
+    // remapează rândurile rămase de la ID-ul temporar la ID-ul Auth real.
+    try {
+      const { data: legacyMembers, error } = await sb.from('project_members')
+        .select('id,project_id,user_id,email')
+        .eq('email', email);
+      if (error || !legacyMembers?.length) return;
+
+      const oldIds = [...new Set(legacyMembers.map(row => row.user_id).filter(id => id && id !== userId))];
+      for (const row of legacyMembers) {
+        const { data: currentMember } = await sb.from('project_members')
+          .select('id')
+          .eq('project_id', row.project_id)
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (currentMember?.id && currentMember.id !== row.id) {
+          await sb.from('project_members').delete().eq('id', row.id);
+        } else if (row.user_id !== userId) {
+          await sb.from('project_members').update({ user_id: userId, is_pre_created: false }).eq('id', row.id);
+        }
+      }
+
+      // Remapăm și asignările rămase, atunci când politicile RLS permit operația.
+      for (const oldId of oldIds) {
+        await sb.from('project_task_assignments').update({ user_id: userId }).eq('user_id', oldId);
+        await sb.from('project_tasks').update({ assigned_user_id: userId }).eq('assigned_user_id', oldId);
+        await sb.from('time_entries').update({ user_id: userId }).eq('user_id', oldId);
+      }
+    } catch (error) {
+      // Recuperarea este best-effort; nu blocăm autentificarea dacă datele istorice nu mai există.
+      console.warn('[Auth] Recuperarea legăturilor istorice nu a fost posibilă:', error.message);
+    }
+  },
+
   async init() {
     if (APP_CONFIG.demoMode) {
       // În demo mode, verificăm dacă utilizatorul a ales să intre
@@ -76,7 +141,9 @@ const Auth = {
           return;
         }
       }
-      this.currentProfile = profileById;
+      const avatarUrl = this.getGoogleAvatar(user);
+      this.currentProfile = await this.syncAvatar(sb, userId, profileById, avatarUrl);
+      if (user?.email) await this.restoreOrphanedProjectLinks(sb, userId, user.email);
       return;
     }
 
@@ -91,55 +158,69 @@ const Auth = {
           this._accessDenied = true;
           return;
         }
-        // Profil pre-creat găsit: migrează cu funcția RPC (SECURITY DEFINER, bypass RLS)
+        // Profil pre-creat găsit: migrează cu RPC SECURITY DEFINER, păstrând datele HR și legăturile.
         console.log('[Auth] Profil pre-creat găsit, migrare cu RPC...', profileByEmail.email);
-        const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-        const fullNameFromGoogle = user.user_metadata?.full_name || user.email.split('@')[0];
-        const { data: migratedProfile, error: rpcError } = await sb.rpc('migrate_pre_created_profile', {
+        const avatarUrl = this.getGoogleAvatar(user);
+        const fullNameFromGoogle = this.getGoogleFullName(user);
+        let migratedProfile = null;
+        let rpcError = null;
+
+        // Versiunea actuală primește și numele Google. Pentru baze care încă au
+        // semnătura istorică de 3 parametri, încercăm compatibilitatea automat.
+        const primaryRpc = await sb.rpc('migrate_pre_created_profile', {
           p_new_id: userId,
           p_email: user.email,
           p_avatar_url: avatarUrl,
           p_full_name: fullNameFromGoogle,
         });
+        migratedProfile = primaryRpc.data;
+        rpcError = primaryRpc.error;
         if (rpcError) {
-          console.error('[Auth] Eroare migrare profil pre-creat (RPC):', rpcError);
-          // Fallback: folosește profilul pre-creat direct (fără migrare de ID)
-          // Asta permite accesul chiar dacă migrarea eșuează
-          this.currentProfile = profileByEmail;
-          return;
+          const legacyRpc = await sb.rpc('migrate_pre_created_profile', {
+            p_new_id: userId,
+            p_email: user.email,
+            p_avatar_url: avatarUrl,
+          });
+          migratedProfile = legacyRpc.data;
+          rpcError = legacyRpc.error;
         }
-        console.log('[Auth] RPC migrare rezultat:', migratedProfile);
-        // RPC returnează profilul migrat ca JSON
-        if (migratedProfile && migratedProfile.id) {
-          this.currentProfile = migratedProfile;
-          // Dacă avatar-ul din RPC e null dar avem avatar din Google, actualizează
-          if (!migratedProfile.avatar_url && avatarUrl) {
-            console.log('[Auth] Actualizez avatar din Google...');
-            await sb.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId);
-            this.currentProfile.avatar_url = avatarUrl;
+
+        if (rpcError) {
+          console.error('[Auth] Migrarea profilului pre-creat a eșuat:', rpcError);
+          // Nu folosim profilul cu ID-ul vechi ca profil activ: ar ascunde proiectele
+          // deoarece interogările folosesc ID-ul real din Auth.
+          const { data: profileAfterRpc } = await sb.from('profiles')
+            .select('*').eq('id', userId).maybeSingle();
+          if (!profileAfterRpc) {
+            this.currentProfile = null;
+            this._accessDenied = true;
+            return;
           }
+          migratedProfile = profileAfterRpc;
+        }
+
+        const profileFromRpc = migratedProfile?.id ? migratedProfile : null;
+        if (profileFromRpc) {
+          this.currentProfile = await this.syncAvatar(sb, userId, profileFromRpc, avatarUrl);
         } else {
-          // Reîncarcă profilul după migrare
-          const { data: freshProfile } = await sb.from('profiles').select('*').eq('id', userId).single();
-          if (freshProfile) {
-            this.currentProfile = freshProfile;
-            // Actualizează avatar dacă lipsește
-            if (!freshProfile.avatar_url && avatarUrl) {
-              console.log('[Auth] Actualizez avatar din Google (retry)...');
-              await sb.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId);
-              this.currentProfile.avatar_url = avatarUrl;
-            }
-          } else {
-            // Fallback final: folosește profilul pre-creat
-            this.currentProfile = profileByEmail;
+          const { data: freshProfile } = await sb.from('profiles')
+            .select('*').eq('id', userId).maybeSingle();
+          if (!freshProfile) {
+            this.currentProfile = null;
+            this._accessDenied = true;
+            return;
           }
+          this.currentProfile = await this.syncAvatar(sb, userId, freshProfile, avatarUrl);
         }
+
+        await this.restoreOrphanedProjectLinks(sb, userId, user.email);
         return;
       }
     }
 
     // 3. Crează profil nou dacă nu există deloc
-    const fullName = user.user_metadata?.full_name || user.email.split('@')[0];
+    const fullName = this.getGoogleFullName(user);
+    const avatarUrl = this.getGoogleAvatar(user);
     const employeeCode = fullName
       .split(' ')
       .filter(w => w.length > 0)
@@ -169,6 +250,8 @@ const Auth = {
       id: userId,
       email: user.email,
       full_name: fullName,
+      name: fullName,
+      avatar_url: avatarUrl,
       role: 'angajat',
       department: '',
       position: '',
@@ -184,6 +267,7 @@ const Auth = {
       await sb.from('profiles').upsert(newProfile, { onConflict: 'email' });
     }
     this.currentProfile = newProfile;
+    await this.restoreOrphanedProjectLinks(sb, userId, user.email);
   },
 
   async loginWithEmail(email, password) {

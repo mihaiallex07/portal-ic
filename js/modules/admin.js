@@ -196,6 +196,18 @@ const Admin = {
     const sb = getSupabase();
     if (!sb) { showToast('Eroare: Supabase nu este conectat', 'error'); return; }
 
+    // Un profil pre-creat este ancora pentru proiectele și task-urile pregătite
+    // înainte de prima autentificare; nu îl ștergem, îl lăsăm să fie revendicat prin Google.
+    const { data: profileToDelete } = await sb.from('profiles')
+      .select('is_pre_created')
+      .eq('id', id)
+      .maybeSingle();
+    if (profileToDelete?.is_pre_created) {
+      closeModalForce();
+      showToast('Profilul pre-creat nu se șterge. Angajatul îl va activa automat la prima autentificare Google.', 'info');
+      return;
+    }
+
     // 1. Șterge din project_members
     await sb.from('project_members').delete().eq('user_id', id);
 
