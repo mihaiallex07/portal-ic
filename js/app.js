@@ -31,36 +31,100 @@ const ROUTES = {
 
 let currentRoute = 'dashboard';
 let sidebarCollapsed = false;
+let authSessionPromise = null;
+let authSessionUserId = null;
+
+function getOAuthErrorFromUrl() {
+  const sources = [window.location.search, window.location.hash].filter(Boolean);
+  for (const source of sources) {
+    const query = new URLSearchParams(source.replace(/^#/, '?'));
+    const error = query.get('error_description') || query.get('error');
+    if (error) {
+      try { return decodeURIComponent(error.replace(/\+/g, ' ')); }
+      catch (e) { return error; }
+    }
+  }
+  return null;
+}
+
+function clearOAuthUrl() {
+  // Erorile OAuth sunt în fragmentul/hash-ul redirectului; nu păstrăm tokenul
+  // sau parametrii de eroare în bara de adresă după ce i-am citit.
+  window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+}
+
+async function processAuthSession(session, sb) {
+  if (!session?.user) return false;
+  const user = session.user;
+  if (authSessionPromise && authSessionUserId === user.id) return authSessionPromise;
+  if (authSessionUserId === user.id && Auth.currentProfile && !Auth._accessDenied) {
+    showApp(user, Auth.currentProfile);
+    return true;
+  }
+
+  authSessionUserId = user.id;
+  authSessionPromise = (async () => {
+    Auth.currentUser = user;
+    Auth._accessDenied = false;
+    await Auth.loadProfile(user.id);
+    // SECURITATE: dacă profilul e null după loadProfile, emailul nu este autorizat
+    if (!Auth.currentProfile || Auth._accessDenied) {
+      Auth._accessDenied = false;
+      await sb.auth.signOut();
+      showLogin('⛔ Acces neautorizat. Adresa de email <strong>' + (user.email || '') + '</strong> nu este înregistrată în sistem. Contactează administratorul.');
+      return false;
+    }
+    showApp(user, Auth.currentProfile);
+    return true;
+  })();
+
+  try {
+    return await authSessionPromise;
+  } finally {
+    authSessionPromise = null;
+  }
+}
 
 // ── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initSupabase();
-  const profile = await Auth.init();
+  const sb = getSupabase();
+  const oauthError = getOAuthErrorFromUrl();
+  if (oauthError) {
+    clearOAuthUrl();
+    showLogin('⛔ Autentificarea Google a eșuat: <strong>' + oauthError + '</strong>');
+  }
 
+  // Listenerul trebuie instalat înainte de getSession(): callback-ul OAuth poate
+  // emite INITIAL_SESSION/SIGNED_IN imediat după încărcarea paginii.
+  if (sb) {
+    sb.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        authSessionUserId = null;
+        authSessionPromise = null;
+        Auth.currentUser = null;
+        Auth.currentProfile = null;
+        showLogin();
+        return;
+      }
+      if ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        // Nu așteptăm direct în callback-ul Supabase; evităm blocarea lock-ului Auth.
+        setTimeout(() => processAuthSession(session, sb), 0);
+      } else if (event === 'INITIAL_SESSION' && !session?.user && !oauthError) {
+        showLogin();
+      }
+    });
+  }
+
+  const profile = await Auth.init();
   if (profile) {
+    authSessionUserId = Auth.currentUser?.id || authSessionUserId;
     showApp(Auth.currentUser, profile);
-  } else if (!APP_CONFIG.demoMode) {
-    const sb = getSupabase();
-    if (sb) {
-      sb.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          Auth.currentUser = session.user;
-          await Auth.loadProfile(session.user.id);
-          // SECURITATE: dacă profilul e null după loadProfile, emailul nu este autorizat
-          if (!Auth.currentProfile || Auth._accessDenied) {
-            Auth._accessDenied = false;
-            await sb.auth.signOut();
-            showLogin('⛔ Acces neautorizat. Adresa de email <strong>' + (session.user.email || '') + '</strong> nu este înregistrată în sistem. Contactează administratorul.');
-            return;
-          }
-          showApp(session.user, Auth.currentProfile);
-        } else if (event === 'SIGNED_OUT') {
-          Auth.currentUser = null;
-          Auth.currentProfile = null;
-          showLogin();
-        }
-      });
-    }
+  } else if (!APP_CONFIG.demoMode && !oauthError) {
+    const { data: { session } = {} } = sb ? await sb.auth.getSession() : { data: {} };
+    // Dacă există o sesiune, listenerul de mai sus procesează profilul; nu
+    // afișăm loginul intermitent peste redirectul Google.
+    if (!session?.user) showLogin();
   }
 });
 
