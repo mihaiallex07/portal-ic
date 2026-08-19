@@ -3,6 +3,13 @@
 // Stil: păstrează cardurile existente și brandingul IC (#FFC700); calculele de dată folosesc fusul orar local.
 // ============================================================
 
+function formatDashboardHours(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0';
+  const rounded = Math.round((numeric + Number.EPSILON) * 10) / 10;
+  return rounded.toFixed(1).replace(/\.0$/, '');
+}
+
 function getCurrentCalendarWeek() {
   const today = new Date();
   const isoDay = today.getDay() || 7; // luni=1 ... duminică=7
@@ -47,19 +54,19 @@ const Dashboard = {
     const timeEntries = timeRes.data || [];
     // Calculează ore lucrate și bugetate per proiect din project_tasks (date reale)
     const allTasks = tasksRes.data || [];
-    const workedByProject = {};
+    const workedMinutesByProject = {};
     const budgetByProject = {};
     allTasks.forEach(t => {
       const pid = t.project_id;
       if (!pid) return;
-      workedByProject[pid] = (workedByProject[pid] || 0) + Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
-      budgetByProject[pid] = (budgetByProject[pid] || 0) + (t.budget_hours || 0);
+      workedMinutesByProject[pid] = (workedMinutesByProject[pid] || 0) + (Number(t.minutes_worked) || 0);
+      budgetByProject[pid] = (budgetByProject[pid] || 0) + (Number(t.budget_hours) || 0);
     });
     // Injectăm valorile calculate în proiecte
     projects.forEach(p => {
       if (allTasks.length > 0) {
-        p.used_hours = workedByProject[p.id] || 0;
-        if (budgetByProject[p.id] > 0) p.budget_hours = budgetByProject[p.id];
+        p.used_hours = formatDashboardHours((workedMinutesByProject[p.id] || 0) / 60);
+        if (budgetByProject[p.id] > 0) p.budget_hours = Math.round((budgetByProject[p.id] + Number.EPSILON) * 10) / 10;
       }
     });
     const news = (newsRes.data || []).slice(0, 3);
@@ -225,7 +232,7 @@ const Dashboard = {
                         </div>
                         <div class="text-xs text-muted" style="text-align:right;flex-shrink:0">
                           <div style="font-weight:600">${pct}%</div>
-                          <div>${p.used_hours}h / ${p.budget_hours}h</div>
+                          <div>${formatDashboardHours(p.used_hours)}h / ${formatDashboardHours(p.budget_hours)}h</div>
                         </div>
                       </div>
                     `;
