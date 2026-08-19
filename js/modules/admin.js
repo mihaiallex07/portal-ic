@@ -178,12 +178,17 @@ const Admin = {
       showToast('Nu poți șterge propriul cont', 'error');
       return;
     }
+    const userToDelete = this.users.find(u => String(u.id) === String(id));
+    const preCreatedWarning = userToDelete?.is_pre_created
+      ? `<p style="font-size:13px;color:#991b1b"><strong>Profil pre-creat:</strong> ștergerea elimină profilul-ancoră și asocierile pregătite la proiecte/task-uri. Dacă persoana se conectează ulterior, va fi creată ca utilizator nou, fără aceste alocări.</p>`
+      : '';
     openModal('Șterge utilizator', `
       <div class="space-y-3">
         <div style="padding:12px;border-radius:8px;background:#fef2f2;border:1px solid #fca5a5;font-size:13px;color:#991b1b">
           <strong>Atenție!</strong> Această acțiune este ireversibilă.
         </div>
         <p style="font-size:14px">Eşti sigur că vrei să ștergi utilizatorul <strong>${name}</strong>?</p>
+        ${preCreatedWarning}
         <p style="font-size:13px;color:var(--text-muted)">Profilul va fi șters din portal. Dacă utilizatorul are un cont Google activ, va fi blocat la următoarea autentificare.</p>
       </div>
     `, `
@@ -195,18 +200,6 @@ const Admin = {
   async deleteUser(id, name) {
     const sb = getSupabase();
     if (!sb) { showToast('Eroare: Supabase nu este conectat', 'error'); return; }
-
-    // Un profil pre-creat este ancora pentru proiectele și task-urile pregătite
-    // înainte de prima autentificare; nu îl ștergem, îl lăsăm să fie revendicat prin Google.
-    const { data: profileToDelete } = await sb.from('profiles')
-      .select('is_pre_created')
-      .eq('id', id)
-      .maybeSingle();
-    if (profileToDelete?.is_pre_created) {
-      closeModalForce();
-      showToast('Profilul pre-creat nu se șterge. Angajatul îl va activa automat la prima autentificare Google.', 'info');
-      return;
-    }
 
     // 1. Șterge din project_members
     await sb.from('project_members').delete().eq('user_id', id);
