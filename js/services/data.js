@@ -286,7 +286,7 @@ const DB = {
   async createProposal(proposal) {
     const safeProposal = {
       reference_number: proposal.reference_number || `PROP-${new Date().getFullYear()}-${Date.now()}`,
-      status: proposal.status || 'in_review',
+      status: proposal.status || 'deschisa',
       ...proposal,
     };
     if (APP_CONFIG.demoMode) {
