@@ -110,8 +110,13 @@ const Stiri = {
     `;
   },
 
-  openDetail(id) {
-    const n = this.news.find(n => n.id === id);
+  async openDetail(id) {
+    let n = this.news.find(n => Number(n.id) === Number(id));
+    if (!n) {
+      const sb = getSupabase();
+      const { data } = await sb.from('news').select('*').eq('id', id).single();
+      n = data || null;
+    }
     if (!n) return;
     const canEdit = !!Auth.currentUser;
     openModal(n.title, `
@@ -274,7 +279,7 @@ const Stiri = {
             type: 'news',
             title: '📰 Știre nouă: ' + title,
             message: item.excerpt || 'A fost publicată o știre nouă în portal.',
-            link: '#stiri',
+            link: '#stiri:' + newsData.id,
             is_read: false,
           }));
         if (notifRows.length > 0) {
