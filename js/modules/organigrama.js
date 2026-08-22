@@ -1,5 +1,6 @@
 // ============================================================
 // Organigramă Module — Portal Inginerie Creativă
+// Design: hartă ierarhică fluidă, compactă, fără scroll orizontal.
 // Ierarhie dinamică din DB (manager_id pe profiles)
 // Admin: click pe nod în edit mode → popover inline cu dropdown manager
 // Card echipă de jos → click deschide profilul angajatului
@@ -35,10 +36,8 @@ const Organigrama = {
 
         <!-- Org chart vizual -->
         <div class="card mb-4" style="padding:24px;position:relative;overflow:hidden">
-          <div id="org-chart-container" style="overflow-x:auto;overflow-y:visible;width:100%;padding-bottom:8px">
-            <div style="display:inline-block;min-width:100%">
-              ${this.renderOrgChart()}
-            </div>
+          <div id="org-chart-container" style="width:100%;min-width:0">
+            ${this.renderOrgChart()}
           </div>
         </div>
 
@@ -149,28 +148,92 @@ const Organigrama = {
     }];
   },
 
+  escapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  hierarchyGroups(users) {
+    const userById = new Map(users.map(user => [String(user.id), user]));
+    const hasHierarchy = users.some(user => user.manager_id && userById.has(String(user.manager_id)));
+
+    if (!hasHierarchy) {
+      const departments = new Map();
+      users.forEach(user => {
+        const department = user.department || 'General';
+        if (!departments.has(department)) departments.set(department, []);
+        departments.get(department).push(user);
+      });
+      return [...departments.entries()]
+        .sort(([a], [b]) => a.localeCompare(b, 'ro'))
+        .map(([label, members]) => ({ label, description: 'Departament', users: members }));
+    }
+
+    const levelFor = (user, ancestry = new Set()) => {
+      const managerId = user.manager_id ? String(user.manager_id) : null;
+      if (!managerId || !userById.has(managerId) || ancestry.has(String(user.id))) return 0;
+      const next = new Set(ancestry);
+      next.add(String(user.id));
+      return levelFor(userById.get(managerId), next) + 1;
+    };
+
+    const levels = new Map();
+    users.forEach(user => {
+      const level = levelFor(user);
+      if (!levels.has(level)) levels.set(level, []);
+      levels.get(level).push(user);
+    });
+    return [...levels.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([level, members]) => ({
+        label: level === 0 ? 'Conducere și coordonare' : `Nivel organizațional ${level + 1}`,
+        description: level === 0 ? 'Puncte de coordonare' : 'Raportare directă',
+        users: members,
+      }));
+  },
+
+  renderCompactNode(user) {
+    const isEditable = this.editMode;
+    const initials = user.employee_code || (user.full_name || user.name || 'IC').split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 3);
+    const manager = user.manager_id ? this.users.find(item => String(item.id) === String(user.manager_id)) : null;
+    const clickHandler = isEditable
+      ? `onclick="Organigrama.openNodeEditor('${user.id}', event)"`
+      : `onclick="Echipa.viewProfile('${user.id}')"`;
+    const personName = this.escapeHtml(user.full_name || user.name || 'Angajat');
+    const position = this.escapeHtml(user.job_title || user.position || 'Funcție necompletată');
+    const department = this.escapeHtml(user.department || 'General');
+    const reportsTo = manager ? `Raportează: ${this.escapeHtml(manager.full_name || manager.name || 'Manager')}` : 'Nivel de coordonare';
+    const avatar = user.avatar_url
+      ? `<img src="${this.escapeHtml(user.avatar_url)}" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid var(--brand-dark);flex:0 0 auto">`
+      : `<div style="width:38px;height:38px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto">${this.escapeHtml(initials)}</div>`;
+
+    return `<article class="org-compact-node${isEditable ? ' org-node-editable' : ''}" ${clickHandler}
+      style="min-width:0;display:flex;gap:10px;align-items:center;padding:11px 12px;background:var(--surface);border:1px solid ${isEditable ? '#fbbf24' : 'var(--border)'};border-radius:10px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.04);transition:transform .16s ease,box-shadow .16s ease"
+      onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 18px rgba(0,0,0,.10)'"
+      onmouseleave="this.style.transform='';this.style.boxShadow='0 1px 2px rgba(0,0,0,.04)'">
+      <div style="position:relative;flex:0 0 auto">${avatar}${isEditable ? '<span style="position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#fbbf24;border:2px solid var(--surface);display:flex;align-items:center;justify-content:center;font-size:9px">✎</span>' : ''}</div>
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${personName}</div>
+        <div style="font-size:10px;color:var(--text-muted);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">${position}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:6px;min-width:0"><span style="display:inline-block;min-width:0;max-width:52%;padding:2px 5px;border-radius:4px;background:rgba(255,203,9,.18);color:var(--text);font-size:9px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${department}</span><span style="min-width:0;color:var(--text-muted);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${reportsTo}</span></div>
+      </div>
+    </article>`;
+  },
+
   renderOrgChart() {
-    const tree = this.buildTree();
-    if (!tree.length) return `<div style="text-align:center;color:var(--text-muted);padding:40px">Niciun angajat în organigramă</div>`;
+    const users = this.users.filter(user => user.is_active !== false);
+    if (!users.length) return `<div style="text-align:center;color:var(--text-muted);padding:40px">Niciun angajat în organigramă</div>`;
 
-    const hasHierarchy = this.users.some(u => u.manager_id);
-    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const groups = this.hierarchyGroups(users);
+    const departmentCount = new Set(users.map(user => user.department || 'General')).size;
+    const hint = this.editMode
+      ? `<div style="margin:0 0 16px;padding:10px 12px;background:#fef9c3;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e">✏️ <strong>Mod editare activ</strong> — apasă pe o persoană pentru a-i actualiza managerul direct.</div>`
+      : `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 0 16px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-muted);flex-wrap:wrap"><span>Hartă organizațională compactă — selectează o persoană pentru profilul complet.</span><strong style="color:var(--text)">${users.length} persoane · ${departmentCount} departamente</strong></div>`;
 
-    const hint = !hasHierarchy && isAdmin
-      ? `<div style="text-align:center;margin-bottom:16px;padding:10px 16px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-muted)">
-          💡 Ierarhia este grupată pe departamente. Apasă <strong>Editează ierarhia</strong> și dă click pe orice angajat pentru a seta managerul.
-        </div>`
-      : '';
-
-    const editHint = this.editMode
-      ? `<div style="text-align:center;margin-bottom:16px;padding:10px 16px;background:#fef9c3;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e">
-          ✏️ <strong>Mod editare activ</strong> — dă click pe orice angajat pentru a-i seta managerul direct
-        </div>`
-      : '';
-
-    return (hint || editHint) + `<div class="org-tree-wrap" style="display:inline-flex;justify-content:flex-start;min-width:max-content;padding:8px 0">
-      ${tree.map(node => this.renderNode(node, true)).join('')}
-    </div>`;
+    return `${hint}<div class="org-compact-map" style="display:grid;gap:14px;width:100%;min-width:0">${groups.map(group => `
+      <section style="min-width:0;border-top:2px solid var(--brand-dark);padding-top:9px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 9px"><h3 style="margin:0;font-size:12px;font-weight:800;color:var(--text)">${this.escapeHtml(group.label)}</h3><span style="font-size:10px;color:var(--text-muted)">${group.users.length} persoane · ${group.description}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;min-width:0">${group.users.sort((a, b) => String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro')).map(user => this.renderCompactNode(user)).join('')}</div>
+      </section>`).join('')}</div>`;
   },
 
   renderNode(node, isRoot = false) {
