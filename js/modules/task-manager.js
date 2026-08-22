@@ -1943,6 +1943,20 @@ const TaskManager = {
     this.displayReport(reportData);
   },
 
+  getUnassignedReportEntries(data) {
+    if (data.projectFilter) return [];
+    return (data.timeEntries || []).filter(entry => !entry.project_id);
+  },
+
+  getReportActivityTitle(entry) {
+    return entry.task_name || entry.description || 'Activitate fără titlu';
+  },
+
+  getReportActivityDescription(entry) {
+    const description = String(entry.description || '').trim();
+    return description && description !== this.getReportActivityTitle(entry) ? description : '—';
+  },
+
   displayReport(data) {
     const profile = Auth.currentProfile;
     const now = new Date();
@@ -1961,12 +1975,19 @@ const TaskManager = {
     
     // Group by project → phase → task
     const grouped = {};
+    const unassignedEntries = [];
     let grandTotal = 0;
     
     // Process time entries
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
-      
+      const hours = (Number(entry.duration_minutes) || 0) / 60;
+      if (!entry.project_id) {
+        unassignedEntries.push(entry);
+        grandTotal += hours;
+        return;
+      }
+
       const projectId = entry.project_id;
       const task = data.tasks.find(t => t.id === entry.project_task_id);
       const phaseId = task?.phase_id;
@@ -1983,7 +2004,6 @@ const TaskManager = {
         grouped[projectId].phases[phaseId].tasks[entry.project_task_id] = { task, hours: 0, entries: [] };
       }
       
-      const hours = entry.duration_minutes / 60;
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += hours;
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].entries.push(entry);
       grandTotal += hours;
@@ -2060,6 +2080,18 @@ const TaskManager = {
       </div>`;
       html += '</div>';
     });
+
+    if (unassignedEntries.length > 0) {
+      const unassignedTotal = unassignedEntries.reduce((sum, entry) => sum + ((Number(entry.duration_minutes) || 0) / 60), 0);
+      html += `
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:12px">
+          <h4 style="margin:0 0 5px;color:#713f12">Activități fără proiect</h4>
+          <p style="margin:0 0 12px;font-size:12px;color:#854d0e">Activități introduse direct în Time-Tracking, fără asociere cu un proiect sau task.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid #fde68a"><th style="padding:6px;text-align:left;color:#854d0e">Activitate</th><th style="padding:6px;text-align:left;color:#854d0e">Descriere</th><th style="padding:6px;text-align:left;color:#854d0e">Data</th><th style="padding:6px;text-align:right;color:#854d0e">Ore</th></tr></thead><tbody>
+          ${unassignedEntries.map(entry => `<tr style="border-bottom:1px solid #fef3c7"><td style="padding:7px;color:var(--text-primary);font-weight:600">${this.getReportActivityTitle(entry)}</td><td style="padding:7px;color:var(--text-muted)">${this.getReportActivityDescription(entry)}</td><td style="padding:7px;color:var(--text-muted)">${String(entry.date || '').split('-').reverse().join('/')}</td><td style="padding:7px;text-align:right;color:var(--text-primary);font-weight:600">${((Number(entry.duration_minutes) || 0) / 60).toFixed(2)}h</td></tr>`).join('')}
+          <tr style="background:#fef3c7"><td colspan="3" style="padding:8px;color:#713f12;font-weight:700">Total activități fără proiect</td><td style="padding:8px;text-align:right;color:#713f12;font-weight:800">${unassignedTotal.toFixed(2)}h</td></tr></tbody></table>
+        </div>`;
+    }
     
     html += `
       <div style="background:var(--primary);color:#fff;border-radius:8px;padding:16px;text-align:center;font-size:18px;font-weight:600;margin:20px 0">
@@ -2146,9 +2178,15 @@ const TaskManager = {
       yPosition += 18;
       doc.setTextColor(0, 0, 0);
     }
-    // Group data    const grouped = {};
+    // Group data
+    const grouped = {};
+    const unassignedEntries = [];
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
+      if (!entry.project_id) {
+        unassignedEntries.push(entry);
+        return;
+      }
       const projectId = entry.project_id;
       const task = data.tasks.find(t => t.id === entry.project_task_id);
       const phaseId = task?.phase_id;
@@ -2218,6 +2256,31 @@ const TaskManager = {
       
       yPosition += 3;
     });
+
+    if (unassignedEntries.length > 0) {
+      if (yPosition > pageHeight - 30) { doc.addPage(); yPosition = margin; }
+      doc.setFillColor(255, 251, 235);
+      doc.rect(margin - 2, yPosition - 4, pageWidth - 2 * margin + 4, 8, 'F');
+      doc.setTextColor(113, 63, 18);
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.text('Activități fără proiect', margin, yPosition + 2);
+      yPosition += 9;
+      doc.setTextColor(0, 0, 0);
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      unassignedEntries.forEach(entry => {
+        const title = this.getReportActivityTitle(entry);
+        const description = this.getReportActivityDescription(entry);
+        const date = String(entry.date || '').split('-').reverse().join('/');
+        const lines = doc.splitTextToSize(`${date} · ${title}${description !== '—' ? ` — ${description}` : ''}`, pageWidth - (margin * 2) - 24);
+        if (yPosition > pageHeight - Math.max(15, lines.length * 4 + 8)) { doc.addPage(); yPosition = margin; }
+        doc.text(lines, margin + 5, yPosition);
+        doc.text(((Number(entry.duration_minutes) || 0) / 60).toFixed(2) + 'h', pageWidth - margin - 2, yPosition, { align: 'right' });
+        yPosition += Math.max(5, lines.length * 4 + 2);
+      });
+      yPosition += 4;
+    }
     
     // Total - YELLOW background
     if (yPosition > pageHeight - 20) {
@@ -2255,7 +2318,8 @@ const TaskManager = {
     worksheet.columns = [
       { header: 'Proiect', key: 'project', width: 25 },
       { header: 'Etapa', key: 'phase', width: 20 },
-      { header: 'Task', key: 'task', width: 30 },
+      { header: 'Activitate', key: 'task', width: 30 },
+      { header: 'Descriere', key: 'description', width: 40 },
       { header: 'Ore', key: 'hours', width: 12 }
     ];
     
@@ -2264,14 +2328,14 @@ const TaskManager = {
     titleRow.font = { bold: true, size: 16, color: { argb: 'FF000000' } };
     titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     titleRow.alignment = { horizontal: 'center', vertical: 'center' };
-    worksheet.mergeCells('A1:D1');
+    worksheet.mergeCells('A1:E1');
     titleRow.height = 25;
     
     const companyRow = worksheet.insertRow(2, ['Inginerie CREATIVA']);
     companyRow.font = { size: 11, color: { argb: 'FF000000' } };
     companyRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     companyRow.alignment = { horizontal: 'center' };
-    worksheet.mergeCells('A2:D2');
+    worksheet.mergeCells('A2:E2');
     companyRow.height = 20;
     
     worksheet.insertRow(3, []);
@@ -2301,15 +2365,20 @@ const TaskManager = {
     savedRow.getCell(2).alignment = { horizontal: 'right' };
     
     // Data header - YELLOW background
-    const dataHeaderRow = worksheet.insertRow(9, ['Proiect', 'Etapa', 'Task', 'Ore']);
+    const dataHeaderRow = worksheet.insertRow(10, ['Proiect', 'Etapa', 'Activitate', 'Descriere', 'Ore']);
     dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     dataHeaderRow.font = { bold: true, color: { argb: 'FF000000' }, size: 11 };
     dataHeaderRow.alignment = { horizontal: 'center', vertical: 'center' };
     
     // Group data
     const grouped = {};
+    const unassignedEntries = [];
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
+      if (!entry.project_id) {
+        unassignedEntries.push(entry);
+        return;
+      }
       const projectId = entry.project_id;
       const task = data.tasks.find(t => t.id === entry.project_task_id);
       const phaseId = task?.phase_id;
@@ -2325,7 +2394,7 @@ const TaskManager = {
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
     });
     
-    let rowNum = 10;
+    let rowNum = 11;
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
       Object.keys(group.phases).forEach(phaseId => {
@@ -2336,24 +2405,40 @@ const TaskManager = {
             group.project?.name || 'Necunoscut',
             phaseGroup.phase?.name || 'Fara etapa',
             taskData.task?.name || 'Necunoscut',
+            '',
             taskData.hours.toFixed(2)
           ]);
           row.font = { size: 10 };
           row.alignment = { horizontal: 'left', vertical: 'center' };
-          row.getCell(4).alignment = { horizontal: 'right' };
+          row.getCell(5).alignment = { horizontal: 'right' };
           rowNum++;
         });
       });
+    });
+
+    unassignedEntries.forEach(entry => {
+      const row = worksheet.insertRow(rowNum, [
+        'Activități fără proiect',
+        '—',
+        this.getReportActivityTitle(entry),
+        `${String(entry.date || '').split('-').reverse().join('/')} · ${this.getReportActivityDescription(entry)}`,
+        ((Number(entry.duration_minutes) || 0) / 60).toFixed(2)
+      ]);
+      row.font = { size: 10 };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      row.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+      row.getCell(5).alignment = { horizontal: 'right' };
+      rowNum++;
     });
     
     // Total row - YELLOW background
     worksheet.insertRow(rowNum, []);
     rowNum++;
-    const totalRow = worksheet.insertRow(rowNum, ['', '', 'TOTAL:', data.grandTotal.toFixed(2)]);
+    const totalRow = worksheet.insertRow(rowNum, ['', '', '', 'TOTAL:', data.grandTotal.toFixed(2)]);
     totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     totalRow.font = { bold: true, size: 11, color: { argb: 'FF000000' } };
-    totalRow.getCell(3).alignment = { horizontal: 'right' };
     totalRow.getCell(4).alignment = { horizontal: 'right' };
+    totalRow.getCell(5).alignment = { horizontal: 'right' };
     
     // Save file
     const fileName = 'Raport_ore_' + (data.user?.full_name || 'raport').replace(/[^a-zA-Z0-9]/g, '_') + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
