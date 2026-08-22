@@ -15,12 +15,20 @@ const TaskManager = {
   allAssignments: [], // toate assignments (pentru tab admin)
   coordProjectIds: new Set(), // proiectele pe care userul le coordonează
 
-  activeTab: 'personal', // 'personal' | 'todo' | 'overview' | 'reports'
+  activeTab: 'personal', // 'personal' | 'todo' | 'overview' | 'reports' | 'hours-admin'
   filterStatus: 'all',
   filterProject: 'all',
   searchQuery: '',
   overviewSearch: '',
   overviewFilter: 'all',
+
+  // Dashboard administrativ ore
+  adminHoursRange: 'week',
+  adminHoursCustomFrom: null,
+  adminHoursCustomTo: null,
+  adminHoursRows: [],
+  adminHoursSummary: null,
+  adminHoursLoading: false,
 
   // To-Do state
   todoFilterStatus: 'all',
@@ -209,6 +217,7 @@ const TaskManager = {
     this.injectStyles();
 
     const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const isAdmin = Auth.currentProfile?.role === 'admin';
 
     container.innerHTML = `
       <div class="tm-wrapper">
@@ -243,6 +252,11 @@ const TaskManager = {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M9 9h2v6H9z"/><path d="M13 11h2v4h-2z"/><path d="M17 7h2v8h-2z"/></svg>
             Rapoarte
           </button>
+          ${isAdmin ? `
+          <button class="tm-tab-btn ${this.activeTab === 'hours-admin' ? 'active' : ''}" onclick="TaskManager.setTab('hours-admin')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-9"/></svg>
+            Control ore
+          </button>` : ''}
         </div>
 
         <!-- Tab content -->
@@ -258,6 +272,7 @@ const TaskManager = {
     if (this.activeTab === 'todo') return this.renderTodoTab();
     if (this.activeTab === 'overview') return this.renderOverviewTab();
     if (this.activeTab === 'reports') return this.renderReportsTab();
+    if (this.activeTab === 'hours-admin') return this.renderAdminHoursTab();
     return '';
   },
 
@@ -272,8 +287,10 @@ const TaskManager = {
         else if (tab === 'todo') btn.classList.toggle('active', txt.includes('To-Do'));
         else if (tab === 'overview') btn.classList.toggle('active', txt.includes('echipă'));
         else if (tab === 'reports') btn.classList.toggle('active', txt.includes('Rapoarte'));
+        else if (tab === 'hours-admin') btn.classList.toggle('active', txt.includes('Control ore'));
         else btn.classList.remove('active');
       });
+      if (tab === 'hours-admin') this.loadAdminHoursDashboard();
     }
   },
 
@@ -1513,6 +1530,159 @@ const TaskManager = {
     this.renderPage();
     setPageLoading(false);
     showToast('Date reîncărcate ✓', 'success');
+  },
+
+  // ── CONTROL ADMINISTRATIV ORE ──────────────────────────────────
+  adminHoursDate(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    const local = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
+    return local.toISOString().split('T')[0];
+  },
+
+  getAdminHoursPeriod() {
+    const today = new Date();
+    const end = this.adminHoursDate(today);
+    if (this.adminHoursRange === 'custom' && this.adminHoursCustomFrom && this.adminHoursCustomTo) {
+      return { from: this.adminHoursCustomFrom, to: this.adminHoursCustomTo, label: 'Perioadă personalizată' };
+    }
+    if (this.adminHoursRange === 'month') {
+      return { from: this.adminHoursDate(new Date(today.getFullYear(), today.getMonth(), 1)), to: end, label: 'Luna curentă' };
+    }
+    if (this.adminHoursRange === 'year') {
+      return { from: this.adminHoursDate(new Date(today.getFullYear(), 0, 1)), to: end, label: 'Anul curent' };
+    }
+    const monday = new Date(today);
+    const day = monday.getDay() || 7;
+    monday.setDate(monday.getDate() - day + 1);
+    return { from: this.adminHoursDate(monday), to: end, label: 'Săptămâna curentă' };
+  },
+
+  workdaysBetween(from, to) {
+    let days = 0;
+    const cursor = new Date(`${from}T12:00:00`);
+    const last = new Date(`${to}T12:00:00`);
+    while (cursor <= last) {
+      const weekday = cursor.getDay();
+      if (weekday !== 0 && weekday !== 6) days += 1;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  },
+
+  escapeAdminHours(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  formatAdminHours(value) {
+    return (Math.round((Number(value) || 0) * 100) / 100).toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  },
+
+  formatAdminDate(value) {
+    if (!value) return '—';
+    const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  },
+
+  async loadAdminHoursDashboard() {
+    if (Auth.currentProfile?.role !== 'admin') return;
+    const sb = getSupabase();
+    if (!sb) return;
+    const period = this.getAdminHoursPeriod();
+    this.adminHoursLoading = true;
+    const content = document.getElementById('tm-tab-content');
+    if (content && this.activeTab === 'hours-admin') content.innerHTML = this.renderAdminHoursTab();
+
+    try {
+      const { data: profilesWithTotals, error } = await sb.rpc('get_admin_hours_dashboard', { p_from: period.from, p_to: period.to });
+      if (error) throw error;
+      const workdays = this.workdaysBetween(period.from, period.to);
+      this.adminHoursRows = (profilesWithTotals || []).map(profile => {
+        const recorded = (Number(profile.recorded_minutes) || 0) / 60;
+        const expected = workdays * (Number(profile.work_hours_per_day) || 8);
+        const coverage = expected > 0 ? Math.round((recorded / expected) * 100) : 0;
+        const state = profile.is_pre_created ? 'neactivat' : recorded <= 0 ? 'fara_ore' : coverage < 60 ? 'sub_nivel' : 'inregistrat';
+        return { ...profile, recorded, expected, coverage, workdays, lastDate: profile.last_recorded_date, entries: Number(profile.record_count) || 0, state };
+      }).sort((a, b) => {
+        const rank = { fara_ore: 0, sub_nivel: 1, neactivat: 2, inregistrat: 3 };
+        return (rank[a.state] - rank[b.state]) || (a.recorded - b.recorded) || String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro');
+      });
+      const totalHours = this.adminHoursRows.reduce((sum, row) => sum + row.recorded, 0);
+      this.adminHoursSummary = {
+        people: this.adminHoursRows.length,
+        totalHours,
+        noHours: this.adminHoursRows.filter(row => row.state === 'fara_ore').length,
+        lowCoverage: this.adminHoursRows.filter(row => row.state === 'sub_nivel').length,
+        logged: this.adminHoursRows.filter(row => row.state === 'inregistrat').length,
+        workdays,
+        period,
+      };
+    } catch (error) {
+      console.error('[TaskManager] admin hours dashboard:', error);
+      this.adminHoursRows = [];
+      this.adminHoursSummary = { error: error.message || 'Datele nu au putut fi încărcate.', period };
+    } finally {
+      this.adminHoursLoading = false;
+      const target = document.getElementById('tm-tab-content');
+      if (target && this.activeTab === 'hours-admin') target.innerHTML = this.renderAdminHoursTab();
+    }
+  },
+
+  setAdminHoursRange(range) {
+    this.adminHoursRange = range;
+    if (range !== 'custom') {
+      this.adminHoursCustomFrom = null;
+      this.adminHoursCustomTo = null;
+    }
+    const content = document.getElementById('tm-tab-content');
+    if (content) content.innerHTML = this.renderAdminHoursTab();
+    if (range !== 'custom') this.loadAdminHoursDashboard();
+  },
+
+  applyAdminHoursCustomRange() {
+    const from = document.getElementById('tm-admin-hours-from')?.value;
+    const to = document.getElementById('tm-admin-hours-to')?.value;
+    if (!from || !to || from > to) { showToast('Selectează o perioadă validă.', 'error'); return; }
+    this.adminHoursCustomFrom = from;
+    this.adminHoursCustomTo = to;
+    this.loadAdminHoursDashboard();
+  },
+
+  renderAdminHoursTab() {
+    if (Auth.currentProfile?.role !== 'admin') return '';
+    const period = this.getAdminHoursPeriod();
+    const summary = this.adminHoursSummary;
+    const custom = this.adminHoursRange === 'custom';
+    const rangeButton = (key, label) => `<button onclick="TaskManager.setAdminHoursRange('${key}')" style="padding:7px 11px;border-radius:7px;border:1px solid ${this.adminHoursRange === key ? 'var(--brand)' : 'var(--border)'};background:${this.adminHoursRange === key ? 'var(--brand)' : 'var(--card-bg)'};color:${this.adminHoursRange === key ? '#000' : 'var(--text)'};font-size:12px;font-weight:700;cursor:pointer">${label}</button>`;
+    const state = {
+      neactivat: { label: 'Profil neactivat', color: '#6b7280', bg: '#f3f4f6' },
+      fara_ore: { label: 'Fără ore', color: '#dc2626', bg: '#fee2e2' },
+      sub_nivel: { label: 'Sub nivel', color: '#b45309', bg: '#fef3c7' },
+      inregistrat: { label: 'Înregistrat', color: '#047857', bg: '#d1fae5' },
+    };
+    const rows = this.adminHoursRows.map((row, index) => {
+      const status = state[row.state] || state.fara_ore;
+      const name = row.full_name || row.name || row.email || 'Fără nume';
+      const barWidth = Math.min(100, Math.max(0, row.coverage || 0));
+      return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:12px 10px;color:var(--text-muted);font-size:12px">${index + 1}</td>
+        <td style="padding:12px 10px"><div style="font-weight:750;font-size:13px">${this.escapeAdminHours(name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${this.escapeAdminHours(row.employee_code || '—')} · ${this.escapeAdminHours(row.department || 'Fără departament')}</div></td>
+        <td style="padding:12px 10px;text-align:right;font-weight:800;font-size:14px">${this.formatAdminHours(row.recorded)} h</td>
+        <td style="padding:12px 10px;text-align:right;color:var(--text-muted);font-size:12px">${this.formatAdminHours(row.expected)} h</td>
+        <td style="padding:12px 10px;min-width:150px"><div style="display:flex;align-items:center;gap:7px"><div style="height:7px;flex:1;background:var(--bg);border-radius:99px;overflow:hidden"><div style="height:100%;width:${barWidth}%;background:${status.color};border-radius:99px"></div></div><span style="font-size:11px;color:var(--text-muted);width:34px;text-align:right">${row.coverage}%</span></div></td>
+        <td style="padding:12px 10px;font-size:12px;color:var(--text-muted)">${this.formatAdminDate(row.lastDate)}</td>
+        <td style="padding:12px 10px"><span style="display:inline-block;white-space:nowrap;padding:4px 7px;border-radius:999px;font-size:11px;font-weight:700;background:${status.bg};color:${status.color}">${status.label}</span></td>
+      </tr>`;
+    }).join('');
+
+    return `<div style="padding:20px;max-width:1320px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px"><div><h2 style="margin:0;font-size:20px">Control ore lucrate</h2><p style="margin:5px 0 0;font-size:13px;color:var(--text-muted)">Monitorizare administrativă pentru ${period.label.toLowerCase()} · ${period.from} — ${period.to}</p></div><button class="btn-secondary" onclick="TaskManager.loadAdminHoursDashboard()" style="font-size:12px">↻ Actualizează</button></div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);padding:11px;border-radius:10px">${rangeButton('week', 'Săptămână')}${rangeButton('month', 'Lună')}${rangeButton('year', 'An')}${rangeButton('custom', 'Zile personalizate')}${custom ? `<span style="display:flex;gap:6px;align-items:center;margin-left:4px"><input id="tm-admin-hours-from" type="date" value="${this.adminHoursCustomFrom || period.from}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><span style="font-size:12px;color:var(--text-muted)">—</span><input id="tm-admin-hours-to" type="date" value="${this.adminHoursCustomTo || period.to}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><button onclick="TaskManager.applyAdminHoursCustomRange()" style="padding:6px 9px;border:0;border-radius:6px;background:var(--brand);color:#000;font-weight:700;font-size:12px;cursor:pointer">Aplică</button></span>` : ''}</div>
+      ${this.adminHoursLoading ? `<div style="padding:42px;text-align:center;color:var(--text-muted)">Se centralizează orele lucrate…</div>` : summary?.error ? `<div style="padding:20px;background:#fee2e2;color:#b91c1c;border-radius:10px">${this.escapeAdminHours(summary.error)}</div>` : `<>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px">
+        ${[{ label: 'Persoane urmărite', value: summary?.people || 0, color: '#2563eb', note: `${summary?.workdays || 0} zile lucrătoare` }, { label: 'Ore înregistrate', value: `${this.formatAdminHours(summary?.totalHours)} h`, color: '#047857', note: 'time-tracking + ore manuale' }, { label: 'Fără ore', value: summary?.noHours || 0, color: '#dc2626', note: 'în perioada selectată' }, { label: 'Sub nivel', value: summary?.lowCoverage || 0, color: '#b45309', note: 'sub 60% din norma estimată' }].map(card => `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700">${card.label}</div><div style="font-size:24px;color:${card.color};font-weight:850;margin-top:5px">${card.value}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${card.note}</div></div>`).join('')}
+      </div>
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:auto"><div style="padding:13px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-muted)">Tabelul pune întâi persoanele fără ore sau sub nivel, pentru verificare rapidă.</div><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="background:var(--bg);text-align:left"><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">#</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Angajat</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Lucrate</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Normă estimată</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Acoperire</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Ultima înregistrare</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Stare</th></tr></thead><tbody>${rows || `<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-muted)">Nu există profiluri active pentru această perioadă.</td></tr>`}</tbody></table></div></>`}
+    </div>`;
   },
 
   // ── STATUS BADGE ──────────────────────────────────────────────
