@@ -360,17 +360,7 @@ const Dashboard = {
   },
 
   openTaskManagerTab(tab) {
-    navigate('task-manager', null);
-    let attempts = 0;
-    const activateTab = () => {
-      attempts += 1;
-      if (window.TaskManager && document.getElementById('tm-tab-content')) {
-        TaskManager.setTab(tab);
-        return;
-      }
-      if (attempts < 20) setTimeout(activateTab, 80);
-    };
-    setTimeout(activateTab, 80);
+    window.openTaskManagerTab?.(tab);
   }
 };
 
