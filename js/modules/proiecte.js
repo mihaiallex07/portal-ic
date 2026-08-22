@@ -4,6 +4,12 @@
 // ============================================================
 
 // Etape și task-uri prestabilite
+const isTaskExplicitlyCompleted = task => ['done', 'finalizat'].includes(String(task?.status || '').toLowerCase());
+const formatReportHours = value => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0';
+  return (Math.round((numeric + Number.EPSILON) * 10) / 10).toFixed(1).replace(/\.0$/, '');
+};
 const PRESET_PHASES = [
   {
     code: 'A', name: 'Administrativ pe proiect', color: '#3B82F6',
@@ -620,6 +626,7 @@ const Proiecte = {
     // Fix 4: culoare și label corect: 100% exact = verde, >100% = roşu Depăşit
     const isExact100 = rawPct === 100;
     const isOverBudget = rawPct > 100;
+    const isFinalized = isTaskExplicitlyCompleted(task);
     const barColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const profile = Auth.currentProfile;
     // canManage = admin/coord indiferent de editMode (pentru butoane Start, Asignare vizualizare, Consum manual)
@@ -735,6 +742,7 @@ const Proiecte = {
           ${canEdit ? `
             <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
           ` : ''}
+          ${isAdminOrCoord ? `<button onclick="Proiecte.toggleTaskCompletion(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:11px;margin-left:4px;padding:3px 6px;border:1px solid #10B98140;border-radius:4px;font-weight:600" title="Finalizează sau redeschide task-ul">✓ Finalizează / Redeschide</button>` : ''}
           ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>` : ''}
         </td>
       </tr>
@@ -843,7 +851,7 @@ const Proiecte = {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
     const profileIdStr = String(profile?.id || '');
-    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
+    const isCoord = profile?.role === 'coordonator' || profile?.role === 'coord' || this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord' || m.role === 'admin'));
     const totalBudget = this.phases.reduce((s, p) => s + (p.budget_hours || 0), 0);
     // Fix 3: suma minute→ore o singură dată pentru a evita acumularea erorilor float
     const totalMinutes = this.tasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
@@ -856,12 +864,23 @@ const Proiecte = {
     // Fix 4: 100% exact = verde, >100% = roşu
     const pctColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     const totalTasks = this.tasks.length;
-    // Task e finalizat dacă orele consumate >= bugetul de ore
-    const doneTasks = this.tasks.filter(t => {
+    // Finalizarea explicită are prioritate; păstrăm compatibilitatea cu task-urile istorice
+    // considerate finalizate când bugetul a fost consumat complet.
+    const completedTaskRows = this.tasks.filter(t => {
       const worked = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
       const budget = t.budget_hours || 0;
-      return budget > 0 && worked >= budget;
-    }).length;
+      return isTaskExplicitlyCompleted(t) || (budget > 0 && worked >= budget);
+    });
+    const doneTasks = completedTaskRows.length;
+    const underBudgetTasks = completedTaskRows.filter(t => {
+      const worked = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+      const budget = t.budget_hours || 0;
+      return budget > 0 && worked < budget;
+    });
+    const underBudgetSavedHours = underBudgetTasks.reduce((sum, t) => {
+      const worked = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
+      return sum + Math.max(0, (t.budget_hours || 0) - worked);
+    }, 0);
     const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
     // Calcul ore pe etapa
@@ -925,6 +944,15 @@ const Proiecte = {
           <div style="font-size:32px;font-weight:800;line-height:1">${doneTasks}<span style="font-size:16px;font-weight:500;opacity:0.8">/${totalTasks}</span></div>
           <div style="font-size:11px;opacity:0.8;margin-top:4px">${taskPct}% finalizate</div>
           <div style="position:absolute;right:-10px;bottom:-10px;font-size:56px;opacity:0.1">✔</div>
+        </div>
+      </div>
+
+      <!-- Rezumat finalizare task-uri -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px">
+        <div style="padding:16px 18px;background:linear-gradient(135deg,#065f46 0%,#059669 100%);border-radius:12px;color:#fff">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;opacity:.8;margin-bottom:7px">Finalizate sub buget</div>
+          <div style="font-size:30px;font-weight:800;line-height:1">${underBudgetTasks.length}</div>
+          <div style="font-size:11px;opacity:.85;margin-top:5px">${formatReportHours(underBudgetSavedHours)}h economisite</div>
         </div>
       </div>
 
@@ -1510,6 +1538,38 @@ const Proiecte = {
     this.renderProjectDetail();
   },
 
+
+  // ── Finalizare explicită task (admin/coordonator) ─────────────────────────
+  async toggleTaskCompletion(taskId) {
+    const profile = Auth.currentProfile;
+    const isAdminOrCoord = profile?.role === 'admin' || profile?.role === 'coordonator' || profile?.role === 'coord' ||
+      (this.members || []).some(m => String(m.user_id) === String(profile?.id) && ['admin', 'coordonator', 'coord'].includes(m.role));
+    if (!isAdminOrCoord) {
+      showToast('Nu ai permisiunea de a finaliza task-uri.', 'error');
+      return;
+    }
+
+    const task = (this.tasks || []).find(t => Number(t.id) === Number(taskId));
+    if (!task) return;
+    const isFinalized = isTaskExplicitlyCompleted(task);
+    const activeTaskId = window.activeTimerData?.taskId || window.pausedTimerData?.taskId;
+    if (!isFinalized && Number(activeTaskId) === Number(taskId)) {
+      showToast('Oprește timerul task-ului înainte de a-l marca finalizat.', 'warning');
+      return;
+    }
+
+    const sb = getSupabase();
+    if (!sb) return;
+    const nextStatus = isFinalized ? 'todo' : 'done';
+    const { error } = await sb.from('project_tasks').update({ status: nextStatus }).eq('id', taskId);
+    if (error) {
+      showToast('Eroare la actualizarea statusului: ' + error.message, 'error');
+      return;
+    }
+    await this.logChange('update', 'task', task.name, task.status || 'todo', nextStatus, isFinalized ? 'Task redeschis' : 'Task marcat ca finalizat');
+    await this._refreshEtapeOnly();
+    showToast(isFinalized ? 'Task redeschis.' : 'Task marcat ca finalizat.', 'success');
+  },
 
   // ── Actualizare buget task (inline input onchange) ────────────────────────
   async updateTaskBudget(taskId, phaseId, newValue, phaseBudget) {
