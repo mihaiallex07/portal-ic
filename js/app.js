@@ -268,6 +268,19 @@ async function navigate(route, linkEl, fromHash = false) {
   }
 }
 
+// Deschidere directă a unui proiect din modulele care îl referă.
+// Așteaptă randarea paginii Proiecte înainte de deschiderea detaliului, fără setTimeout fragil.
+async function openProjectDirect(projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id)) return;
+  try { localStorage.setItem('ic_last_project_id', String(id)); } catch (_) {}
+  await navigate('proiecte', null);
+  if (typeof Proiecte !== 'undefined' && typeof Proiecte.openProject === 'function') {
+    await Proiecte.openProject(id);
+  }
+}
+window.openProjectDirect = openProjectDirect;
+
 // ── SIDEBAR ───────────────────────────────────────────────────
 function updateSidebarUser() {
   const profile = Auth.currentProfile;
@@ -780,4 +793,3 @@ function quickStartConfirm() {
     showToast('▶ Task pornit: ' + taskName, 'success');
   }
 }
-
