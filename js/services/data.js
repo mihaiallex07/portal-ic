@@ -525,9 +525,20 @@ const DB = {
   async getEventParticipants(eventId) {
     if (APP_CONFIG.demoMode) return { data: [] };
     const sb = getSupabase();
-    return sb.from('event_participants')
+    const result = await sb.from('event_participants')
       .select('*')
       .eq('event_id', eventId);
+    if (result.error || !result.data?.length) return result;
+    const participantIds = [...new Set(result.data.map(p => p.user_id).filter(Boolean))];
+    const { data: profiles, error: profilesError } = await sb.from('profiles')
+      .select('id,full_name,name,email,avatar_url,department,position,employee_code')
+      .in('id', participantIds);
+    if (profilesError) return { data: result.data, error: null };
+    const profileById = new Map((profiles || []).map(profile => [profile.id, profile]));
+    return { data: result.data.map(participant => ({
+      ...participant,
+      profiles: profileById.get(participant.user_id) || null,
+    })), error: null };
   },
   async upsertEventParticipant(eventId, userId, status, declineReason) {
     if (APP_CONFIG.demoMode) return { error: null };
