@@ -247,40 +247,61 @@ const DB = {
     if (APP_CONFIG.demoMode) return { data: this.demo.proposals };
     const currentId = Auth.currentUser?.id || Auth.currentProfile?.id || null;
     const role = Auth.currentProfile?.role;
-    return dbQuery('proposals', q => {
+    const proposalsResult = await dbQuery('proposals', q => {
       let query = q.select('*,profiles!proposals_author_id_fkey(full_name,avatar_url),manager:profiles!proposals_manager_id_fkey(full_name,avatar_url)').order('created_at', { ascending: false });
       if (currentId && !['admin', 'coordonator', 'coordinator', 'coord'].includes(role)) {
-        query = query.eq('author_id', currentId);
+        query = query.or(`author_id.eq.${currentId},manager_id.is.null`);
       } else if (currentId && ['coordonator', 'coordinator', 'coord'].includes(role)) {
-        query = query.or(`author_id.eq.${currentId},manager_id.eq.${currentId}`);
+        query = query.or(`author_id.eq.${currentId},manager_id.eq.${currentId},manager_id.is.null`);
       }
       return query;
     }, this.demo.proposals);
+    if (proposalsResult?.error || !Array.isArray(proposalsResult?.data) || proposalsResult.data.length === 0) return proposalsResult;
+    const proposalIds = proposalsResult.data.map(p => p.id).filter(Boolean);
+    const votesResult = await dbQuery('proposal_votes', q => q.select('proposal_id,user_id').in('proposal_id', proposalIds), []);
+    const voteRows = votesResult?.error ? null : (votesResult?.data || []);
+    const voteByProposal = new Map();
+    (voteRows || []).forEach(row => {
+      const key = String(row.proposal_id);
+      const list = voteByProposal.get(key) || [];
+      list.push(String(row.user_id));
+      voteByProposal.set(key, list);
+    });
+    return {
+      ...proposalsResult,
+      data: proposalsResult.data.map(proposal => {
+        const voters = voteByProposal.get(String(proposal.id));
+        const existingCount = Number(proposal.votes_count || 0);
+        return {
+          ...proposal,
+          votes_count: voters ? voters.length : existingCount,
+          user_voted: voters?.some(id => id === String(currentId)) ? 'for' : null,
+        };
+      }),
+    };
   },
 
-  async voteProposal(proposalId, vote) {
+  async voteProposal(proposalId) {
     if (APP_CONFIG.demoMode) {
       const p = this.demo.proposals.find(p => p.id === proposalId);
       if (p) {
-        if (p.user_voted === vote) {
-          // Undo vote
-          if (vote === 'for') p.votes_for--;
-          else p.votes_against--;
+        if (p.user_voted === 'for') {
+          p.votes_for = Math.max(0, Number(p.votes_for || 0) - 1);
           p.user_voted = null;
         } else {
-          if (p.user_voted === 'for') p.votes_for--;
-          if (p.user_voted === 'against') p.votes_against--;
-          if (vote === 'for') p.votes_for++;
-          else p.votes_against++;
-          p.user_voted = vote;
+          p.votes_for = Number(p.votes_for || 0) + 1;
+          p.user_voted = 'for';
         }
       }
       return { error: null };
     }
-    // Supabase: upsert în proposal_votes
     const sb = getSupabase();
     const userId = Auth.currentUser?.id;
-    return sb.from('proposal_votes').upsert({ proposal_id: proposalId, user_id: userId, vote });
+    if (!userId) return { error: new Error('Sesiunea nu este disponibilă.') };
+    const existing = await sb.from('proposal_votes').select('id').eq('proposal_id', proposalId).eq('user_id', userId).maybeSingle();
+    if (existing.error) return existing;
+    if (existing.data?.id) return sb.from('proposal_votes').delete().eq('id', existing.data.id);
+    return sb.from('proposal_votes').insert({ proposal_id: proposalId, user_id: userId });
   },
 
   async createProposal(proposal) {
