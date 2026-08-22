@@ -75,6 +75,8 @@ const Organigrama = {
       </div>
     `;
 
+    setTimeout(() => this.fitTreeToContainer(), 0);
+
     // Închide popover la click în afara lui
     document.addEventListener('click', this._outsideClick = (e) => {
       const pop = document.getElementById('org-popover');
@@ -220,20 +222,40 @@ const Organigrama = {
   },
 
   renderOrgChart() {
-    const users = this.users.filter(user => user.is_active !== false);
-    if (!users.length) return `<div style="text-align:center;color:var(--text-muted);padding:40px">Niciun angajat în organigramă</div>`;
+    const tree = this.buildTree();
+    if (!tree.length) return `<div style="text-align:center;color:var(--text-muted);padding:40px">Niciun angajat în organigramă</div>`;
 
-    const groups = this.hierarchyGroups(users);
-    const departmentCount = new Set(users.map(user => user.department || 'General')).size;
+    const hasHierarchy = this.users.some(user => user.manager_id);
+    const isAdmin = Auth.currentProfile?.role === 'admin';
     const hint = this.editMode
-      ? `<div style="margin:0 0 16px;padding:10px 12px;background:#fef9c3;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e">✏️ <strong>Mod editare activ</strong> — apasă pe o persoană pentru a-i actualiza managerul direct.</div>`
-      : `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 0 16px;padding:10px 12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-muted);flex-wrap:wrap"><span>Hartă organizațională compactă — selectează o persoană pentru profilul complet.</span><strong style="color:var(--text)">${users.length} persoane · ${departmentCount} departamente</strong></div>`;
+      ? `<div style="margin:0 0 14px;padding:9px 12px;background:#fef9c3;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e">✏️ <strong>Mod editare activ</strong> — apasă pe o persoană pentru a-i actualiza managerul direct.</div>`
+      : !hasHierarchy && isAdmin
+      ? `<div style="margin:0 0 14px;padding:9px 12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-muted)">💡 Ierarhia este grupată pe departamente. Folosește <strong>Editează ierarhia</strong> pentru a stabili relațiile de raportare.</div>`
+      : `<div style="margin:0 0 14px;padding:9px 12px;background:var(--surface-2);border-radius:8px;font-size:12px;color:var(--text-muted)">Structură organizațională — selectează o persoană pentru a deschide profilul complet.</div>`;
 
-    return `${hint}<div class="org-compact-map" style="display:grid;gap:14px;width:100%;min-width:0">${groups.map(group => `
-      <section style="min-width:0;border-top:2px solid var(--brand-dark);padding-top:9px">
-        <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 9px"><h3 style="margin:0;font-size:12px;font-weight:800;color:var(--text)">${this.escapeHtml(group.label)}</h3><span style="font-size:10px;color:var(--text-muted)">${group.users.length} persoane · ${group.description}</span></div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;min-width:0">${group.users.sort((a, b) => String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro')).map(user => this.renderCompactNode(user)).join('')}</div>
-      </section>`).join('')}</div>`;
+    return `${hint}<div id="org-tree-viewport" style="width:100%;overflow:hidden;position:relative">
+      <div id="org-tree-scale-stage" style="transform-origin:top center;display:inline-block;position:relative;left:50%;transform:translateX(-50%)">
+        <div id="org-tree-graphic" style="display:inline-flex;justify-content:center;align-items:flex-start;white-space:normal;padding:4px 2px">
+          ${tree.map(node => this.renderNode(node, true)).join('')}
+        </div>
+      </div>
+    </div>`;
+  },
+
+  fitTreeToContainer() {
+    const viewport = document.getElementById('org-tree-viewport');
+    const stage = document.getElementById('org-tree-scale-stage');
+    const graphic = document.getElementById('org-tree-graphic');
+    if (!viewport || !stage || !graphic) return;
+
+    stage.style.transform = 'translateX(-50%) scale(1)';
+    stage.style.height = 'auto';
+    const naturalWidth = graphic.scrollWidth || graphic.offsetWidth;
+    const naturalHeight = graphic.offsetHeight;
+    const availableWidth = Math.max(1, viewport.clientWidth - 2);
+    const scale = Math.min(1, availableWidth / Math.max(1, naturalWidth));
+    stage.style.transform = `translateX(-50%) scale(${scale})`;
+    stage.style.height = `${Math.ceil(naturalHeight * scale)}px`;
   },
 
   renderNode(node, isRoot = false) {
@@ -243,12 +265,12 @@ const Organigrama = {
     const initials = node.employee_code || (node.full_name || 'IC').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 3);
 
     const avatarEl = node.isCompany
-      ? `<div style="width:44px;height:44px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 8px">IC</div>`
+      ? `<div style="width:34px;height:34px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">IC</div>`
       : node.isDept
-      ? `<div style="width:36px;height:36px;border-radius:8px;background:var(--surface-2);color:var(--text-muted);font-size:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 6px">🏢</div>`
+      ? `<div style="width:28px;height:28px;border-radius:7px;background:var(--surface-2);color:var(--text-muted);font-size:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 4px">🏢</div>`
       : node.avatar_url
-      ? `<img src="${node.avatar_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid var(--brand-dark);margin:0 auto 8px;display:block" />`
-      : `<div style="width:44px;height:44px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 8px">${initials}</div>`;
+      ? `<img src="${node.avatar_url}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--brand-dark);margin:0 auto 5px;display:block" />`
+      : `<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">${initials}</div>`;
 
     const nodeStyle = node.isCompany
       ? 'background:var(--brand-dark);color:#000;border:none'
@@ -276,22 +298,22 @@ const Organigrama = {
       : '';
 
     return `
-      <div class="org-node-wrap" style="display:inline-flex;flex-direction:column;align-items:center;margin:0 8px">
-        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;padding:12px 14px;border-radius:10px;min-width:120px;max-width:160px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
+      <div class="org-node-wrap" style="display:inline-flex;flex-direction:column;align-items:center;margin:0 5px">
+        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;padding:8px 9px;border-radius:8px;min-width:96px;max-width:116px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
           ${clickHandler} ${hoverHandler}>
           ${editBadge}
           ${avatarEl}
-          <div style="font-size:12px;font-weight:700;${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.full_name || node.name || ''}</div>
-          ${(node.job_title || node.position) ? `<div style="font-size:10px;${subtitleColor};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.job_title || node.position}</div>` : ''}
-          ${node.department && !node.isDept ? `<div style="font-size:10px;color:var(--brand-dark);font-weight:600;margin-top:2px">${node.department}</div>` : ''}
+          <div style="font-size:10px;font-weight:700;${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.full_name || node.name || ''}</div>
+          ${(node.job_title || node.position) ? `<div style="font-size:8px;${subtitleColor};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.job_title || node.position}</div>` : ''}
+          ${node.department && !node.isDept ? `<div style="font-size:8px;color:var(--brand-dark);font-weight:600;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.department}</div>` : ''}
         </div>
         ${hasChildren ? `
-          <div style="width:2px;height:16px;background:var(--border)"></div>
+          <div style="width:2px;height:10px;background:var(--border)"></div>
           <div style="display:flex;align-items:flex-start;position:relative">
-            ${node.children.length > 1 ? `<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);height:2px;background:var(--border);width:calc(100% - 32px)"></div>` : ''}
+            ${node.children.length > 1 ? `<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);height:2px;background:var(--border);width:calc(100% - 20px)"></div>` : ''}
             ${node.children.map(child => `
               <div style="display:inline-flex;flex-direction:column;align-items:center">
-                <div style="width:2px;height:16px;background:var(--border)"></div>
+                <div style="width:2px;height:10px;background:var(--border)"></div>
                 ${this.renderNode(child)}
               </div>
             `).join('')}
@@ -321,6 +343,7 @@ const Organigrama = {
     // Re-render org chart cu/fără edit mode
     const container = document.getElementById('org-chart-container');
     if (container) container.innerHTML = this.renderOrgChart();
+    setTimeout(() => this.fitTreeToContainer(), 0);
     this.closePopover();
   },
 
@@ -401,6 +424,7 @@ const Organigrama = {
       // Re-render org chart
       const container = document.getElementById('org-chart-container');
       if (container) container.innerHTML = this.renderOrgChart();
+      setTimeout(() => this.fitTreeToContainer(), 0);
     }
   },
 
