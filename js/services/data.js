@@ -335,6 +335,19 @@ const DB = {
     return dbQuery('proposals', q => q.insert(safeProposal).select().single(), null);
   },
 
+  async deleteProposal(proposalId) {
+    if (Auth.currentProfile?.role !== 'admin') {
+      return { error: new Error('Doar administratorii pot șterge propuneri.') };
+    }
+    if (APP_CONFIG.demoMode) {
+      const index = this.demo.proposals.findIndex(proposal => String(proposal.id) === String(proposalId));
+      if (index >= 0) this.demo.proposals.splice(index, 1);
+      return { error: null };
+    }
+    const sb = getSupabase();
+    return sb.from('proposals').delete().eq('id', proposalId);
+  },
+
   async getProposalProjectMemberships(userId) {
     if (APP_CONFIG.demoMode) return { data: [] };
     return dbQuery('project_members', q => q.select('project_id,user_id,projects(id,name,manager_id,status)').eq('user_id', userId), []);
