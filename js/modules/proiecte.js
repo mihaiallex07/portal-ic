@@ -1143,7 +1143,13 @@ const Proiecte = {
         const decisionDate = dec.decision_date || new Date(dec.created_at).toISOString().split('T')[0];
         const dateStr = new Date(decisionDate + 'T00:00:00').toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
         const createdByName = this.getUserName(dec.created_by) || 'Necunoscut';
-        const decisionMakerName = this.getUserName(dec.decision_maker) || 'Necunoscut';
+        const decisionMakerIds = Array.isArray(dec.decision_makers) && dec.decision_makers.length
+          ? dec.decision_makers
+          : (dec.decision_maker ? [dec.decision_maker] : []);
+        const decisionMakerName = decisionMakerIds
+          .map(id => this.getUserName(id))
+          .filter(Boolean)
+          .join(', ') || 'Necunoscut';
         const revisionBadge = !dec.is_latest ? '<span style="background:#EF4444;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600">Arhivat</span>' : '';
         const actionButtons = canEditDelete ? `
           <button onclick="Proiecte.openEditDecisionModal(${dec.id}, '${(dec.decision || '').replace(/'/g, "\'")}')"
@@ -1203,10 +1209,14 @@ const Proiecte = {
         
         <div style="margin-bottom:16px">
           <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Cine a luat decizia?</label>
-          <select id="modal-decision-maker" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box">
-            <option value="">— Selectați —</option>
-            ${memberOptions}
-          </select>
+          <div style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);padding:6px">
+            ${this.members.map(m => {
+              const user = this.allUsers.find(u => u.id === m.user_id);
+              const name = user?.full_name || user?.name || user?.email || 'Necunoscut';
+              return `<label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text-primary)"><input type="checkbox" name="modal-decision-makers" value="${m.user_id}" style="accent-color:var(--primary)"><span>${name}</span></label>`;
+            }).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Poți selecta toate persoanele care au participat la luarea deciziei.</div>
         </div>
         
         <div style="margin-bottom:20px">
@@ -1227,7 +1237,7 @@ const Proiecte = {
   async saveDecisionFromModal() {
     const decisionText = document.getElementById('modal-decision-text')?.value?.trim();
     const decisionDate = document.getElementById('modal-decision-date')?.value;
-    const decisionMakerId = document.getElementById('modal-decision-maker')?.value;
+    const decisionMakerIds = [...document.querySelectorAll('input[name="modal-decision-makers"]:checked')].map(input => input.value);
     
     if (!decisionText) {
       alert('Descrieți decizia!');
@@ -1237,8 +1247,8 @@ const Proiecte = {
       alert('Selectați data!');
       return;
     }
-    if (!decisionMakerId) {
-      alert('Selectați cine a luat decizia!');
+    if (decisionMakerIds.length === 0) {
+      alert('Selectați cel puțin o persoană care a luat decizia!');
       return;
     }
     
@@ -1254,7 +1264,8 @@ const Proiecte = {
         decision: decisionText,
         decision_date: decisionDate,
         created_by: profile.id,
-        decision_maker: decisionMakerId,
+        decision_maker: decisionMakerIds[0],
+        decision_makers: decisionMakerIds,
       }
     ]);
     
