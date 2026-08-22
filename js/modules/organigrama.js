@@ -265,12 +265,12 @@ const Organigrama = {
     const initials = node.employee_code || (node.full_name || 'IC').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 3);
 
     const avatarEl = node.isCompany
-      ? `<div style="width:34px;height:34px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">IC</div>`
+      ? `<div style="width:38px;height:38px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 6px">IC</div>`
       : node.isDept
-      ? `<div style="width:28px;height:28px;border-radius:7px;background:var(--surface-2);color:var(--text-muted);font-size:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 4px">🏢</div>`
+      ? `<div style="width:30px;height:30px;border-radius:7px;background:var(--surface-2);color:var(--text-muted);font-size:15px;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">🏢</div>`
       : node.avatar_url
-      ? `<img src="${node.avatar_url}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--brand-dark);margin:0 auto 5px;display:block" />`
-      : `<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 5px">${initials}</div>`;
+      ? `<img src="${node.avatar_url}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid var(--brand-dark);margin:0 auto 6px;display:block" />`
+      : `<div style="width:38px;height:38px;border-radius:50%;background:var(--brand-dark);color:#000;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 6px">${initials}</div>`;
 
     const nodeStyle = node.isCompany
       ? 'background:var(--brand-dark);color:#000;border:none'
@@ -299,21 +299,21 @@ const Organigrama = {
 
     return `
       <div class="org-node-wrap" style="display:inline-flex;flex-direction:column;align-items:center;margin:0 5px">
-        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;padding:8px 9px;border-radius:8px;min-width:96px;max-width:116px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
+        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;padding:10px 9px;border-radius:8px;min-width:96px;max-width:116px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
           ${clickHandler} ${hoverHandler}>
           ${editBadge}
           ${avatarEl}
-          <div style="font-size:10px;font-weight:700;${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.full_name || node.name || ''}</div>
-          ${(node.job_title || node.position) ? `<div style="font-size:8px;${subtitleColor};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.job_title || node.position}</div>` : ''}
-          ${node.department && !node.isDept ? `<div style="font-size:8px;color:var(--brand-dark);font-weight:600;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.department}</div>` : ''}
+          <div style="font-size:11px;font-weight:700;${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.full_name || node.name || ''}</div>
+          ${(node.job_title || node.position) ? `<div style="font-size:9px;${subtitleColor};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.job_title || node.position}</div>` : ''}
+          ${node.department && !node.isDept ? `<div style="font-size:9px;color:var(--brand-dark);font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.department}</div>` : ''}
         </div>
         ${hasChildren ? `
-          <div style="width:2px;height:10px;background:var(--border)"></div>
+          <div style="width:2px;height:12px;background:var(--border)"></div>
           <div style="display:flex;align-items:flex-start;position:relative">
             ${node.children.length > 1 ? `<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);height:2px;background:var(--border);width:calc(100% - 20px)"></div>` : ''}
             ${node.children.map(child => `
               <div style="display:inline-flex;flex-direction:column;align-items:center">
-                <div style="width:2px;height:10px;background:var(--border)"></div>
+                <div style="width:2px;height:12px;background:var(--border)"></div>
                 ${this.renderNode(child)}
               </div>
             `).join('')}
