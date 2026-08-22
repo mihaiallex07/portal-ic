@@ -8,6 +8,7 @@ const Formulare = {
   cereriMele: [],
   cereriPrimite: [],
   requestProjects: [],
+  requestCoordinators: {},
   activeTab: 'mele',
   filterStatus: 'all',
   filterTip: 'all',
@@ -63,12 +64,12 @@ const Formulare = {
   },
 
   recipientText(request) {
-    if (request.recipient_type === 'office') return 'Office · office@ingineriecreativa.ro';
+    if (request.recipient_type === 'office') return 'Office Manager';
     if (request.recipient_type === 'coordonator_proiect') {
       const project = request._project;
       const recipient = request._recipient;
       const projectLabel = project ? `${project.code || project.abbreviation || ''}${project.code || project.abbreviation ? ' · ' : ''}${project.name}` : 'proiect selectat';
-      return `Coordonator proiect · ${projectLabel}${recipient ? ` · ${recipient.full_name || recipient.name || 'Coordonator'}` : ''}`;
+      return `Coordonator de proiect · ${projectLabel}${recipient ? ` · ${recipient.full_name || recipient.name || 'Coordonator'}` : ''}`;
     }
     return 'Administrator';
   },
@@ -144,9 +145,34 @@ const Formulare = {
 
   async openCreateModal() {
     const sb = getSupabase();
-    const { data: projects, error } = await sb.from('projects').select('id,name,code,abbreviation,manager_id').eq('status', 'activ').not('manager_id', 'is', null).order('name');
-    if (error) console.error('[Formulare] proiecte pentru cerere:', error);
+    const userId = Auth.currentUser?.id;
+    const { data: memberships, error: membershipError } = await sb.from('project_members').select('project_id').eq('user_id', userId);
+    if (membershipError) console.error('[Formulare] apartenențe proiecte pentru cerere:', membershipError);
+    const memberProjectIds = [...new Set((memberships || []).map(item => item.project_id).filter(Boolean))];
+    const { data: projects, error: projectsError } = memberProjectIds.length
+      ? await sb.from('projects').select('id,name,code,abbreviation').eq('status', 'activ').in('id', memberProjectIds).order('name')
+      : { data: [], error: null };
+    if (projectsError) console.error('[Formulare] proiecte pentru cerere:', projectsError);
     this.requestProjects = projects || [];
+    const projectIds = this.requestProjects.map(project => project.id);
+    const { data: coordinatorMemberships, error: coordinatorsError } = projectIds.length
+      ? await sb.from('project_members').select('project_id,user_id').in('project_id', projectIds).eq('role', 'coordonator')
+      : { data: [], error: null };
+    if (coordinatorsError) console.error('[Formulare] coordonatori proiecte pentru cerere:', coordinatorsError);
+    const coordinatorIds = [...new Set((coordinatorMemberships || []).map(item => item.user_id).filter(Boolean))];
+    const { data: coordinatorProfiles, error: coordinatorProfilesError } = coordinatorIds.length
+      ? await sb.from('profiles').select('id,full_name,name,email,is_active').in('id', coordinatorIds).eq('is_active', true)
+      : { data: [], error: null };
+    if (coordinatorProfilesError) console.error('[Formulare] profiluri coordonatori pentru cerere:', coordinatorProfilesError);
+    const profileMap = Object.fromEntries((coordinatorProfiles || []).map(profile => [profile.id, profile]));
+    this.requestCoordinators = (coordinatorMemberships || []).reduce((map, membership) => {
+      const profile = profileMap[membership.user_id];
+      if (!profile) return map;
+      if (!map[membership.project_id]) map[membership.project_id] = [];
+      map[membership.project_id].push(profile);
+      return map;
+    }, {});
+    this.requestProjects = this.requestProjects.filter(project => (this.requestCoordinators[project.id] || []).length > 0);
     const projectOptions = this.requestProjects.map(project => `<option value="${project.id}">${this.escapeHtml(`${project.code || project.abbreviation || 'PRJ'} · ${project.name}`)}</option>`).join('');
     const modal = document.createElement('div');
     modal.id = 'cerere-modal';
@@ -154,8 +180,8 @@ const Formulare = {
     modal.innerHTML = `<div style="background:var(--card-bg);border-radius:16px;padding:28px 32px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px"><h2 style="font-size:18px;font-weight:700;margin:0">Cerere nouă</h2><button onclick="document.getElementById('cerere-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button></div>
       <div style="display:flex;flex-direction:column;gap:14px">
-        <div><label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px">Către cine trimiți cererea? *</label><select id="cerere-destinatar" onchange="Formulare.updateRecipientFields()" style="width:100%;padding:10px 12px;border:1.5px solid var(--brand);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="administrator">Administrator — 1-to-1 sau solicitări generale</option><option value="coordonator_proiect">Coordonatorul proiectului — proiect, task, buget de ore</option><option value="office">Office — hârtie, pixuri, căști, mouse, toner etc.</option></select><div id="cerere-destinatar-hint" style="font-size:12px;line-height:1.4;color:var(--text-muted);margin-top:6px">Administratorii văd toate cererile adresate lor.</div></div>
-        <div id="cerere-project-recipient" style="display:none"><label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px">Proiect și coordonator *</label>${this.requestProjects.length ? `<select id="cerere-destinatar-proiect" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="">Selectează proiectul</option>${projectOptions}</select>` : `<div style="padding:10px 12px;border-radius:8px;background:#fff7ed;color:#9a3412;font-size:12px">Nu există proiecte active cu coordonator configurat.</div>`}</div>
+        <div><label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px">Către cine trimiți cererea? *</label><select id="cerere-destinatar" onchange="Formulare.updateRecipientFields()" style="width:100%;padding:10px 12px;border:1.5px solid var(--brand);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="administrator">Administrator</option><option value="coordonator_proiect">Coordonator de proiect</option><option value="office">Office Manager</option></select><div id="cerere-destinatar-hint" style="font-size:12px;line-height:1.4;color:var(--text-muted);margin-top:6px">Cererea va fi trimisă administratorilor.</div></div>
+        <div id="cerere-project-recipient" style="display:none">${this.requestProjects.length ? `<div style="display:flex;flex-direction:column;gap:10px"><div><label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px">Proiect *</label><select id="cerere-destinatar-proiect" onchange="Formulare.updateCoordinatorOptions()" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="">Selectează proiectul</option>${projectOptions}</select><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sunt afișate doar proiectele în care ești înrolat.</div></div><div><label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:5px">Coordonator *</label><select id="cerere-destinatar-coordonator" disabled style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="">Alege mai întâi proiectul</option></select></div></div>` : `<div style="padding:10px 12px;border-radius:8px;background:#fff7ed;color:#9a3412;font-size:12px">Nu ești înrolat în niciun proiect activ cu coordonator configurat.</div>`}</div>
         <div><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Tip cerere *</label><select id="cerere-tip" onchange="Formulare.updateRequestTypeFields()" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)"><option value="echipament">💻 Echipament IT/Birou</option><option value="consumabile">📦 Consumabile (hârtie, toner etc.)</option><option value="extindere_ore">⏱ Extindere buget ore proiect/task</option><option value="altele">📝 Altele</option></select></div>
         <div><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Titlu / Subiect *</label><input id="cerere-titlu" type="text" placeholder="Ex.: Mouse wireless, hârtie A4 sau extindere buget task" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box"></div>
         <div><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Descriere / Motivație</label><textarea id="cerere-desc" rows="4" placeholder="Descrie necesitatea, cantitatea, urgența sau contextul proiectului." style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea></div>
@@ -167,6 +193,17 @@ const Formulare = {
     modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
   },
 
+  updateCoordinatorOptions() {
+    const projectId = Number(document.getElementById('cerere-destinatar-proiect')?.value) || null;
+    const select = document.getElementById('cerere-destinatar-coordonator');
+    if (!select) return;
+    const coordinators = projectId ? (this.requestCoordinators[projectId] || []) : [];
+    select.disabled = coordinators.length === 0;
+    select.innerHTML = coordinators.length
+      ? `<option value="">Selectează coordonatorul</option>${coordinators.map(person => `<option value="${person.id}">${this.escapeHtml(person.full_name || person.name || person.email || 'Coordonator')}</option>`).join('')}`
+      : '<option value="">Alege mai întâi proiectul</option>';
+  },
+
   updateRecipientFields() {
     const type = document.getElementById('cerere-destinatar')?.value;
     const projectBlock = document.getElementById('cerere-project-recipient');
@@ -175,7 +212,7 @@ const Formulare = {
     if (hint) hint.textContent = type === 'office'
       ? 'Cererea va ajunge la Office pentru necesități de birou.'
       : type === 'coordonator_proiect'
-        ? 'Selectează proiectul; cererea va fi trimisă automat coordonatorului acelui proiect.'
+        ? 'Alege proiectul, apoi coordonatorul acelui proiect.'
         : 'Cererea va fi notificată administratorilor, care pot vedea toate cererile adresate lor.';
   },
 
@@ -195,9 +232,11 @@ const Formulare = {
     const title = document.getElementById('cerere-titlu')?.value?.trim();
     const description = document.getElementById('cerere-desc')?.value?.trim();
     const projectId = recipientType === 'coordonator_proiect' ? Number(document.getElementById('cerere-destinatar-proiect')?.value) || null : null;
+    const recipientId = recipientType === 'coordonator_proiect' ? document.getElementById('cerere-destinatar-coordonator')?.value || null : null;
     if (!title) { showToast('Completează titlul cererii.', 'error'); return; }
     if (!recipientType) { showToast('Selectează destinatarul cererii.', 'error'); return; }
-    if (recipientType === 'coordonator_proiect' && !projectId) { showToast('Selectează proiectul pentru coordonator.', 'error'); return; }
+    if (recipientType === 'coordonator_proiect' && !projectId) { showToast('Selectează proiectul.', 'error'); return; }
+    if (recipientType === 'coordonator_proiect' && !recipientId) { showToast('Selectează coordonatorul proiectului.', 'error'); return; }
     const details = {};
     if (type === 'extindere_ore') {
       details.proiect = document.getElementById('cerere-proiect')?.value?.trim() || null;
@@ -211,6 +250,7 @@ const Formulare = {
       detalii: details,
       status: 'trimis',
       recipient_type: recipientType,
+      recipient_id: recipientId,
       project_id: projectId,
     });
     if (error) { showToast(`Eroare la trimitere: ${error.message}`, 'error'); return; }
