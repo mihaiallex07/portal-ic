@@ -39,7 +39,7 @@ const Propuneri = {
       manager_name: p.manager_name || p.manager?.full_name || '',
       votes_for: Number(p.votes_for || 0),
       votes_against: Number(p.votes_against || 0),
-      status: p.status || 'in_review',
+      status: p.status || 'deschisa',
     };
   },
 
@@ -162,14 +162,11 @@ const Propuneri = {
 
   statusMeta(status) {
     const map = {
-      in_review: { label: 'În analiză', color: '#B7791F', bg: '#FFF8E1' },
-      pending: { label: 'În așteptare', color: '#B7791F', bg: '#FFF8E1' },
-      approved: { label: 'Aprobată', color: '#16805C', bg: '#E7F7EF' },
-      aprobat: { label: 'Aprobată', color: '#16805C', bg: '#E7F7EF' },
-      rejected: { label: 'Respinsă', color: '#B42318', bg: '#FDECEC' },
-      respins: { label: 'Respinsă', color: '#B42318', bg: '#FDECEC' },
-      implemented: { label: 'Implementată', color: '#1769AA', bg: '#EAF4FF' },
-      implementata: { label: 'Implementată', color: '#1769AA', bg: '#EAF4FF' },
+      deschisa: { label: 'Deschisă', color: '#B7791F', bg: '#FFF8E1' },
+      in_evaluare: { label: 'În evaluare', color: '#B7791F', bg: '#FFF8E1' },
+      acceptata: { label: 'Acceptată', color: '#16805C', bg: '#E7F7EF' },
+      amanata: { label: 'Amânată', color: '#1769AA', bg: '#EAF4FF' },
+      respinsa: { label: 'Respinsă', color: '#B42318', bg: '#FDECEC' },
     };
     return map[status] || { label: status || 'În analiză', color: '#64748B', bg: '#F1F5F9' };
   },
@@ -330,7 +327,7 @@ const Propuneri = {
       description,
       author_id: authorId,
       manager_id: managerId,
-      status: 'in_review',
+      status: 'deschisa',
     };
     const { data, error } = await DB.createProposal(payload);
     if (error) { showToast('Eroare la trimitere: ' + error.message, 'error'); return; }
@@ -363,10 +360,11 @@ const Propuneri = {
     const proposal = this.items.find(p => String(p.id) === String(id));
     if (!proposal || !this.isReceived(proposal) || !this.canReview()) return;
     const options = [
-      ['in_review', 'În analiză'],
-      ['approved', 'Aprobată'],
-      ['rejected', 'Respinsă'],
-      ['implemented', 'Implementată'],
+      ['deschisa', 'Deschisă'],
+      ['in_evaluare', 'În evaluare'],
+      ['acceptata', 'Acceptată'],
+      ['amanata', 'Amânată'],
+      ['respinsa', 'Respinsă'],
     ].map(([value, label]) => `<option value="${value}" ${proposal.status === value ? 'selected' : ''}>${label}</option>`).join('');
     openModal(`Status propunere ${this.escapeHtml(proposal.reference_number || '')}`, `
       <div class="space-y-3">
