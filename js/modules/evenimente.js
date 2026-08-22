@@ -38,8 +38,9 @@ const Evenimente = {
     const today = new Date().toISOString().split('T')[0];
 
     let filtered = [...this.events];
-    if (this.filterStatus === 'upcoming') filtered = filtered.filter(e => e.event_date >= today);
-    else if (this.filterStatus === 'past') filtered = filtered.filter(e => e.event_date < today);
+    const isActiveRecurrence = event => event.is_recurring && (!event.recurrence_end_date || event.recurrence_end_date >= today);
+    if (this.filterStatus === 'upcoming') filtered = filtered.filter(e => e.event_date >= today || isActiveRecurrence(e));
+    else if (this.filterStatus === 'past') filtered = filtered.filter(e => e.event_date < today && !isActiveRecurrence(e));
 
     // Hide recurring event instances - show only parent events
     const displayEvents = filtered.filter(e => !e.recurrence_parent_id && !e.is_instance);
@@ -72,7 +73,7 @@ const Evenimente = {
         <div class="page-header" style="margin-bottom:24px">
           <div>
             <h1 class="page-title">Evenimente Firmă</h1>
-            <p class="page-subtitle">Calendarul evenimentelor interne Inginerie Creativă</p>
+            <p class="page-subtitle">Calendarul intern. Pentru evenimentele opționale, confirmă sau refuză participarea direct aici.</p>
           </div>
           <div class="flex gap-2 items-center flex-wrap">
             ${isAdmin ? `<button class="btn-secondary" onclick="Evenimente.openBulkDeleteModal()" style="background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5">🗑️ Ștergere în masă</button>` : ''}
@@ -130,6 +131,8 @@ const Evenimente = {
     }[ev.audience_type] || 'Toată echipa';
 
     const participantCount = ev.event_participants?.length || 0;
+    const recurrenceLabel = this._getRecurrenceLabel(ev);
+    const canRespond = !ev.is_mandatory && !isPast && (!myParticipation || myParticipation.status === 'pending');
 
     return `
       <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;gap:16px;align-items:flex-start;transition:box-shadow .15s;${isPast ? 'opacity:.7' : ''}${isToday ? 'border-left:3px solid var(--brand)' : ''}" onmouseenter="this.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'" onmouseleave="this.style.boxShadow='none'">
@@ -144,7 +147,7 @@ const Evenimente = {
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:6px">
             <span style="font-size:15px;font-weight:700;color:var(--text)">${ev.title}</span>
-            ${ev.is_recurring ? `<span style="font-size:11px;background:#e0e7ff;color:#6366f1;padding:2px 8px;border-radius:10px;font-weight:600">↻ Recurent</span>` : ''}
+            ${recurrenceLabel ? `<span style="font-size:11px;background:#e0e7ff;color:#4338ca;padding:2px 8px;border-radius:10px;font-weight:600">↻ ${recurrenceLabel}</span>` : ''}
             ${ev.is_mandatory ? `<span style="font-size:11px;background:#fee2e2;color:#ef4444;padding:2px 8px;border-radius:10px;font-weight:600">Obligatoriu</span>` : ''}
             ${isToday ? `<span style="font-size:11px;background:var(--brand);color:#000;padding:2px 8px;border-radius:10px;font-weight:700">AZI</span>` : ''}
           </div>
@@ -166,9 +169,9 @@ const Evenimente = {
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             ${ev.meeting_link ? `<a href="${ev.meeting_link}" target="_blank" style="font-size:12px;font-weight:600;color:var(--brand-dark);text-decoration:none;display:flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--brand);border-radius:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.82v6.36a1 1 0 0 1-1.447.89L15 14M3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/></svg>Intră în meeting</a>` : ''}
             ${myStatus ? `<span style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;background:${myStatus.bg};color:${myStatus.color}">${myStatus.label}</span>` : ''}
-            ${myParticipation && myParticipation.status === 'pending' && !isPast ? `
-              <button onclick="Evenimente.respondToEvent(${ev.id}, 'accepted')" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#d1fae5;color:#10b981;border:none;cursor:pointer;font-weight:600">✓ Confirm</button>
-              <button onclick="Evenimente.openDeclineModal(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#ef4444;border:none;cursor:pointer;font-weight:600">✗ Nu pot</button>
+            ${canRespond ? `
+              <button onclick="Evenimente.respondToEvent(${ev.id}, 'accepted')" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#d1fae5;color:#047857;border:none;cursor:pointer;font-weight:700">✓ Particip</button>
+              <button onclick="Evenimente.openDeclineModal(${ev.id})" style="font-size:12px;padding:4px 10px;border-radius:6px;background:#fee2e2;color:#b91c1c;border:none;cursor:pointer;font-weight:700">✗ Nu particip</button>
             ` : ''}
             ${canManage ? `
               <button onclick="Evenimente.openEditModal(Number('${ev.id}'))" style="font-size:12px;padding:4px 10px;border-radius:6px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);cursor:pointer;margin-left:auto">Editează</button>
@@ -179,6 +182,18 @@ const Evenimente = {
         </div>
       </div>
     `;
+  },
+
+  _getRecurrenceLabel(ev) {
+    if (!ev.is_recurring) return '';
+    const weekdayNames = ['Lu', 'Ma', 'Mi', 'Jo', 'Vi', 'Sâ', 'Du'];
+    const interval = Math.max(1, Number(ev.recurrence_interval) || 1);
+    if (ev.recurrence_type === 'daily') return ev.recurrence_weekdays_only ? 'Zilnic · Lu–Vi' : 'Zilnic';
+    if (ev.recurrence_type === 'weekly') {
+      const days = (ev.recurrence_days || []).map(day => weekdayNames[Number(day) - 1]).filter(Boolean).join(', ') || 'ziua aleasă';
+      return `${interval === 1 ? 'Săptămânal' : `La ${interval} săpt.`} · ${days}`;
+    }
+    return 'Recurent';
   },
 
   setFilter(f) {
@@ -296,7 +311,7 @@ const Evenimente = {
             </label>
           </div>
 
-          <!-- Recurentă -->
+          <!-- Recurență simplă -->
           <div style="border:1.5px solid var(--border);border-radius:10px;padding:14px">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:0">
               <input type="checkbox" id="ev-recurring" ${ev?.is_recurring ? 'checked' : ''} onchange="Evenimente._toggleRecurrence(this.checked)" style="accent-color:var(--brand);width:16px;height:16px">
@@ -305,29 +320,44 @@ const Evenimente = {
             <div id="ev-recurrence-options" style="display:${ev?.is_recurring ? 'block' : 'none'};margin-top:12px">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <div>
-                  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Frecvență</label>
-                  <select id="ev-rec-type" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)">
-                    <option value="daily" ${ev?.recurrence_type === 'daily' ? 'selected' : ''}>Zilnic</option>
+                  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Se repetă</label>
+                  <select id="ev-rec-type" onchange="Evenimente._toggleRecurrenceType()" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)">
+                    <option value="daily" ${(ev?.recurrence_type || 'daily') === 'daily' ? 'selected' : ''}>Zilnic</option>
                     <option value="weekly" ${ev?.recurrence_type === 'weekly' ? 'selected' : ''}>Săptămânal</option>
-                    <option value="monthly" ${ev?.recurrence_type === 'monthly' ? 'selected' : ''}>Lunar</option>
                   </select>
                 </div>
                 <div>
-                  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Data de final</label>
+                  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Până la (opțional)</label>
                   <input id="ev-rec-end" type="date" value="${ev?.recurrence_end_date || ''}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box">
                 </div>
               </div>
-              <div style="margin-top:10px">
-                <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px">Zile (pentru recurentă săptămânală)</label>
-                <div style="display:flex;gap:6px;flex-wrap:wrap">
-                  ${['Lu','Ma','Mi','Jo','Vi','Sâ','Du'].map((d, i) => `
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600">
-                      <input type="checkbox" name="ev-rec-day" value="${i + 1}" ${(ev?.recurrence_days || []).includes(i + 1) ? 'checked' : ''} style="accent-color:var(--brand)">
-                      ${d}
-                    </label>
-                  `).join('')}
+              <label id="ev-rec-weekdays-wrap" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin-top:12px">
+                <input type="checkbox" id="ev-rec-weekdays" ${ev?.recurrence_weekdays_only ? 'checked' : ''} style="accent-color:var(--brand);width:16px;height:16px">
+                Doar în zilele lucrătoare (luni–vineri)
+              </label>
+              <div id="ev-rec-weekly-options" style="margin-top:12px;display:${ev?.recurrence_type === 'weekly' ? 'block' : 'none'}">
+                <div style="display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:end">
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">La fiecare</label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <input id="ev-rec-interval" type="number" min="1" max="52" value="${Math.max(1, Number(ev?.recurrence_interval) || 1)}" style="width:58px;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text)">
+                      <span style="font-size:12px;color:var(--text-muted)">săptămână(i)</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px">În zilele</label>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      ${['Lu','Ma','Mi','Jo','Vi','Sâ','Du'].map((d, i) => `
+                        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600">
+                          <input type="checkbox" name="ev-rec-day" value="${i + 1}" ${(ev?.recurrence_days || []).includes(i + 1) ? 'checked' : ''} style="accent-color:var(--brand)">
+                          ${d}
+                        </label>
+                      `).join('')}
+                    </div>
+                  </div>
                 </div>
               </div>
+              <p style="font-size:11px;color:var(--text-muted);margin:10px 0 0">Evenimentul rămâne o singură regulă în listă; nu se creează copii pentru fiecare zi.</p>
             </div>
           </div>
 
@@ -349,12 +379,21 @@ const Evenimente = {
     document.body.appendChild(modal);
     // Inițializează opțiunile de audiență
     this._toggleAudienceOptions(ev?.audience_type || 'all', ev);
+    this._toggleRecurrenceType();
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   },
 
   _toggleRecurrence(checked) {
     const opts = document.getElementById('ev-recurrence-options');
     if (opts) opts.style.display = checked ? 'block' : 'none';
+  },
+
+  _toggleRecurrenceType() {
+    const isWeekly = document.getElementById('ev-rec-type')?.value === 'weekly';
+    const weeklyOptions = document.getElementById('ev-rec-weekly-options');
+    const weekdays = document.getElementById('ev-rec-weekdays-wrap');
+    if (weeklyOptions) weeklyOptions.style.display = isWeekly ? 'block' : 'none';
+    if (weekdays) weekdays.style.display = isWeekly ? 'none' : 'flex';
   },
 
   async _toggleAudienceOptions(type, ev) {
@@ -419,7 +458,12 @@ const Evenimente = {
     const recurrenceType = document.getElementById('ev-rec-type')?.value || null;
     const recurrenceEndDate = document.getElementById('ev-rec-end')?.value || null;
     const recurrenceDays = [...document.querySelectorAll('input[name="ev-rec-day"]:checked')].map(i => parseInt(i.value));
-    const sendNotif = document.getElementById('ev-reminder')?.checked !== false;
+    const recurrenceInterval = Math.max(1, parseInt(document.getElementById('ev-rec-interval')?.value, 10) || 1);
+    const weekdaysOnly = document.getElementById('ev-rec-weekdays')?.checked || false;
+    if (isRecurring && recurrenceType === 'weekly' && recurrenceDays.length === 0) {
+      showToast('Pentru recurența săptămânală selectează cel puțin o zi.', 'error');
+      return;
+    }
 
     const payload = {
       title,
@@ -438,6 +482,8 @@ const Evenimente = {
       recurrence_type: isRecurring ? recurrenceType : null,
       recurrence_end_date: isRecurring && recurrenceEndDate ? recurrenceEndDate : null,
       recurrence_days: isRecurring && recurrenceDays.length > 0 ? recurrenceDays : null,
+      recurrence_interval: isRecurring ? recurrenceInterval : 1,
+      recurrence_weekdays_only: isRecurring && recurrenceType === 'daily' ? weekdaysOnly : false,
       created_by: Auth.currentUser?.id,
       status: 'active',
     };
@@ -454,134 +500,9 @@ const Evenimente = {
 
     document.getElementById('event-modal')?.remove();
 
-    // Adaugă participanți și trimite notificări
-    if (savedEventId) {
-      await this._setupParticipantsAndNotify(savedEventId, payload, sendNotif, !editId);
-      // Dacă e recurent, generează instanțele
-      if (!editId && isRecurring && recurrenceEndDate) {
-        await this._generateRecurringInstances(savedEventId, payload);
-      }
-    }
-
     showToast(editId ? 'Eveniment actualizat!' : 'Eveniment creat cu succes!', 'success');
     await this.loadEvents();
     this.renderPage();
-  },
-
-  async _setupParticipantsAndNotify(eventId, payload, sendNotif, isNew) {
-    try {
-      const { data: users } = await DB.getUsers();
-      const allUsers = users || [];
-      let targetUsers = [];
-
-      if (payload.audience_type === 'all') {
-        targetUsers = allUsers;
-      } else if (payload.audience_type === 'role' && payload.audience_roles?.length) {
-        targetUsers = allUsers.filter(u => payload.audience_roles.includes(u.role));
-      } else if (payload.audience_type === 'custom' && payload.audience_user_ids?.length) {
-        targetUsers = allUsers.filter(u => payload.audience_user_ids.includes(u.id));
-      }
-
-      if (targetUsers.length > 0) {
-        const userIds = targetUsers.map(u => u.id);
-        await DB.addEventParticipants(eventId, userIds);
-
-        // Notificări în portal
-        if (sendNotif && isNew) {
-          const sb = getSupabase();
-          const currentUserId = Auth.currentUser?.id;
-          const notifRows = targetUsers
-            .filter(u => u.id !== currentUserId)
-            .map(u => {
-              let st = '', et = '';
-              if (payload.start_time) {
-                const parts = payload.start_time.split('T');
-                if (parts[1]) st = parts[1].slice(0,5);
-              }
-              if (payload.end_time) {
-                const parts = payload.end_time.split('T');
-                if (parts[1]) et = parts[1].slice(0,5);
-              }
-              return {
-                user_id: u.id,
-                type: 'event',
-                title: `📅 Eveniment nou: ${payload.title}`,
-                message: `${payload.event_date} • ${st}${et ? '–' + et : ''}${payload.location ? ' • ' + payload.location : ''}`,
-                link: '#evenimente',
-                is_read: false,
-              };
-            });
-          if (notifRows.length > 0) {
-            const { error: notifError } = await sb.from('notifications').insert(notifRows);
-            if (notifError) console.warn('Notification insert error:', notifError);
-            else console.log('Notifications sent:', notifRows.length);
-            // Actualizează badge notificări
-            if (typeof updateNotifBadge === 'function') updateNotifBadge();
-          }
-        }
-      }
-    } catch(e) { console.warn('Setup participants error:', e); }
-  },
-
-    async _generateRecurringInstances(parentId, payload) {
-    try {
-      const startDate = new Date(payload.event_date + 'T00:00:00');
-      const endDate = new Date(payload.recurrence_end_date + 'T00:00:00');
-      const instances = [];
-      let current = new Date(startDate);
-      let count = 0;
-
-      // Funcție de avansare în funcție de tip
-      const advance = () => {
-        if (payload.recurrence_type === 'daily') {
-          current.setDate(current.getDate() + 1);
-        } else if (payload.recurrence_type === 'weekly') {
-          // Pentru weekly avansăm zi cu zi și verificăm ziua
-          current.setDate(current.getDate() + 1);
-        } else if (payload.recurrence_type === 'monthly') {
-          current.setMonth(current.getMonth() + 1);
-        }
-      };
-
-      // Avansează prima dată pentru a nu duplica evenimentul principal
-      advance();
-
-      while (current <= endDate && count < 500) {
-        count++;
-        const dateStr = current.toISOString().split('T')[0];
-
-        // Pentru weekly: verifică dacă ziua curentă e în lista de zile selectate
-        if (payload.recurrence_type === 'weekly') {
-          const dayOfWeek = current.getDay() === 0 ? 7 : current.getDay(); // 1=Lu..7=Du
-          if (!payload.recurrence_days?.length || payload.recurrence_days.includes(dayOfWeek)) {
-            instances.push({
-              ...payload,
-              event_date: dateStr,
-              recurrence_parent_id: parentId,
-              is_instance: true,
-              is_recurring: false,
-            });
-          }
-          advance();
-          continue;
-        }
-
-        instances.push({
-          ...payload,
-          event_date: dateStr,
-          recurrence_parent_id: parentId,
-          is_instance: true,
-          is_recurring: false,
-        });
-        advance();
-      }
-
-      // Inserează în batch-uri de 50
-      const sb = getSupabase();
-      for (let i = 0; i < instances.length; i += 50) {
-        await sb.from('company_events').insert(instances.slice(i, i + 50));
-      }
-    } catch(e) { console.warn('Recurring instances error:', e); }
   },
 
   // ── RĂSPUNS PARTICIPARE ────────────────────────────────────
@@ -591,44 +512,7 @@ const Evenimente = {
     const { error } = await DB.upsertEventParticipant(eventId, userId, status, declineReason);
     if (error) { showToast('Eroare la confirmare: ' + error.message, 'error'); return; }
 
-    // Dacă confirm participarea la un eveniment cu count_as_work_hours=true, înregistrează ore
-    if (status === 'accepted') {
-      try {
-        const ev = this.events.find(e => e.id === eventId);
-        if (ev && ev.count_as_work_hours && ev.start_time && ev.end_time) {
-          const startDt = new Date(ev.start_time);
-          const endDt = new Date(ev.end_time);
-          const durationMin = Math.round((endDt - startDt) / 60000);
-          if (durationMin > 0) {
-            const sb = getSupabase();
-            // Verifică dacă nu există deja o intrare pentru acest eveniment
-            const { data: existing } = await sb.from('time_entries')
-              .select('id')
-              .eq('user_id', userId)
-              .eq('date', ev.event_date)
-              .eq('task_name', ev.title)
-              .eq('activity_type', 'meeting')
-              .limit(1);
-            if (!existing || existing.length === 0) {
-              await DB.createTimeEntry({
-                user_id: userId,
-                date: ev.event_date,
-                task_name: ev.title,
-                activity_type: 'meeting',
-                duration_minutes: durationMin,
-                start_time: ev.start_time,
-                end_time: ev.end_time,
-                description: `Eveniment firmă: ${ev.title}`,
-                is_billable: false,
-                status: 'approved',
-              });
-            }
-          }
-        }
-      } catch(e) { console.warn('Time entry event error:', e); }
-    }
-
-    showToast(status === 'accepted' ? '✓ Participare confirmată! Orele au fost înregistrate automat.' : '✗ Răspuns înregistrat', 'success');
+    showToast(status === 'accepted' ? '✓ Participare confirmată. Activitatea este adăugată automat în Time-Tracking.' : '✗ Răspuns înregistrat', 'success');
     await this.loadEvents();
     this.renderPage();
   },
@@ -640,7 +524,7 @@ const Evenimente = {
     modal.innerHTML = `
       <div style="background:var(--card-bg);border-radius:12px;padding:24px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.2)">
         <h3 style="margin:0 0 12px;font-size:16px;font-weight:700">Motiv absență</h3>
-        <textarea id="decline-reason" rows="3" placeholder="Motivul pentru care nu poți participa (opțional)..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
+        <textarea id="decline-reason" rows="3" placeholder="Scrie motivul pentru care nu poți participa..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
           <button onclick="document.getElementById('decline-modal').remove()" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:8px;background:transparent;color:var(--text);cursor:pointer;font-size:13px">Anulează</button>
           <button onclick="Events_declineConfirm(${eventId})" style="padding:8px 16px;border:none;border-radius:8px;background:#ef4444;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Confirmă absența</button>
@@ -843,6 +727,10 @@ const Evenimente = {
 // Helper global pentru decline confirm
 function Events_declineConfirm(eventId) {
   const reason = document.getElementById('decline-reason')?.value?.trim();
+  if (!reason) {
+    showToast('Scrie motivul pentru care nu poți participa.', 'error');
+    return;
+  }
   document.getElementById('decline-modal')?.remove();
   Evenimente.respondToEvent(eventId, 'declined', reason);
 }
