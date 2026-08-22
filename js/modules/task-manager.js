@@ -1751,7 +1751,21 @@ const TaskManager = {
       timeEntries: timeEntries || [],
       manualHours: manualHours || [],
       tasks: tasksData,
-      completionTasks: completionTasksData,
+      completionSummary: (() => {
+        const completed = completionTasksData.filter(t => {
+          const status = String(t.status || '').toLowerCase();
+          const budget = Number(t.budget_hours) || 0;
+          const worked = (Number(t.minutes_worked) || 0) / 60;
+          return status === 'done' || status === 'finalizat' || (budget > 0 && worked >= budget);
+        });
+        const underBudget = completed.filter(t => {
+          const budget = Number(t.budget_hours) || 0;
+          const worked = (Number(t.minutes_worked) || 0) / 60;
+          return budget > 0 && worked < budget;
+        });
+        const savedHours = underBudget.reduce((sum, t) => sum + Math.max(0, (Number(t.budget_hours) || 0) - ((Number(t.minutes_worked) || 0) / 60)), 0);
+        return { total: completed.length, underBudget: underBudget.length, savedHours };
+      })(),
       projects: projectsData,
       phases: phasesData,
       projectFilter: projectId
@@ -1824,6 +1838,13 @@ const TaskManager = {
       <div style="margin-top:20px">
     `;
     
+    const completionSummary = data.completionSummary || { total: 0, underBudget: 0, savedHours: 0 };
+    html += '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0">' +
+      '<div style="padding:12px 14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px"><div style="font-size:11px;color:var(--text-muted)">Task-uri finalizate</div><strong style="display:block;margin-top:4px;font-size:22px;color:var(--text-primary)">' + completionSummary.total + '</strong></div>' +
+      '<div style="padding:12px 14px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px"><div style="font-size:11px;color:#047857">Finalizate sub buget</div><strong style="display:block;margin-top:4px;font-size:22px;color:#047857">' + completionSummary.underBudget + '</strong></div>' +
+      '<div style="padding:12px 14px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px"><div style="font-size:11px;color:#92400E">Ore economisite</div><strong style="display:block;margin-top:4px;font-size:22px;color:#92400E">' + (Math.round((completionSummary.savedHours + Number.EPSILON) * 10) / 10).toFixed(1).replace(/\.0$/, '') + 'h</strong></div>' +
+      '</div>';
+
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
       const project = group.project;
@@ -1946,8 +1967,18 @@ const TaskManager = {
     doc.text(data.dateTimeStr, margin + 50, yPosition);
     yPosition += 12;
     
-    // Group data
-    const grouped = {};
+    const completionSummary = data.completionSummary || { total: 0, underBudget: 0, savedHours: 0 };
+    if (completionSummary.total > 0) {
+      doc.setFillColor(236, 253, 245);
+      doc.rect(margin, yPosition - 4, pageWidth - 2 * margin, 12, 'F');
+      doc.setTextColor(4, 120, 87);
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(9);
+      doc.text('Task-uri finalizate: ' + completionSummary.total + ' | Sub buget: ' + completionSummary.underBudget + ' | Economisite: ' + (Math.round((completionSummary.savedHours + Number.EPSILON) * 10) / 10).toFixed(1).replace(/\.0$/, '') + 'h', margin + 4, yPosition + 3);
+      yPosition += 18;
+      doc.setTextColor(0, 0, 0);
+    }
+    // Group data    const grouped = {};
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
       const projectId = entry.project_id;
@@ -2090,7 +2121,16 @@ const TaskManager = {
     const metaRow4 = worksheet.insertRow(7, ['Data generrii:', data.dateTimeStr]);
     metaRow4.font = { size: 10 };
     
-    worksheet.insertRow(8, []);
+    const completionSummary = data.completionSummary || { total: 0, underBudget: 0, savedHours: 0 };
+    const completionRow = worksheet.insertRow(8, ['Task-uri finalizate', completionSummary.total, 'Finalizate sub buget', completionSummary.underBudget]);
+    completionRow.font = { bold: true, size: 10 };
+    completionRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+    completionRow.getCell(2).alignment = { horizontal: 'right' };
+    completionRow.getCell(4).alignment = { horizontal: 'right' };
+    const savedRow = worksheet.insertRow(9, ['Ore economisite', (Math.round((completionSummary.savedHours + Number.EPSILON) * 10) / 10).toFixed(1).replace(/\.0$/, '') + 'h']);
+    savedRow.font = { bold: true, size: 10, color: { argb: 'FF92400E' } };
+    savedRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+    savedRow.getCell(2).alignment = { horizontal: 'right' };
     
     // Data header - YELLOW background
     const dataHeaderRow = worksheet.insertRow(9, ['Proiect', 'Etapa', 'Task', 'Ore']);
