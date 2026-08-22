@@ -37,9 +37,10 @@ const Propuneri = {
       ...p,
       author_name: p.author_name || p.author?.full_name || p.profiles?.full_name || 'Anonim',
       manager_name: p.manager_name || p.manager?.full_name || '',
-      votes_for: Number(p.votes_count ?? p.votes_for ?? 0),
-      votes_against: 0,
-      user_voted: p.user_voted || null,
+      votes_support: Number(p.votes_support ?? p.votes_count ?? p.votes_for ?? 0),
+      votes_oppose: Number(p.votes_oppose ?? 0),
+      votes_neutral: Number(p.votes_neutral ?? 0),
+      user_vote_type: p.user_vote_type || null,
       status: p.status || 'deschisa',
     };
   },
@@ -182,11 +183,14 @@ const Propuneri = {
 
   recipientLabel(proposal) {
     if (proposal.manager_id) return `Coordonator: ${this.escapeHtml(proposal.manager_name || 'coordonatorul proiectului')}`;
-    return 'Destinatar: echipa de admini';
+    return 'Destinatar: Administrator';
   },
 
   renderCard(proposal) {
-    const total = Number(proposal.votes_for || 0);
+    const support = Number(proposal.votes_support || 0);
+    const oppose = Number(proposal.votes_oppose || 0);
+    const neutral = Number(proposal.votes_neutral || 0);
+    const total = support + oppose + neutral;
     const isReceived = this.activeTab === 'received' && this.isReceived(proposal);
     const canChangeStatus = isReceived && this.canReview();
     const id = this.jsArg(proposal.id);
@@ -205,16 +209,17 @@ const Propuneri = {
             <div style="font-size:15px;font-weight:700;margin-bottom:5px">${this.escapeHtml(proposal.title)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${this.recipientLabel(proposal)}</div>
             <div class="text-sm text-muted mb-3" style="line-height:1.55">${description}</div>
-            <div class="flex items-center gap-3">
-              <button class="vote-btn for ${proposal.user_voted === 'for' ? 'voted' : ''}" onclick="Propuneri.vote(${id})" title="Susțin această idee">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
-                <span>${proposal.user_voted === 'for' ? 'Susținută' : 'Susțin'}</span>
-                <strong>${total}</strong>
+            <div class="flex items-center gap-2" style="flex-wrap:wrap">
+              <button class="vote-btn for ${proposal.user_vote_type === 'support' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'support')" title="Susțin această idee">
+                <span>↑ ${proposal.user_vote_type === 'support' ? 'Susținută' : 'Susțin'}</span><strong>${support}</strong>
               </button>
-              <div style="flex:1">
-                <div class="progress-bar"><div class="progress-fill" style="width:${total > 0 ? 100 : 0}%;background:var(--success)"></div></div>
-                <div class="text-xs text-muted text-center mt-1">${total} ${total === 1 ? 'susținere' : 'susțineri'} · feedback comunitar</div>
-              </div>
+              <button class="vote-btn against ${proposal.user_vote_type === 'oppose' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'oppose')" title="Nu susțin această idee">
+                <span>↓ Nu susțin</span><strong>${oppose}</strong>
+              </button>
+              <button class="vote-btn ${proposal.user_vote_type === 'neutral' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'neutral')" title="Feedback neutru" style="border-color:${proposal.user_vote_type === 'neutral' ? 'var(--primary)' : 'var(--border)'};color:${proposal.user_vote_type === 'neutral' ? '#6B5700' : 'var(--text-muted)'}">
+                <span>− Neutru</span><strong>${neutral}</strong>
+              </button>
+              <span class="text-xs text-muted" style="margin-left:auto">${total} răspunsuri · feedback comunitar</span>
             </div>
           </div>
           ${canChangeStatus ? `<button onclick="Propuneri.openStatusModal(${id})" style="flex:0 0 auto;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer" title="Actualizează statusul">Status</button>` : ''}
@@ -223,9 +228,9 @@ const Propuneri = {
     `;
   },
 
-  async vote(id) {
-    const { error } = await DB.voteProposal(id);
-    if (error) { showToast('Eroare la susținere: ' + error.message, 'error'); return; }
+  async vote(id, voteType) {
+    const { error } = await DB.voteProposal(id, voteType);
+    if (error) { showToast('Eroare la feedback: ' + error.message, 'error'); return; }
     await this.render();
   },
 
@@ -261,7 +266,7 @@ const Propuneri = {
         <div>
           <label class="label">Trimite către *</label>
           <select id="prop-target" class="input" onchange="Propuneri.updateRecipientFields()">
-            <option value="admin_team">Echipa de admini</option>
+            <option value="admin_team">Administrator</option>
             ${coordinatorOptions || '<option value="" disabled>Niciun coordonator de proiect disponibil</option>'}
           </select>
           <div class="text-xs text-muted" style="margin-top:5px">Pentru coordonator, selectează și proiectul activ de mai jos.</div>
@@ -291,13 +296,6 @@ const Propuneri = {
     if (wrap) wrap.style.display = target === 'admin_team' ? 'none' : 'block';
   },
 
-  makeReference() {
-    const now = new Date();
-    const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 90 + 10)}`;
-    return `PROP-${date}-${suffix}`;
-  },
-
   async saveNew() {
     const title = document.getElementById('prop-title')?.value?.trim();
     const desc = document.getElementById('prop-desc')?.value?.trim();
@@ -322,7 +320,6 @@ const Propuneri = {
     if (!authorId) { showToast('Sesiunea nu este disponibilă. Reautentifică-te.', 'error'); return; }
     const description = projectName ? `Proiect vizat: ${projectName}\n\n${desc}` : desc;
     const payload = {
-      reference_number: this.makeReference(),
       title,
       description,
       author_id: authorId,
