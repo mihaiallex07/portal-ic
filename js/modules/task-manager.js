@@ -158,9 +158,13 @@ const TaskManager = {
           if (!seenIds.has(u.id)) { seenIds.add(u.id); uniqueUsers.push(u); }
         });
 
-        let computedStatus = task.status || 'de_facut';
-        if (pct >= 100) computedStatus = 'depasit';
-        else if (pct > 0 || (window.activeTimerData?.taskId === task.id)) computedStatus = 'activ';
+        const explicitStatus = String(task.status || '').toLowerCase();
+        const isExplicitlyCompleted = explicitStatus === 'done' || explicitStatus === 'finalizat';
+        let computedStatus = isExplicitlyCompleted ? 'finalizat' : (task.status || 'de_facut');
+        if (!isExplicitlyCompleted) {
+          if (pct >= 100) computedStatus = 'depasit';
+          else if (pct > 0 || (window.activeTimerData?.taskId === task.id)) computedStatus = 'activ';
+        }
 
         let budgetAlert = null;
         if (budgetH > 0) {
@@ -292,6 +296,10 @@ const TaskManager = {
           <span class="tm-stat-value">${stats.de_facut}</span>
           <span class="tm-stat-label">De făcut</span>
         </div>
+        <div class="tm-stat" onclick="TaskManager.setFilter('status','finalizat')" style="cursor:pointer">
+          <span class="tm-stat-value" style="color:#3B82F6">${stats.finalizat}</span>
+          <span class="tm-stat-label">Finalizate</span>
+        </div>
         <div class="tm-stat tm-stat-depasit" onclick="TaskManager.setFilter('status','depasit')" style="cursor:pointer">
           <span class="tm-stat-value">${stats.depasit}</span>
           <span class="tm-stat-label">Buget depășit</span>
@@ -312,6 +320,7 @@ const TaskManager = {
             <option value="all" ${this.filterStatus === 'all' ? 'selected' : ''}>Toate statusurile</option>
             <option value="activ" ${this.filterStatus === 'activ' ? 'selected' : ''}>▶ În lucru</option>
             <option value="de_facut" ${this.filterStatus === 'de_facut' ? 'selected' : ''}>○ De făcut</option>
+            <option value="finalizat" ${this.filterStatus === 'finalizat' ? 'selected' : ''}>✓ Finalizat</option>
             <option value="depasit" ${this.filterStatus === 'depasit' ? 'selected' : ''}>⚠ Buget depășit</option>
             <option value="alert" ${this.filterStatus === 'alert' ? 'selected' : ''}>🔔 Alertă buget</option>
           </select>
@@ -1191,10 +1200,10 @@ const TaskManager = {
       );
     }
 
-    const statusOrder = { depasit: 0, activ: 1, alert: 2, de_facut: 3 };
+    const statusOrder = { depasit: 0, activ: 1, alert: 2, finalizat: 3, de_facut: 4 };
     tasks.sort((a, b) => {
-      const ao = statusOrder[a.computedStatus] ?? 3;
-      const bo = statusOrder[b.computedStatus] ?? 3;
+      const ao = statusOrder[a.computedStatus] ?? 4;
+      const bo = statusOrder[b.computedStatus] ?? 4;
       if (ao !== bo) return ao - bo;
       return b.pct - a.pct;
     });
@@ -1207,8 +1216,9 @@ const TaskManager = {
     const activ = this.tasks.filter(t => t.computedStatus === 'activ').length;
     const de_facut = this.tasks.filter(t => t.computedStatus === 'de_facut').length;
     const depasit = this.tasks.filter(t => t.computedStatus === 'depasit').length;
+    const finalizat = this.tasks.filter(t => t.computedStatus === 'finalizat').length;
     const alert = this.tasks.filter(t => t.budgetAlert && t.budgetAlert !== 'exceeded').length;
-    return { total, activ, de_facut, depasit, alert };
+    return { total, activ, de_facut, depasit, finalizat, alert };
   },
 
   // ── RENDER TASK CARD (tab personal) ───────────────────────────
@@ -1664,10 +1674,8 @@ const TaskManager = {
       return;
     }
     
-    if (!timeEntries || timeEntries.length === 0) {
-      alert('Nu sunt ore înregistrate pentru perioada selectată!');
-      return;
-    }
+    // Continuăm și când nu există ore în perioadă: un task poate fi finalizat
+    // manual fără să aibă consum în intervalul selectat.
     
     // Fetch manual hours
     let manualQuery = sb.from('manual_hours_log')
@@ -1678,18 +1686,45 @@ const TaskManager = {
     
     const { data: manualHours } = await manualQuery;
     
-    // Fetch tasks with project and phase info
-    const taskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id).filter(Boolean), ...(manualHours || []).map(m => m.task_id).filter(Boolean)])];
+    // Fetch tasks with project and phase info, inclusiv task-uri finalizate fără ore în interval.
+    const timeTaskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id).filter(Boolean), ...(manualHours || []).map(m => m.task_id).filter(Boolean)])];
+    const selectedUserId = String(userId);
+    const assignedProjectIds = this.allAssignments
+      .filter(a => String(a.user_id) === selectedUserId)
+      .map(a => Number(a.project_id))
+      .filter(Number.isFinite);
+    const fallbackProjectIds = (timeEntries || []).map(t => Number(t.project_id)).filter(Number.isFinite);
+    const reportProjectIds = [...new Set((projectId ? [Number(projectId)] : [...assignedProjectIds, ...fallbackProjectIds]))];
+    const assignedTaskIds = this.allAssignments
+      .filter(a => String(a.user_id) === selectedUserId && (!projectId || Number(a.project_id) === Number(projectId)))
+      .map(a => a.task_id)
+      .filter(Boolean);
+    const taskIds = [...new Set([...timeTaskIds, ...assignedTaskIds])];
     let tasksData = [];
     if (taskIds.length > 0) {
       const { data: tasks } = await sb.from('project_tasks')
-        .select('id,name,project_id,phase_id')
+        .select('id,name,project_id,phase_id,status,budget_hours,minutes_worked,assigned_user_id,assigned_users')
         .in('id', taskIds);
       tasksData = tasks || [];
     }
+    let completionTasksData = [...tasksData];
+    if (reportProjectIds.length > 0) {
+      const { data: projectTasks } = await sb.from('project_tasks')
+        .select('id,name,project_id,phase_id,status,budget_hours,minutes_worked,assigned_user_id,assigned_users')
+        .in('project_id', reportProjectIds);
+      const assignedTaskIdSet = new Set(assignedTaskIds.map(String));
+      const selectedProjectTasks = (projectTasks || []).filter(task =>
+        assignedTaskIdSet.has(String(task.id)) ||
+        String(task.assigned_user_id || '') === selectedUserId ||
+        (Array.isArray(task.assigned_users) && task.assigned_users.map(String).includes(selectedUserId)) ||
+        timeTaskIds.map(String).includes(String(task.id))
+      );
+      const byId = new Map([...completionTasksData, ...selectedProjectTasks].map(task => [String(task.id), task]));
+      completionTasksData = [...byId.values()];
+    }
     
     // Fetch projects
-    const projectIds = [...new Set([...(timeEntries || []).map(t => t.project_id).filter(Boolean), ...tasksData.map(t => t.project_id).filter(Boolean)])];
+    const projectIds = [...new Set([...(timeEntries || []).map(t => t.project_id).filter(Boolean), ...tasksData.map(t => t.project_id).filter(Boolean), ...completionTasksData.map(t => t.project_id).filter(Boolean)])];
     let projectsData = [];
     if (projectIds.length > 0) {
       const { data: projects } = await sb.from('projects')
@@ -1699,7 +1734,7 @@ const TaskManager = {
     }
     
     // Fetch phases
-    const phaseIds = [...new Set(tasksData.map(t => t.phase_id).filter(Boolean))];
+    const phaseIds = [...new Set([...tasksData, ...completionTasksData].map(t => t.phase_id).filter(Boolean))];
     let phasesData = [];
     if (phaseIds.length > 0) {
       const { data: phases } = await sb.from('project_phases')
@@ -1716,6 +1751,7 @@ const TaskManager = {
       timeEntries: timeEntries || [],
       manualHours: manualHours || [],
       tasks: tasksData,
+      completionTasks: completionTasksData,
       projects: projectsData,
       phases: phasesData,
       projectFilter: projectId
@@ -1851,7 +1887,8 @@ const TaskManager = {
   },
 
   exportReportPDF(data) {
-    if (!data || !data.timeEntries || data.timeEntries.length === 0) {
+    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0);
+    if (!hasReportData) {
       alert('Nu sunt date de exportat');
       return;
     }
@@ -2001,7 +2038,8 @@ const TaskManager = {
   },
 
   exportReportExcel(data) {
-    if (!data || !data.timeEntries || data.timeEntries.length === 0) {
+    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0);
+    if (!hasReportData) {
       alert('Nu sunt date de exportat');
       return;
     }
