@@ -111,6 +111,135 @@ const ProcessOverview = {
       .map(([label, groupUsers]) => ({ label, users: groupUsers.sort(alpha) }));
   },
 
+  // Configurația Gantt este comună pentru firmă și poate fi modificată numai de admin.
+  layoutLoaded: false,
+  layoutDraft: null,
+
+  canManageView() { return this.isAdmin(); },
+  settingsKey() { return 'process_overview_layout'; },
+  defaultViewSettings() { return { userIds: null, departmentOrder: [], userOrder: [] }; },
+
+  async loadViewSettings() {
+    if (this.layoutLoaded) return;
+    this.viewSettings = this.defaultViewSettings();
+    try {
+      const { data } = await getSupabase().from('app_settings').select('value').eq('key', this.settingsKey()).maybeSingle();
+      if (data?.value) this.viewSettings = { ...this.viewSettings, ...JSON.parse(data.value) };
+    } catch (_) {}
+    this.layoutLoaded = true;
+  },
+
+  async saveViewSettings() {
+    if (!this.isAdmin()) return;
+    const sb = getSupabase();
+    const payload = { key: this.settingsKey(), value: JSON.stringify(this.viewSettings), updated_by: Auth.currentUser?.id || Auth.currentProfile?.id, updated_at: new Date().toISOString() };
+    const { data: existing } = await sb.from('app_settings').select('id').eq('key', this.settingsKey()).maybeSingle();
+    const result = existing ? await sb.from('app_settings').update(payload).eq('id', existing.id) : await sb.from('app_settings').insert(payload);
+    if (result.error) throw result.error;
+  },
+
+  async resetViewSettings() {
+    if (!this.isAdmin()) return;
+    this.viewSettings = this.defaultViewSettings();
+    await this.saveViewSettings();
+    this.renderPage();
+  },
+
+  userRoleLabel(user) { return user.position || user.job_title || 'Funcție necompletată'; },
+  activeUsers() { return this.users.filter(user => user.is_active !== false); },
+
+  orderedDepartments() {
+    const available = [...new Set(this.activeUsers().map(user => user.department || 'General'))];
+    const saved = this.viewSettings?.departmentOrder || [];
+    return [...saved.filter(department => available.includes(department)), ...available.filter(department => !saved.includes(department)).sort((a, b) => a.localeCompare(b, 'ro'))];
+  },
+
+  orderedUsers(department) {
+    const users = this.activeUsers().filter(user => (user.department || 'General') === department);
+    const saved = this.viewSettings?.userOrder || [];
+    const index = id => { const found = saved.indexOf(String(id)); return found < 0 ? Number.MAX_SAFE_INTEGER : found; };
+    return users.sort((a, b) => index(a.id) - index(b.id) || String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro'));
+  },
+
+  visibleUsers() {
+    const ids = this.viewSettings?.userIds;
+    const selected = ids === null || !ids ? null : new Set(ids.map(String));
+    return this.activeUsers().filter(user => !selected || selected.has(String(user.id)));
+  },
+
+  groupedUsers() {
+    const selected = new Set(this.visibleUsers().map(user => String(user.id)));
+    return this.orderedDepartments().map(label => ({ label, users: this.orderedUsers(label).filter(user => selected.has(String(user.id))) })).filter(group => group.users.length);
+  },
+
+  draftOrderedUsers(department) {
+    const users = this.activeUsers().filter(user => (user.department || 'General') === department);
+    const order = this.layoutDraft?.userOrder || [];
+    const index = id => { const found = order.indexOf(String(id)); return found < 0 ? Number.MAX_SAFE_INTEGER : found; };
+    return users.sort((a, b) => index(a.id) - index(b.id) || String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro'));
+  },
+
+  openLayoutEditor() {
+    if (!this.isAdmin()) return;
+    const allUsers = this.activeUsers();
+    this.layoutDraft = {
+      userIds: this.viewSettings.userIds === null ? allUsers.map(user => String(user.id)) : [...this.viewSettings.userIds],
+      departmentOrder: [...this.orderedDepartments()],
+      userOrder: [...(this.viewSettings.userOrder || [])],
+    };
+    openModal('Aranjare Process Overview', `<p class="text-sm text-muted" style="margin:0 0 12px">Selectează persoanele și stabilește ordinea departamentelor și a oamenilor. Setarea se aplică tuturor utilizatorilor portalului.</p><div id="po-layout-editor"></div>`, `<button class="btn-secondary" onclick="closeModalForce()">Anulează</button><button class="btn-brand" onclick="ProcessOverview.saveLayoutEditor()">Salvează aranjarea</button>`);
+    this.renderLayoutEditor();
+  },
+
+  renderLayoutEditor() {
+    const target = document.getElementById('po-layout-editor');
+    if (!target || !this.layoutDraft) return;
+    const selected = new Set(this.layoutDraft.userIds);
+    target.innerHTML = this.layoutDraft.departmentOrder.map((department, groupIndex) => {
+      const users = this.draftOrderedUsers(department);
+      return `<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:10px;overflow:hidden"><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#F8FAFC"><strong style="flex:1;font-size:12px">${department}</strong><button class="btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ProcessOverview.moveDraftDepartment(${groupIndex},-1)">↑</button><button class="btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ProcessOverview.moveDraftDepartment(${groupIndex},1)">↓</button></div>${users.map(user => `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--border)"><input type="checkbox" ${selected.has(String(user.id)) ? 'checked' : ''} onchange="ProcessOverview.toggleDraftUser('${user.id}',this.checked)"><span style="flex:1"><strong style="font-size:12px">${user.full_name || user.name}</strong><span class="text-xs text-muted" style="display:block">${this.userRoleLabel(user)}</span></span><button class="btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ProcessOverview.moveDraftUser('${user.id}',-1)">↑</button><button class="btn-secondary" style="padding:2px 6px;font-size:11px" onclick="ProcessOverview.moveDraftUser('${user.id}',1)">↓</button></div>`).join('')}</div>`;
+    }).join('');
+  },
+
+  moveDraftDepartment(index, direction) {
+    const target = index + direction;
+    if (target < 0 || target >= this.layoutDraft.departmentOrder.length) return;
+    const order = [...this.layoutDraft.departmentOrder];
+    [order[index], order[target]] = [order[target], order[index]];
+    this.layoutDraft.departmentOrder = order;
+    this.renderLayoutEditor();
+  },
+
+  moveDraftUser(userId, direction) {
+    const user = this.activeUsers().find(item => String(item.id) === String(userId));
+    if (!user) return;
+    const peers = this.draftOrderedUsers(user.department || 'General').filter(item => this.layoutDraft.userIds.includes(String(item.id)));
+    const index = peers.findIndex(item => String(item.id) === String(userId));
+    const target = index + direction;
+    if (target < 0 || target >= peers.length) return;
+    const fromId = String(peers[index].id), toId = String(peers[target].id);
+    const order = [...this.layoutDraft.userOrder];
+    const fromIndex = order.indexOf(fromId), toIndex = order.indexOf(toId);
+    if (fromIndex >= 0 && toIndex >= 0) [order[fromIndex], order[toIndex]] = [order[toIndex], order[fromIndex]];
+    else if (fromIndex < 0 && toIndex < 0) { order.push(...peers.map(item => String(item.id))); [order[order.length - peers.length + index], order[order.length - peers.length + target]] = [order[order.length - peers.length + target], order[order.length - peers.length + index]]; }
+    this.layoutDraft.userOrder = order;
+    this.renderLayoutEditor();
+  },
+
+  toggleDraftUser(userId, checked) {
+    const ids = new Set(this.layoutDraft.userIds);
+    checked ? ids.add(String(userId)) : ids.delete(String(userId));
+    this.layoutDraft.userIds = [...ids];
+    this.renderLayoutEditor();
+  },
+
+  async saveLayoutEditor() {
+    this.viewSettings = { ...this.defaultViewSettings(), ...this.layoutDraft };
+    await this.saveViewSettings();
+    closeModalForce();
+    this.renderPage();
+  },
+
   resolveTaskPeriod(task, project, assignment = null) {
     const assignmentStart = assignment?.start_date;
     const assignmentEnd = assignment?.end_date;
@@ -210,7 +339,46 @@ const ProcessOverview = {
         pct: 0,
       });
     });
-    return barsByUser;
+    return this.aggregateProjectBars(barsByUser);
+  },
+
+  aggregateProjectBars(barsByUser) {
+    const aggregated = {};
+    Object.entries(barsByUser).forEach(([userId, bars]) => {
+      const byProject = new Map();
+      bars.forEach(bar => {
+        const key = String(bar.projId);
+        if (!byProject.has(key)) {
+          byProject.set(key, {
+            ...bar,
+            taskId: null,
+            assignmentId: null,
+            taskName: '',
+            taskDetails: [],
+            hasExplicitPeriod: false,
+            budgetH: 0,
+            workedH: 0,
+            pct: 0,
+          });
+        }
+        const group = byProject.get(key);
+        if (bar.start_date < group.start_date) group.start_date = bar.start_date;
+        if (bar.end_date > group.end_date) group.end_date = bar.end_date;
+        group.hasExplicitPeriod = group.hasExplicitPeriod || bar.hasExplicitPeriod;
+        group.budgetH += Number(bar.budgetH || 0);
+        group.workedH += Number(bar.workedH || 0);
+        if (bar.taskName) {
+          const detail = `${bar.phaseName ? `${bar.phaseName} — ` : ''}${bar.taskName}`;
+          if (!group.taskDetails.includes(detail)) group.taskDetails.push(detail);
+        }
+      });
+      aggregated[userId] = [...byProject.values()].map(group => ({
+        ...group,
+        taskDetails: group.taskDetails.sort((a, b) => a.localeCompare(b, 'ro')),
+        pct: group.budgetH > 0 ? Math.min(100, Math.round((group.workedH / group.budgetH) * 100)) : 0,
+      }));
+    });
+    return aggregated;
   },
 
   layoutBars(bars, startDate, days) {
@@ -240,28 +408,13 @@ const ProcessOverview = {
   },
 
   renderControls() {
-    if (!this.canManageView()) return '';
-    this.loadViewSettings();
-    const departments = [...new Set(this.users.map(user => user.department || 'General'))].sort((a, b) => a.localeCompare(b, 'ro'));
-    const roles = [...new Set(this.users.map(user => this.userRoleLabel(user)))].sort((a, b) => a.localeCompare(b, 'ro'));
+    if (!this.isAdmin()) return '';
     const displayed = this.visibleUsers().length;
     return `
       <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:.03em">VIZUALIZARE ECHIPĂ</span>
-        <select class="input" style="width:auto;min-width:145px;height:34px" onchange="ProcessOverview.setViewSetting('department', this.value)">
-          <option value="">Toate departamentele</option>
-          ${departments.map(department => `<option value="${department}" ${this.viewSettings.department === department ? 'selected' : ''}>${department}</option>`).join('')}
-        </select>
-        <select class="input" style="width:auto;min-width:130px;height:34px" onchange="ProcessOverview.setViewSetting('role', this.value)">
-          <option value="">Toate rolurile</option>
-          ${roles.map(role => `<option value="${role}" ${this.viewSettings.role === role ? 'selected' : ''}>${role}</option>`).join('')}
-        </select>
-        <select class="input" style="width:auto;min-width:150px;height:34px" onchange="ProcessOverview.setViewSetting('sort', this.value)">
-          <option value="department" ${this.viewSettings.sort === 'department' ? 'selected' : ''}>Grupează: departament</option>
-          <option value="role" ${this.viewSettings.sort === 'role' ? 'selected' : ''}>Grupează: rol</option>
-          <option value="alphabetic" ${this.viewSettings.sort === 'alphabetic' ? 'selected' : ''}>Ordonează: A–Z</option>
-        </select>
-        <button class="btn-secondary" style="height:34px;padding:0 10px" onclick="ProcessOverview.openPeopleSelector()">Persoane (${displayed})</button>
+        <span style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:.03em">ARANJARE GANTT</span>
+        <span class="text-sm text-muted">${displayed} persoane vizibile pentru toată echipa</span>
+        <button class="btn-secondary" style="height:34px;padding:0 10px;margin-left:auto" onclick="ProcessOverview.openLayoutEditor()">Aranjează persoane și departamente</button>
         <button style="border:0;background:none;color:var(--text-muted);font-size:12px;cursor:pointer" onclick="ProcessOverview.resetViewSettings()">Resetează</button>
       </div>`;
   },
@@ -298,6 +451,7 @@ const ProcessOverview = {
     const [projRes, userRes] = await Promise.all([DB.getProjects(), DB.getUsers()]);
     this.projects = (projRes.data || []).filter(p => p.status !== 'arhivat');
     this.users = userRes.data || [];
+    await this.loadViewSettings();
 
     const activeProjects = this.projects.filter(p => p.status === 'activ' || p.status === 'in_progress');
 
@@ -384,16 +538,17 @@ const ProcessOverview = {
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
             const top = 8 + bar.track * (this.BAR_H + 7);
-            const barLabel = bar.taskName ? `${bar.projCode}: ${bar.taskName}` : `${bar.projCode}${bar.memberRole === 'coordonator' ? ' ★' : ''}`;
+            const barLabel = `${bar.projCode} — ${bar.projName}`;
             const opacity = bar.hasExplicitPeriod ? '1' : '0.72';
             const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.32);';
             const periodHint = bar.periodSource === 'unscheduled' ? 'Perioadă estimată' : bar.hasExplicitPeriod ? 'Perioadă task' : 'Perioadă estimată';
             const safeTaskName = (bar.taskName || '').replace(/"/g, '&quot;');
             const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
             const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
+            const safeTaskList = encodeURIComponent((bar.taskDetails || []).join('\n'));
             const canDrag = this.canManageView() && bar.assignmentId;
             const dragHandles = canDrag ? `<div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div><div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>` : '';
-            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.canManageView() ? '1' : '0'}" data-task-name="${safeTaskName}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
+            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
           }).join('');
           rowsHtml += `
             <div class="gantt-row" style="height:${layout.rowHeight}px">
@@ -479,6 +634,7 @@ const ProcessOverview = {
     const projName = el.dataset.projName || '';
     const phaseName = el.dataset.phaseName || '';
     const taskName = el.dataset.taskName || '';
+    const taskList = (() => { try { return decodeURIComponent(el.dataset.taskList || '').split('\n').filter(Boolean); } catch (_) { return []; } })();
     const start = el.dataset.start || '';
     const end = el.dataset.end || '';
     const budget = parseFloat(el.dataset.budget || '0');
@@ -490,13 +646,14 @@ const ProcessOverview = {
     let html = `<div style="font-weight:700;font-size:14px;margin-bottom:6px">${projName}</div>`;
     if (phaseName) html += `<div style="color:var(--text-muted);font-size:12px;margin-bottom:2px">📁 ${phaseName}</div>`;
     if (taskName) html += `<div style="font-weight:600;margin-bottom:8px">✅ ${taskName}</div>`;
+    if (taskList.length) html += `<div style="margin:8px 0"><div style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:.03em;margin-bottom:4px">TASK-URI ALOCATE (${taskList.length})</div><div style="max-height:110px;overflow:auto;font-size:12px">${taskList.map(task => `<div style="padding:2px 0">• ${task}</div>`).join('')}</div></div>`;
     html += `<div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted);margin-bottom:8px"><span>📅 ${fmtDate(start)}</span><span>→</span><span>${fmtDate(end)}</span></div>`;
     if (budget > 0) {
       html += `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Progres ore</span><span style="color:${barColor};font-weight:600">${worked}h / ${budget}h (${pct}%)</span></div><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div></div></div>`;
     }
     const projId = el.dataset.projId || '';
     if (projId) {
-      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide proiectul${isAdmin ? ' • Trage marginea pentru perioadă' : ''}</div>`;
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--primary);font-weight:600">🖱 Click pentru a deschide proiectul</div>`;
     } else if (taskName) {
       html += `<div style="margin-top:8px;font-size:11px;color:var(--text-muted)">🖱 Click pentru detalii</div>`;
     }
