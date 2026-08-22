@@ -4,6 +4,7 @@
 // ============================================================
 const Evenimente = {
   events: [],
+  birthdays: [],
   currentView: 'list', // 'list' | 'calendar'
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
@@ -22,11 +23,28 @@ const Evenimente = {
     from.setMonth(from.getMonth() - 1);
     const to = new Date();
     to.setMonth(to.getMonth() + 6);
-    const { data, error } = await DB.getCompanyEvents(
-      from.toISOString().split('T')[0],
-      to.toISOString().split('T')[0]
-    );
-    this.events = data || [];
+    const [eventsRes, profilesRes] = await Promise.all([
+      DB.getCompanyEvents(from.toISOString().split('T')[0], to.toISOString().split('T')[0]),
+      DB.getUsers(),
+    ]);
+    this.events = eventsRes.data || [];
+    const currentYear = new Date().getFullYear();
+    this.birthdays = (profilesRes.data || [])
+      .filter(profile => profile.is_active && !profile.is_pre_created && profile.birth_date)
+      .map(profile => {
+        const date = new Date(`${String(profile.birth_date).slice(0, 10)}T12:00:00`);
+        return {
+          id: profile.id,
+          day: date.getDate(),
+          month: date.getMonth(),
+          year: currentYear,
+          name: profile.full_name || profile.name || profile.email || 'Colega/coleg',
+          position: profile.position || profile.department || '',
+          avatar: profile.avatar_url || '',
+        };
+      })
+      .filter(birthday => Number.isFinite(birthday.day) && Number.isFinite(birthday.month))
+      .sort((a, b) => a.month - b.month || a.day - b.day || a.name.localeCompare(b.name, 'ro'));
   },
 
   renderPage() {
@@ -55,6 +73,15 @@ const Evenimente = {
     }
 
     const monthNames = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
+    const todayDate = new Date();
+    const birthdayHtml = this.birthdays.length ? this.birthdays.map(birthday => {
+      const isTodayBirthday = birthday.day === todayDate.getDate() && birthday.month === todayDate.getMonth();
+      const initials = birthday.name.split(' ').filter(Boolean).map(word => word[0]).join('').slice(0, 2).toUpperCase();
+      return `<div style="display:flex;align-items:center;gap:9px;min-width:190px;padding:9px 11px;border:1px solid ${isTodayBirthday ? '#facc15' : 'var(--border)'};border-radius:10px;background:${isTodayBirthday ? '#fffbeb' : 'var(--card-bg)'}">
+        <div style="width:30px;height:30px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--brand);font-size:11px;font-weight:800;color:#000">${birthday.avatar ? `<img src="${birthday.avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : initials}</div>
+        <div style="min-width:0;flex:1"><div style="font-size:12px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${birthday.name}</div><div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(birthday.day).padStart(2, '0')} ${monthNames[birthday.month]}${birthday.position ? ` · ${birthday.position}` : ''}</div></div>
+      </div>`;
+    }).join('') : `<div style="font-size:13px;color:var(--text-muted);padding:4px 0">Nu sunt completate aniversări în profilurile active.</div>`;
 
     const groupedHtml = Object.keys(grouped).sort().map(key => {
       const [yr, mo] = key.split('-');
@@ -80,6 +107,11 @@ const Evenimente = {
             ${canManage ? `<button class="btn-primary" onclick="Evenimente.openCreateModal()">+ Eveniment nou</button>` : ''}
           </div>
         </div>
+
+        <section style="margin-bottom:24px;padding:16px;border:1px solid #fde68a;background:#fffbeb;border-radius:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-size:15px;font-weight:800;color:#713f12">🎂 Aniversări ${new Date().getFullYear()}</div><div style="font-size:12px;color:#854d0e;margin-top:3px">Calendarul colegilor activi; este afișată ziua și luna, nu anul nașterii.</div></div><span style="font-size:12px;font-weight:750;color:#854d0e;background:#fef3c7;padding:4px 8px;border-radius:999px">${this.birthdays.length} colegi</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">${birthdayHtml}</div>
+        </section>
 
         <!-- Filtre -->
         <div style="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap">
