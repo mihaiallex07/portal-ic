@@ -298,14 +298,14 @@ const Organigrama = {
       : '';
 
     return `
-      <div class="org-node-wrap" style="display:inline-flex;flex-direction:column;align-items:center;margin:0 5px">
-        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;padding:10px 9px;border-radius:8px;min-width:96px;max-width:116px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
+      <div class="org-node-wrap" style="display:inline-flex;flex-direction:column;align-items:center;margin:0 3px">
+        <div class="org-node${isEditable ? ' org-node-editable' : ''}" style="position:relative;box-sizing:border-box;padding:10px 10px;border-radius:8px;width:128px;min-width:128px;max-width:128px;text-align:center;${nodeStyle};transition:box-shadow 0.15s"
           ${clickHandler} ${hoverHandler}>
           ${editBadge}
           ${avatarEl}
-          <div style="font-size:11px;font-weight:700;${nameColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.full_name || node.name || ''}</div>
-          ${(node.job_title || node.position) ? `<div style="font-size:9px;${subtitleColor};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.job_title || node.position}</div>` : ''}
-          ${node.department && !node.isDept ? `<div style="font-size:9px;color:var(--brand-dark);font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${node.department}</div>` : ''}
+          <div style="box-sizing:border-box;width:100%;font-size:12px;font-weight:700;line-height:1.2;${nameColor};overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden">${node.full_name || node.name || ''}</div>
+          ${(node.job_title || node.position) ? `<div style="box-sizing:border-box;width:100%;font-size:10px;line-height:1.2;${subtitleColor};margin-top:3px;overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden">${node.job_title || node.position}</div>` : ''}
+          ${node.department && !node.isDept ? `<div style="box-sizing:border-box;width:100%;font-size:10px;line-height:1.2;color:var(--brand-dark);font-weight:700;margin-top:3px;overflow-wrap:anywhere;word-break:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden">${node.department}</div>` : ''}
         </div>
         ${hasChildren ? `
           <div style="width:2px;height:12px;background:var(--border)"></div>
