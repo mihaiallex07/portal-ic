@@ -1945,16 +1945,11 @@ const TaskManager = {
 
   getUnassignedReportEntries(data) {
     if (data.projectFilter) return [];
-    return (data.timeEntries || []).filter(entry => !entry.project_id);
-  },
-
-  getReportActivityTitle(entry) {
-    return entry.task_name || entry.description || 'Activitate fără titlu';
+    return (data.timeEntries || []).filter(entry => !entry.project_id && String(entry.description || '').trim());
   },
 
   getReportActivityDescription(entry) {
-    const description = String(entry.description || '').trim();
-    return description && description !== this.getReportActivityTitle(entry) ? description : '—';
+    return String(entry.description || '').trim();
   },
 
   displayReport(data) {
@@ -1975,7 +1970,7 @@ const TaskManager = {
     
     // Group by project → phase → task
     const grouped = {};
-    const unassignedEntries = [];
+    const unassignedEntries = this.getUnassignedReportEntries(data);
     let grandTotal = 0;
     
     // Process time entries
@@ -1983,7 +1978,6 @@ const TaskManager = {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
       const hours = (Number(entry.duration_minutes) || 0) / 60;
       if (!entry.project_id) {
-        unassignedEntries.push(entry);
         grandTotal += hours;
         return;
       }
@@ -2087,9 +2081,9 @@ const TaskManager = {
         <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:12px">
           <h4 style="margin:0 0 5px;color:#713f12">Activități fără proiect</h4>
           <p style="margin:0 0 12px;font-size:12px;color:#854d0e">Activități introduse direct în Time-Tracking, fără asociere cu un proiect sau task.</p>
-          <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid #fde68a"><th style="padding:6px;text-align:left;color:#854d0e">Activitate</th><th style="padding:6px;text-align:left;color:#854d0e">Descriere</th><th style="padding:6px;text-align:left;color:#854d0e">Data</th><th style="padding:6px;text-align:right;color:#854d0e">Ore</th></tr></thead><tbody>
-          ${unassignedEntries.map(entry => `<tr style="border-bottom:1px solid #fef3c7"><td style="padding:7px;color:var(--text-primary);font-weight:600">${this.getReportActivityTitle(entry)}</td><td style="padding:7px;color:var(--text-muted)">${this.getReportActivityDescription(entry)}</td><td style="padding:7px;color:var(--text-muted)">${String(entry.date || '').split('-').reverse().join('/')}</td><td style="padding:7px;text-align:right;color:var(--text-primary);font-weight:600">${((Number(entry.duration_minutes) || 0) / 60).toFixed(2)}h</td></tr>`).join('')}
-          <tr style="background:#fef3c7"><td colspan="3" style="padding:8px;color:#713f12;font-weight:700">Total activități fără proiect</td><td style="padding:8px;text-align:right;color:#713f12;font-weight:800">${unassignedTotal.toFixed(2)}h</td></tr></tbody></table>
+          <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid #fde68a"><th style="padding:6px;text-align:left;color:#854d0e">Descriere activitate</th><th style="padding:6px;text-align:left;color:#854d0e">Data</th><th style="padding:6px;text-align:right;color:#854d0e">Ore</th></tr></thead><tbody>
+          ${unassignedEntries.map(entry => `<tr style="border-bottom:1px solid #fef3c7"><td style="padding:7px;color:var(--text-primary);font-weight:600">${this.getReportActivityDescription(entry)}</td><td style="padding:7px;color:var(--text-muted)">${String(entry.date || '').split('-').reverse().join('/')}</td><td style="padding:7px;text-align:right;color:var(--text-primary);font-weight:600">${((Number(entry.duration_minutes) || 0) / 60).toFixed(2)}h</td></tr>`).join('')}
+          <tr style="background:#fef3c7"><td colspan="2" style="padding:8px;color:#713f12;font-weight:700">Total activități fără proiect</td><td style="padding:8px;text-align:right;color:#713f12;font-weight:800">${unassignedTotal.toFixed(2)}h</td></tr></tbody></table>
         </div>`;
     }
     
@@ -2180,11 +2174,10 @@ const TaskManager = {
     }
     // Group data
     const grouped = {};
-    const unassignedEntries = [];
+    const unassignedEntries = this.getUnassignedReportEntries(data);
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
       if (!entry.project_id) {
-        unassignedEntries.push(entry);
         return;
       }
       const projectId = entry.project_id;
@@ -2270,10 +2263,9 @@ const TaskManager = {
       doc.setFont(undefined, 'normal');
       doc.setFontSize(9);
       unassignedEntries.forEach(entry => {
-        const title = this.getReportActivityTitle(entry);
         const description = this.getReportActivityDescription(entry);
         const date = String(entry.date || '').split('-').reverse().join('/');
-        const lines = doc.splitTextToSize(`${date} · ${title}${description !== '—' ? ` — ${description}` : ''}`, pageWidth - (margin * 2) - 24);
+        const lines = doc.splitTextToSize(`${date} · ${description}`, pageWidth - (margin * 2) - 24);
         if (yPosition > pageHeight - Math.max(15, lines.length * 4 + 8)) { doc.addPage(); yPosition = margin; }
         doc.text(lines, margin + 5, yPosition);
         doc.text(((Number(entry.duration_minutes) || 0) / 60).toFixed(2) + 'h', pageWidth - margin - 2, yPosition, { align: 'right' });
@@ -2372,11 +2364,10 @@ const TaskManager = {
     
     // Group data
     const grouped = {};
-    const unassignedEntries = [];
+    const unassignedEntries = this.getUnassignedReportEntries(data);
     (data.timeEntries || []).forEach(entry => {
       if (data.projectFilter && entry.project_id !== parseInt(data.projectFilter)) return;
       if (!entry.project_id) {
-        unassignedEntries.push(entry);
         return;
       }
       const projectId = entry.project_id;
@@ -2420,7 +2411,7 @@ const TaskManager = {
       const row = worksheet.insertRow(rowNum, [
         'Activități fără proiect',
         '—',
-        this.getReportActivityTitle(entry),
+        '',
         `${String(entry.date || '').split('-').reverse().join('/')} · ${this.getReportActivityDescription(entry)}`,
         ((Number(entry.duration_minutes) || 0) / 60).toFixed(2)
       ]);
