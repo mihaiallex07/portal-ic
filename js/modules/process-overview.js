@@ -699,13 +699,7 @@ const ProcessOverview = {
     const pct = parseInt(el.dataset.pct || '0');
     const barColor2 = pct > 90 ? '#EF4444' : pct > 70 ? '#F59E0B' : '#10B981';
     if (projId) {
-      // Admin/coordonator sau oricine: navighează direct la pagina proiectului
-      navigate('proiecte', null);
-      setTimeout(() => {
-        if (typeof Proiecte !== 'undefined') {
-          Proiecte.openProject(parseInt(projId));
-        }
-      }, 200);
+      openProjectDirect(projId);
       return;
     }
     const fmtDate = d => d ? new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
