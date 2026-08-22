@@ -209,17 +209,22 @@ const Propuneri = {
             <div style="font-size:15px;font-weight:700;margin-bottom:5px">${this.escapeHtml(proposal.title)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${this.recipientLabel(proposal)}</div>
             <div class="text-sm text-muted mb-3" style="line-height:1.55">${description}</div>
-            <div class="flex items-center gap-2" style="flex-wrap:wrap">
-              <button class="vote-btn for ${proposal.user_vote_type === 'support' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'support')" title="Susțin această idee">
-                <span>↑ ${proposal.user_vote_type === 'support' ? 'Susținută' : 'Susțin'}</span><strong>${support}</strong>
-              </button>
-              <button class="vote-btn against ${proposal.user_vote_type === 'oppose' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'oppose')" title="Nu susțin această idee">
-                <span>↓ Nu susțin</span><strong>${oppose}</strong>
-              </button>
-              <button class="vote-btn ${proposal.user_vote_type === 'neutral' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'neutral')" title="Feedback neutru" style="border-color:${proposal.user_vote_type === 'neutral' ? 'var(--primary)' : 'var(--border)'};color:${proposal.user_vote_type === 'neutral' ? '#6B5700' : 'var(--text-muted)'}">
-                <span>− Neutru</span><strong>${neutral}</strong>
-              </button>
-              <span class="text-xs text-muted" style="margin-left:auto">${total} răspunsuri · feedback comunitar</span>
+            <div style="border-top:1px solid var(--border);padding-top:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <span style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.02em">FEEDBACKUL ECHIPEI</span>
+                <span class="text-xs text-muted">${total} răspunsuri</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-width:450px">
+                <button onclick="Propuneri.vote(${id}, 'support')" title="Susțin această idee" style="min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid ${proposal.user_vote_type === 'support' ? '#16A34A' : '#B7E1C3'};background:${proposal.user_vote_type === 'support' ? '#DCFCE7' : '#F7FFF9'};color:#15803D;border-radius:7px;padding:7px 8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                  <span aria-hidden="true">↑</span><span>Susțin</span><strong style="font-size:11px">${support}</strong>
+                </button>
+                <button onclick="Propuneri.vote(${id}, 'oppose')" title="Nu susțin această idee" style="min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid ${proposal.user_vote_type === 'oppose' ? '#DC2626' : '#F3C7C3'};background:${proposal.user_vote_type === 'oppose' ? '#FEE2E2' : '#FFF9F8'};color:#B42318;border-radius:7px;padding:7px 8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                  <span aria-hidden="true">↓</span><span>Nu susțin</span><strong style="font-size:11px">${oppose}</strong>
+                </button>
+                <button onclick="Propuneri.vote(${id}, 'neutral')" title="Nu iau poziție pentru această idee" style="min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid ${proposal.user_vote_type === 'neutral' ? '#6B7280' : '#D1D5DB'};background:${proposal.user_vote_type === 'neutral' ? '#F3F4F6' : '#FFFFFF'};color:#4B5563;border-radius:7px;padding:7px 8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+                  <span aria-hidden="true">−</span><span>Neutru</span><strong style="font-size:11px">${neutral}</strong>
+                </button>
+              </div>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
