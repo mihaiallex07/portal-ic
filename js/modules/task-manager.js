@@ -252,7 +252,7 @@ const TaskManager = {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M9 9h2v6H9z"/><path d="M13 11h2v4h-2z"/><path d="M17 7h2v8h-2z"/></svg>
             Rapoarte
           </button>
-          ${isAdmin ? `
+          ${(isAdmin || isCoord) ? `
           <button class="tm-tab-btn ${this.activeTab === 'hours-admin' ? 'active' : ''}" onclick="TaskManager.setTab('hours-admin')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-9"/></svg>
             Control ore
@@ -1584,7 +1584,8 @@ const TaskManager = {
   },
 
   async loadAdminHoursDashboard() {
-    if (Auth.currentProfile?.role !== 'admin') return;
+    const canControlHours = ['admin', 'coordonator'].includes(Auth.currentProfile?.role);
+    if (!canControlHours) return;
     const sb = getSupabase();
     if (!sb) return;
     const period = this.getAdminHoursPeriod();
@@ -1648,7 +1649,9 @@ const TaskManager = {
   },
 
   renderAdminHoursTab() {
-    if (Auth.currentProfile?.role !== 'admin') return '';
+    const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    if (!isAdmin && !isCoord) return '';
     const period = this.getAdminHoursPeriod();
     const summary = this.adminHoursSummary;
     const custom = this.adminHoursRange === 'custom';
@@ -1675,7 +1678,7 @@ const TaskManager = {
     }).join('');
 
     return `<div style="padding:20px;max-width:1320px;margin:0 auto">
-      <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px"><div><h2 style="margin:0;font-size:20px">Control ore lucrate</h2><p style="margin:5px 0 0;font-size:13px;color:var(--text-muted)">Monitorizare administrativă pentru ${period.label.toLowerCase()} · ${period.from} — ${period.to}</p></div><button class="btn-secondary" onclick="TaskManager.loadAdminHoursDashboard()" style="font-size:12px">↻ Actualizează</button></div>
+      <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px"><div><h2 style="margin:0;font-size:20px">Control ore lucrate</h2><p style="margin:5px 0 0;font-size:13px;color:var(--text-muted)">${isCoord ? 'Monitorizarea oamenilor din proiectele coordonate' : 'Monitorizare administrativă'} pentru ${period.label.toLowerCase()} · ${period.from} — ${period.to}</p></div><button class="btn-secondary" onclick="TaskManager.loadAdminHoursDashboard()" style="font-size:12px">↻ Actualizează</button></div>
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);padding:11px;border-radius:10px">${rangeButton('week', 'Săptămână')}${rangeButton('month', 'Lună')}${rangeButton('year', 'An')}${rangeButton('custom', 'Zile personalizate')}${custom ? `<span style="display:flex;gap:6px;align-items:center;margin-left:4px"><input id="tm-admin-hours-from" type="date" value="${this.adminHoursCustomFrom || period.from}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><span style="font-size:12px;color:var(--text-muted)">—</span><input id="tm-admin-hours-to" type="date" value="${this.adminHoursCustomTo || period.to}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><button onclick="TaskManager.applyAdminHoursCustomRange()" style="padding:6px 9px;border:0;border-radius:6px;background:var(--brand);color:#000;font-weight:700;font-size:12px;cursor:pointer">Aplică</button></span>` : ''}</div>
       ${this.adminHoursLoading ? `<div style="padding:42px;text-align:center;color:var(--text-muted)">Se centralizează orele lucrate…</div>` : summary?.error ? `<div style="padding:20px;background:#fee2e2;color:#b91c1c;border-radius:10px">${this.escapeAdminHours(summary.error)}</div>` : `
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px">
