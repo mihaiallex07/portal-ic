@@ -62,6 +62,18 @@ const Profil = {
       return `<select id="${id}" class="input"><option value="">— Selectează —</option>${optHtml}</select>`;
     };
 
+    const multilineField = (id, value, opts = {}) => {
+      const text = (value !== null && value !== undefined) ? String(value) : '';
+      if (!isEditing) {
+        const display = text ? text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>') : `<span style="color:var(--text-muted);font-style:italic">—</span>`;
+        return `<div class="input" style="min-height:74px;white-space:normal;line-height:1.5;background:var(--bg-secondary,#f5f5f5);cursor:default;border-color:transparent">${display}</div>`;
+      }
+      const readonly = opts.readonly ? 'readonly' : '';
+      const placeholder = opts.placeholder ? `placeholder="${opts.placeholder}"` : '';
+      const maxlength = opts.maxlength ? `maxlength="${opts.maxlength}"` : '';
+      return `<textarea id="${id}" class="input" rows="4" ${readonly} ${placeholder} ${maxlength} style="resize:vertical;min-height:88px;${opts.readonly ? 'background:var(--bg-secondary,#f5f5f5);cursor:default' : ''}">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea>`;
+    };
+
     document.getElementById('page-content').innerHTML = `
       <div style="width:100%">
         <div class="page-header" style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
@@ -129,6 +141,11 @@ const Profil = {
               <label class="label">Departament</label>
               ${field('prof-department', profile.department, { placeholder: 'Ex: Proiectare', readonly: !isAdmin && !isSelf })}
             </div>
+          </div>
+          <div class="mt-3">
+            <label class="label">Atribuții <span class="text-muted">(din fișa postului)</span></label>
+            ${multilineField('prof-responsibilities', profile.responsibilities, { placeholder: 'Descrie atribuțiile și responsabilitățile postului...', maxlength: '3000', readonly: !isAdmin })}
+            <div class="text-xs text-muted mt-1">${isAdmin ? 'Doar administratorul poate actualiza acest câmp.' : 'Atribuțiile sunt stabilite de administrator.'}</div>
           </div>
           <div class="form-row form-row-2 mt-3">
             <div>
@@ -407,9 +424,11 @@ const Profil = {
       const pos = document.getElementById('prof-position')?.value?.trim();
       const dep = document.getElementById('prof-department')?.value?.trim();
       const ec = document.getElementById('prof-employee-code')?.value?.toUpperCase().trim();
+      const responsibilities = document.getElementById('prof-responsibilities')?.value?.trim();
       if (pos !== undefined) updates.job_title = pos || null;
       if (dep !== undefined) updates.department = dep || null;
       if (ec !== undefined) updates.employee_code = ec || null;
+      if (responsibilities !== undefined) updates.responsibilities = responsibilities || null;
     }
 
     // Câmpul Rol — editabil doar de admin pe profilul altui angajat
