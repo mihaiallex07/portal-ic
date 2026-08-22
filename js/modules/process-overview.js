@@ -10,7 +10,7 @@ const ProcessOverview = {
   BAR_H: 12,
   MAX_BARS: 999,
   DEPT_H: 32,
-  DAYS: 90,
+  DAYS: 7,
   offsetDays: 0,
   projects: [],
   users: [],
@@ -76,6 +76,15 @@ const ProcessOverview = {
     const d = new Date(`${dateString}T12:00:00`);
     d.setDate(d.getDate() + days);
     return this.toDateString(d);
+  },
+
+  currentWeekRange() {
+    const today = new Date();
+    const mondayOffset = (today.getDay() + 6) % 7;
+    const start = new Date(today);
+    start.setDate(today.getDate() - mondayOffset);
+    const startDate = this.toDateString(start);
+    return { start: startDate, end: this.addDays(startDate, 6) };
   },
 
   userRoleLabel(user) {
@@ -245,16 +254,13 @@ const ProcessOverview = {
     const assignmentEnd = assignment?.end_date;
     if (assignmentStart && assignmentEnd) return { start: assignmentStart, end: assignmentEnd, source: 'assignment', explicit: true };
     if (task.task_start_date && task.task_end_date) return { start: task.task_start_date, end: task.task_end_date, source: 'task', explicit: true };
-    if (task.task_start_date) return { start: task.task_start_date, end: this.addDays(task.task_start_date, 4), source: 'task', explicit: false };
-    if (task.task_end_date) return { start: this.addDays(task.task_end_date, -4), end: task.task_end_date, source: 'task', explicit: false };
-    if (project.start_date && project.end_date) return { start: project.start_date, end: project.end_date, source: 'project', explicit: false };
-    const today = this.toDateString(new Date());
-    return { start: today, end: this.addDays(today, 4), source: 'unscheduled', explicit: false };
+    return null;
   },
 
   makeTaskBar(task, project, userId, assignment = null) {
     const phase = this.phases.find(ph => ph.id === task.phase_id);
     const period = this.resolveTaskPeriod(task, project, assignment);
+    if (!period) return null;
     const workedH = Math.round(((task.minutes_worked || 0) / 60) * 10) / 10;
     const budgetH = Number(task.budget_hours || 0);
     return {
@@ -285,6 +291,7 @@ const ProcessOverview = {
     const byTaskUser = new Map();
     const sourceWeight = { assignment: 4, task: 3, project: 2, unscheduled: 1 };
     const addBar = bar => {
+      if (!bar) return;
       const key = `${bar.taskId || 'project'}:${bar.userId}`;
       const existing = byTaskUser.get(key);
       if (existing && sourceWeight[existing.periodSource] >= sourceWeight[bar.periodSource]) return;
@@ -314,31 +321,6 @@ const ProcessOverview = {
       });
     });
 
-    this.memberships.forEach(member => {
-      const project = projectById.get(String(member.project_id));
-      if (!project || !project.start_date || !project.end_date) return;
-      const existing = barsByUser[member.user_id] || [];
-      if (existing.some(bar => String(bar.projId) === String(project.id))) return;
-      barsByUser[member.user_id] = existing;
-      existing.push({
-        taskId: null,
-        taskName: '',
-        phaseName: '',
-        projName: project.name,
-        projId: project.id,
-        projCode: project.abbreviation || project.code,
-        projColor: project.color || '#FFCB09',
-        userId: member.user_id,
-        start_date: project.start_date,
-        end_date: project.end_date,
-        periodSource: 'project',
-        hasExplicitPeriod: false,
-        memberRole: member.role,
-        budgetH: 0,
-        workedH: 0,
-        pct: 0,
-      });
-    });
     return this.aggregateProjectBars(barsByUser);
   },
 
@@ -484,8 +466,8 @@ const ProcessOverview = {
   renderPage() {
     const content = document.getElementById('page-content');
     const today = new Date();
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() + this.offsetDays);
+    const week = this.currentWeekRange();
+    const startDate = new Date(`${week.start}T12:00:00`);
     const days = this.DAYS;
     const totalW = days * this.ZOOM_PX;
     const LW = this.LABEL_W;
@@ -493,10 +475,11 @@ const ProcessOverview = {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
 
-    // Toate task-urile alocate sunt incluse: assignment explicit, alocare directă,
-    // perioadă proprie de task sau fallback clar al proiectului.
-    const userBarsMap = this.buildUserBars(activeProjects);
-    const userGroups = this.groupedUsers();
+    // Doar taskuri cu interval explicit, active în săptămâna curentă.
+    const allBarsMap = this.buildUserBars(activeProjects);
+    const userBarsMap = Object.fromEntries(Object.entries(allBarsMap).map(([userId, bars]) => [userId, bars.filter(bar => bar.start_date <= week.end && bar.end_date >= week.start)]));
+    const userGroups = this.groupedUsers().map(group => ({ ...group, users: group.users.filter(user => (userBarsMap[user.id] || []).length > 0) })).filter(group => group.users.length > 0);
+    const weekLabel = `${startDate.toLocaleDateString('ro-RO', { day: '2-digit', month: 'long' })} — ${new Date(`${week.end}T12:00:00`).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' })}`;
 
     // Month header
     let monthSegs = [];
@@ -570,19 +553,9 @@ const ProcessOverview = {
       <div class="page-header">
         <div>
           <h1 class="page-title">Process Overview</h1>
-          <p class="page-subtitle">Vizualizare Gantt \u2014 task-uri alocate per angajat (Proiect \u2192 Etap\u0103 \u2192 Task)</p>
+          <p class="page-subtitle">Vizualizare Gantt \u2014 numai taskuri active cu perioadă setată, pentru săptămâna curentă</p>
         </div>
-        <div class="flex gap-2">
-          <button class="btn-secondary" onclick="ProcessOverview.shiftDays(-${this.DAYS})" title="Perioad\u0103 anterioar\u0103">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-            Anterior
-          </button>
-          <button class="btn-secondary" onclick="ProcessOverview.resetView()">Azi</button>
-          <button class="btn-secondary" onclick="ProcessOverview.shiftDays(${this.DAYS})" title="Perioad\u0103 urm\u0103toare">
-            Urm\u0103tor
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
-        </div>
+        <div class="btn-secondary" style="cursor:default">Săptămâna curentă · ${weekLabel}</div>
       </div>
       ${this.renderControls()}
       <div class="card" style="padding:0;overflow:hidden">
@@ -596,8 +569,7 @@ const ProcessOverview = {
               </div>`
             ).join('')}
             <div style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--text-muted)">
-              <div style="width:20px;height:10px;background:#aaa;border:1px dashed rgba(0,0,0,0.3);border-radius:2px;opacity:0.6"></div>
-              <span>Perioadă estimată — task fără interval explicit</span>
+              <span>Sunt afișate numai taskurile cu perioadă explicită</span>
             </div>
           </div>
         </div>` : ''}
