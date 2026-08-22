@@ -258,39 +258,53 @@ const DB = {
     }, this.demo.proposals);
     if (proposalsResult?.error || !Array.isArray(proposalsResult?.data) || proposalsResult.data.length === 0) return proposalsResult;
     const proposalIds = proposalsResult.data.map(p => p.id).filter(Boolean);
-    const votesResult = await dbQuery('proposal_votes', q => q.select('proposal_id,user_id').in('proposal_id', proposalIds), []);
+    const votesResult = await dbQuery('proposal_votes', q => q.select('proposal_id,user_id,vote_type').in('proposal_id', proposalIds), []);
     const voteRows = votesResult?.error ? null : (votesResult?.data || []);
     const voteByProposal = new Map();
     (voteRows || []).forEach(row => {
       const key = String(row.proposal_id);
       const list = voteByProposal.get(key) || [];
-      list.push(String(row.user_id));
+      list.push({ user_id: String(row.user_id), vote_type: row.vote_type || 'support' });
       voteByProposal.set(key, list);
     });
     return {
       ...proposalsResult,
       data: proposalsResult.data.map(proposal => {
-        const voters = voteByProposal.get(String(proposal.id));
-        const existingCount = Number(proposal.votes_count || 0);
+        const voters = voteByProposal.get(String(proposal.id)) || [];
+        const counts = voters.reduce((acc, vote) => {
+          const type = ['support', 'oppose', 'neutral'].includes(vote.vote_type) ? vote.vote_type : 'support';
+          acc[type] += 1;
+          return acc;
+        }, { support: 0, oppose: 0, neutral: 0 });
+        const currentVote = voters.find(vote => vote.user_id === String(currentId));
         return {
           ...proposal,
-          votes_count: voters ? voters.length : existingCount,
-          user_voted: voters?.some(id => id === String(currentId)) ? 'for' : null,
+          votes_count: voters.length || Number(proposal.votes_count || 0),
+          votes_support: counts.support,
+          votes_oppose: counts.oppose,
+          votes_neutral: counts.neutral,
+          user_vote_type: currentVote?.vote_type || null,
         };
       }),
     };
   },
 
-  async voteProposal(proposalId) {
+  async voteProposal(proposalId, voteType) {
+    if (!['support', 'oppose', 'neutral'].includes(voteType)) {
+      return { error: new Error('Tipul de feedback este invalid.') };
+    }
     if (APP_CONFIG.demoMode) {
       const p = this.demo.proposals.find(p => p.id === proposalId);
       if (p) {
-        if (p.user_voted === 'for') {
-          p.votes_for = Math.max(0, Number(p.votes_for || 0) - 1);
-          p.user_voted = null;
+        const keyFor = { support: 'votes_support', oppose: 'votes_oppose', neutral: 'votes_neutral' };
+        const previous = p.user_vote_type || null;
+        if (previous === voteType) {
+          p[keyFor[voteType]] = Math.max(0, Number(p[keyFor[voteType]] || 0) - 1);
+          p.user_vote_type = null;
         } else {
-          p.votes_for = Number(p.votes_for || 0) + 1;
-          p.user_voted = 'for';
+          if (previous) p[keyFor[previous]] = Math.max(0, Number(p[keyFor[previous]] || 0) - 1);
+          p[keyFor[voteType]] = Number(p[keyFor[voteType]] || 0) + 1;
+          p.user_vote_type = voteType;
         }
       }
       return { error: null };
@@ -298,20 +312,23 @@ const DB = {
     const sb = getSupabase();
     const userId = Auth.currentUser?.id;
     if (!userId) return { error: new Error('Sesiunea nu este disponibilă.') };
-    const existing = await sb.from('proposal_votes').select('id').eq('proposal_id', proposalId).eq('user_id', userId).maybeSingle();
+    const existing = await sb.from('proposal_votes').select('id,vote_type').eq('proposal_id', proposalId).eq('user_id', userId).maybeSingle();
     if (existing.error) return existing;
-    if (existing.data?.id) return sb.from('proposal_votes').delete().eq('id', existing.data.id);
-    return sb.from('proposal_votes').insert({ proposal_id: proposalId, user_id: userId });
+    if (existing.data?.id && existing.data.vote_type === voteType) {
+      return sb.from('proposal_votes').delete().eq('id', existing.data.id);
+    }
+    if (existing.data?.id) {
+      return sb.from('proposal_votes').update({ vote_type: voteType }).eq('id', existing.data.id);
+    }
+    return sb.from('proposal_votes').insert({ proposal_id: proposalId, user_id: userId, vote_type: voteType });
   },
 
   async createProposal(proposal) {
-    const safeProposal = {
-      reference_number: proposal.reference_number || `PROP-${new Date().getFullYear()}-${Date.now()}`,
-      status: proposal.status || 'deschisa',
-      ...proposal,
-    };
+    const { reference_number, ...proposalData } = proposal;
+    const safeProposal = { ...proposalData, status: proposalData.status || 'deschisa' };
+    if (reference_number) safeProposal.reference_number = reference_number;
     if (APP_CONFIG.demoMode) {
-      const newP = { ...safeProposal, id: Date.now(), votes_for: 0, votes_against: 0, user_voted: null, author_name: Auth.currentProfile?.full_name, created_at: new Date().toISOString() };
+      const newP = { ...safeProposal, reference_number: safeProposal.reference_number || `PROP-DEMO-${Date.now()}`, id: Date.now(), votes_support: 0, votes_oppose: 0, votes_neutral: 0, user_vote_type: null, author_name: Auth.currentProfile?.full_name, created_at: new Date().toISOString() };
       this.demo.proposals.unshift(newP);
       return { data: newP, error: null };
     }
