@@ -73,7 +73,7 @@ const Notificari = {
                 : n.type === 'budget_rejected' ? 'respins'
                 : n.type || 'info';
               return `
-              <div class="flex items-start gap-3 p-4 rounded card ${!isRead ? 'unread-notif' : ''}" style="cursor:pointer" onclick="Notificari.markRead('${n.id}')">
+              <div class="flex items-start gap-3 p-4 rounded card ${!isRead ? 'unread-notif' : ''}" style="cursor:pointer" onclick="Notificari.open('${n.id}')">
                 <div style="width:8px;height:8px;border-radius:50%;background:${!isRead ? 'var(--brand)' : 'transparent'};flex-shrink:0;margin-top:4px"></div>
                 <div style="flex:1">
                   <div style="font-size:13px;font-weight:${!isRead ? '700' : '400'}">${n.title}</div>
@@ -96,6 +96,32 @@ const Notificari = {
     if (n) { n.is_read = true; n.read = true; }
     this.renderPage();
     updateNotifBadge();
+  },
+
+  async open(id) {
+    const notification = this.items.find(item => String(item.id) === String(id));
+    if (!notification) return;
+    await DB.markNotificationRead(id);
+    notification.is_read = true;
+    notification.read = true;
+    updateNotifBadge();
+
+    const rawLink = String(notification.link || '').replace(/^#/, '');
+    const [linkedRoute, linkedId] = rawLink.split(':');
+    const fallbackRoute = notification.type === 'event' ? 'evenimente'
+      : notification.type === 'news' ? 'stiri'
+      : notification.task_id ? 'task-manager'
+      : 'notificari';
+    const route = ['evenimente', 'stiri', 'proiecte', 'task-manager', 'time-tracking', 'formulare', 'propuneri'].includes(linkedRoute)
+      ? linkedRoute
+      : fallbackRoute;
+
+    if (route === 'proiecte' && linkedId) localStorage.setItem('ic_last_project_id', linkedId);
+    await navigate(route, null);
+    setTimeout(() => {
+      if (route === 'evenimente' && linkedId) Evenimente?.openDetailsModal?.(Number(linkedId));
+      if (route === 'stiri' && linkedId) Stiri?.openDetail?.(Number(linkedId));
+    }, 250);
   },
 
   async markAllRead() {
