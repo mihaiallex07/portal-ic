@@ -5,6 +5,7 @@
 const Evenimente = {
   events: [],
   birthdays: [],
+  workAnniversaries: [],
   currentView: 'list', // 'list' | 'calendar'
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
@@ -45,6 +46,23 @@ const Evenimente = {
       })
       .filter(birthday => Number.isFinite(birthday.day) && Number.isFinite(birthday.month))
       .sort((a, b) => a.month - b.month || a.day - b.day || a.name.localeCompare(b.name, 'ro'));
+    this.workAnniversaries = (profilesRes.data || [])
+      .filter(profile => profile.is_active && !profile.is_pre_created && profile.hire_date)
+      .map(profile => {
+        const date = new Date(`${String(profile.hire_date).slice(0, 10)}T12:00:00`);
+        const years = currentYear - date.getFullYear();
+        return {
+          id: profile.id,
+          day: date.getDate(),
+          month: date.getMonth(),
+          years,
+          name: profile.full_name || profile.name || profile.email || 'Colega/coleg',
+          position: profile.position || profile.department || '',
+          avatar: profile.avatar_url || '',
+        };
+      })
+      .filter(anniversary => Number.isFinite(anniversary.day) && Number.isFinite(anniversary.month) && Number.isFinite(anniversary.years) && anniversary.years > 0)
+      .sort((a, b) => a.month - b.month || a.day - b.day || a.name.localeCompare(b.name, 'ro'));
   },
 
   renderPage() {
@@ -82,6 +100,15 @@ const Evenimente = {
         <div style="min-width:0;flex:1"><div style="font-size:12px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${birthday.name}</div><div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(birthday.day).padStart(2, '0')} ${monthNames[birthday.month]}${birthday.position ? ` · ${birthday.position}` : ''}</div></div>
       </div>`;
     }).join('') : `<div style="font-size:13px;color:var(--text-muted);padding:4px 0">Nu sunt completate aniversări în profilurile active.</div>`;
+    const workAnniversaryHtml = this.workAnniversaries.length ? this.workAnniversaries.map(anniversary => {
+      const isTodayAnniversary = anniversary.day === todayDate.getDate() && anniversary.month === todayDate.getMonth();
+      const initials = anniversary.name.split(' ').filter(Boolean).map(word => word[0]).join('').slice(0, 2).toUpperCase();
+      const yearsLabel = anniversary.years === 1 ? '1 an în echipă' : `${anniversary.years} ani în echipă`;
+      return `<div style="display:flex;align-items:center;gap:9px;min-width:205px;padding:9px 11px;border:1px solid ${isTodayAnniversary ? '#34d399' : 'var(--border)'};border-radius:10px;background:${isTodayAnniversary ? '#ecfdf5' : 'var(--card-bg)'}">
+        <div style="width:30px;height:30px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:#10b981;font-size:11px;font-weight:800;color:#fff">${anniversary.avatar ? `<img src="${anniversary.avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : initials}</div>
+        <div style="min-width:0;flex:1"><div style="font-size:12px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${anniversary.name}</div><div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${String(anniversary.day).padStart(2, '0')} ${monthNames[anniversary.month]} · ${yearsLabel}${anniversary.position ? ` · ${anniversary.position}` : ''}</div></div>
+      </div>`;
+    }).join('') : `<div style="font-size:13px;color:var(--text-muted);padding:4px 0">Nu sunt aniversări de angajare eligibile în profilurile active.</div>`;
 
     const groupedHtml = Object.keys(grouped).sort().map(key => {
       const [yr, mo] = key.split('-');
@@ -111,6 +138,11 @@ const Evenimente = {
         <section style="margin-bottom:24px;padding:16px;border:1px solid #fde68a;background:#fffbeb;border-radius:12px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-size:15px;font-weight:800;color:#713f12">🎂 Aniversări ${new Date().getFullYear()}</div><div style="font-size:12px;color:#854d0e;margin-top:3px">Calendarul colegilor activi; este afișată ziua și luna, nu anul nașterii.</div></div><span style="font-size:12px;font-weight:750;color:#854d0e;background:#fef3c7;padding:4px 8px;border-radius:999px">${this.birthdays.length} colegi</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:8px">${birthdayHtml}</div>
+        </section>
+
+        <section style="margin-bottom:24px;padding:16px;border:1px solid #a7f3d0;background:#ecfdf5;border-radius:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div><div style="font-size:15px;font-weight:800;color:#065f46">🎉 Aniversări de angajare ${new Date().getFullYear()}</div><div style="font-size:12px;color:#047857;margin-top:3px">Calendarul colegilor activi; sunt afișate ziua, luna și anii împliniți în echipă.</div></div><span style="font-size:12px;font-weight:750;color:#047857;background:#d1fae5;padding:4px 8px;border-radius:999px">${this.workAnniversaries.length} colegi</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">${workAnniversaryHtml}</div>
         </section>
 
         <!-- Filtre -->
