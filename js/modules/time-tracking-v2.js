@@ -823,19 +823,36 @@ const TimeTracking = {
   async deleteEntry(id) {
     if (!confirm('Ești sigur că vrei să ștergi această activitate?')) return;
     const sb = getSupabase();
-    if (!sb) return;
+    if (!sb) { showToast('Nu ești conectat la baza de date.', 'error'); return; }
     // Găsim înregistrarea pentru a scădea minutes_worked din task
-    const entry = this.entries.find(e => e.id === id);
-    const { error } = await sb.from('time_entries').delete().eq('id', id);
+    const entryId = Number(id);
+    const entry = this.entries.find(e => Number(e.id) === entryId);
+    const { data: deletedEntries, error } = await sb
+      .from('time_entries')
+      .delete()
+      .eq('id', entryId)
+      .select('id');
     if (error) { showToast('Eroare la ștergere: ' + error.message, 'error'); return; }
+    if (!deletedEntries || deletedEntries.length !== 1) {
+      showToast('Activitatea nu a putut fi ștearsă. Încarcă pagina și încearcă din nou.', 'error');
+      return;
+    }
+    // Elimină imediat blocul din calendar, apoi sincronizează din baza de date.
+    this.entries = this.entries.filter(e => Number(e.id) !== entryId);
+    this.renderPage();
     // Recalculează minutes_worked din zero pentru acuratețe maximă
     if (entry?.project_task_id) {
       await this._recalcAndSaveTaskMinutes(entry.project_task_id);
     }
     closeModalForce();
-    showToast('✅ Activitate ștearsă', 'success');
-    await this.loadData();
-    this.renderPage();
+    try {
+      await this.loadData();
+      this.renderPage();
+      showToast('✅ Activitate ștearsă', 'success');
+    } catch (refreshError) {
+      console.error('[TimeTracking] Reîncărcare după ștergere:', refreshError);
+      showToast('Activitatea a fost ștearsă; calendarul se actualizează la reîncărcare.', 'success');
+    }
   },
 
   // ── Integrare cu timer din Proiecte / Start Task ──────────────────────────
