@@ -37,8 +37,9 @@ const Propuneri = {
       ...p,
       author_name: p.author_name || p.author?.full_name || p.profiles?.full_name || 'Anonim',
       manager_name: p.manager_name || p.manager?.full_name || '',
-      votes_for: Number(p.votes_for || 0),
-      votes_against: Number(p.votes_against || 0),
+      votes_for: Number(p.votes_count ?? p.votes_for ?? 0),
+      votes_against: 0,
+      user_voted: p.user_voted || null,
       status: p.status || 'deschisa',
     };
   },
@@ -77,11 +78,14 @@ const Propuneri = {
     if (this.activeTab === 'received' && this.canReview()) {
       return this.items.filter(p => this.isReceived(p, id));
     }
+    if (!this.canReview()) {
+      return this.items.filter(p => String(p.author_id) === String(id) || p.manager_id == null);
+    }
     return this.items.filter(p => String(p.author_id) === String(id));
   },
 
   isReceived(proposal, userId = this.currentId()) {
-    if (!proposal || String(proposal.author_id) === String(userId)) return false;
+    if (!proposal) return false;
     if (this.isAdmin()) return proposal.manager_id == null;
     if (this.isCoordinator()) return String(proposal.manager_id) === String(userId);
     return false;
@@ -182,8 +186,7 @@ const Propuneri = {
   },
 
   renderCard(proposal) {
-    const total = proposal.votes_for + proposal.votes_against;
-    const forPct = total > 0 ? Math.round(proposal.votes_for / total * 100) : 0;
+    const total = Number(proposal.votes_for || 0);
     const isReceived = this.activeTab === 'received' && this.isReceived(proposal);
     const canChangeStatus = isReceived && this.canReview();
     const id = this.jsArg(proposal.id);
@@ -203,18 +206,15 @@ const Propuneri = {
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${this.recipientLabel(proposal)}</div>
             <div class="text-sm text-muted mb-3" style="line-height:1.55">${description}</div>
             <div class="flex items-center gap-3">
-              <button class="vote-btn for ${proposal.user_voted === 'for' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'for')">
+              <button class="vote-btn for ${proposal.user_voted === 'for' ? 'voted' : ''}" onclick="Propuneri.vote(${id})" title="Susțin această idee">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
-                <span>${proposal.votes_for}</span>
+                <span>${proposal.user_voted === 'for' ? 'Susținută' : 'Susțin'}</span>
+                <strong>${total}</strong>
               </button>
               <div style="flex:1">
-                <div class="progress-bar"><div class="progress-fill" style="width:${forPct}%;background:var(--success)"></div></div>
-                <div class="text-xs text-muted text-center mt-1">${total} voturi · ${forPct}% pentru</div>
+                <div class="progress-bar"><div class="progress-fill" style="width:${total > 0 ? 100 : 0}%;background:var(--success)"></div></div>
+                <div class="text-xs text-muted text-center mt-1">${total} ${total === 1 ? 'susținere' : 'susțineri'} · feedback comunitar</div>
               </div>
-              <button class="vote-btn against ${proposal.user_voted === 'against' ? 'voted' : ''}" onclick="Propuneri.vote(${id}, 'against')">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                <span>${proposal.votes_against}</span>
-              </button>
             </div>
           </div>
           ${canChangeStatus ? `<button onclick="Propuneri.openStatusModal(${id})" style="flex:0 0 auto;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer" title="Actualizează statusul">Status</button>` : ''}
@@ -223,9 +223,9 @@ const Propuneri = {
     `;
   },
 
-  async vote(id, vote) {
-    const { error } = await DB.voteProposal(id, vote);
-    if (error) { showToast('Eroare la vot: ' + error.message, 'error'); return; }
+  async vote(id) {
+    const { error } = await DB.voteProposal(id);
+    if (error) { showToast('Eroare la susținere: ' + error.message, 'error'); return; }
     await this.render();
   },
 
