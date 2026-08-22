@@ -405,6 +405,17 @@ async function openProjectDirect(projectId) {
 }
 window.openProjectDirect = openProjectDirect;
 
+// Deschide Task Manager direct în tabul cerut. Starea se setează înainte de
+// randare, astfel încât pagina nu mai afișează pentru scurt timp tabul implicit.
+async function openTaskManagerTab(tab) {
+  const allowedTabs = new Set(['reports', 'hours-admin']);
+  if (!allowedTabs.has(tab) || typeof TaskManager === 'undefined') return;
+  if (tab === 'hours-admin' && !['admin', 'coordonator'].includes(Auth.currentProfile?.role)) return;
+  TaskManager.activeTab = tab;
+  await navigate('task-manager', null);
+}
+window.openTaskManagerTab = openTaskManagerTab;
+
 // ── SIDEBAR ───────────────────────────────────────────────────
 function updateSidebarUser() {
   const profile = Auth.currentProfile;
