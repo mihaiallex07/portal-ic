@@ -18,6 +18,278 @@ const ProcessOverview = {
   taskAssignments: [],
   tasks: [],
   phases: [],
+  viewSettings: null,
+
+  isAdmin() {
+    return Auth.currentProfile?.role === 'admin';
+  },
+
+  isCoordinator() {
+    return ['coordonator', 'coordinator', 'coord'].includes(Auth.currentProfile?.role);
+  },
+
+  canManageView() {
+    return this.isAdmin() || this.isCoordinator();
+  },
+
+  settingsKey() {
+    return `portal-ic:process-overview:${Auth.currentUser?.id || Auth.currentProfile?.id || 'guest'}`;
+  },
+
+  loadViewSettings() {
+    if (this.viewSettings) return;
+    const defaults = { userIds: null, department: '', role: '', sort: 'department' };
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.settingsKey()) || 'null');
+      this.viewSettings = { ...defaults, ...(saved || {}) };
+    } catch (_) {
+      this.viewSettings = defaults;
+    }
+  },
+
+  saveViewSettings() {
+    try { localStorage.setItem(this.settingsKey(), JSON.stringify(this.viewSettings)); } catch (_) {}
+  },
+
+  setViewSetting(key, value) {
+    this.loadViewSettings();
+    this.viewSettings[key] = value;
+    this.saveViewSettings();
+    this.renderPage();
+  },
+
+  resetViewSettings() {
+    this.viewSettings = { userIds: null, department: '', role: '', sort: 'department' };
+    this.saveViewSettings();
+    this.renderPage();
+  },
+
+  toDateString(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  },
+
+  addDays(dateString, days) {
+    const d = new Date(`${dateString}T12:00:00`);
+    d.setDate(d.getDate() + days);
+    return this.toDateString(d);
+  },
+
+  userRoleLabel(user) {
+    return user.role || user.position || user.job_title || 'Fără rol';
+  },
+
+  visibleUsers() {
+    this.loadViewSettings();
+    const selected = this.viewSettings.userIds === null ? null : new Set(this.viewSettings.userIds.map(String));
+    return this.users.filter(user => {
+      if (user.is_active === false) return false;
+      if (selected && !selected.has(String(user.id))) return false;
+      if (this.viewSettings.department && (user.department || 'General') !== this.viewSettings.department) return false;
+      if (this.viewSettings.role && this.userRoleLabel(user) !== this.viewSettings.role) return false;
+      return true;
+    });
+  },
+
+  groupedUsers() {
+    const users = [...this.visibleUsers()];
+    const sort = this.viewSettings?.sort || 'department';
+    const alpha = (a, b) => String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro');
+    if (sort === 'alphabetic') return [{ label: 'Echipă', users: users.sort(alpha) }];
+    const field = sort === 'role' ? (u => this.userRoleLabel(u)) : (u => u.department || 'General');
+    const groups = {};
+    users.forEach(user => {
+      const key = field(user);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(user);
+    });
+    return Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b, 'ro'))
+      .map(([label, groupUsers]) => ({ label, users: groupUsers.sort(alpha) }));
+  },
+
+  resolveTaskPeriod(task, project, assignment = null) {
+    const assignmentStart = assignment?.start_date;
+    const assignmentEnd = assignment?.end_date;
+    if (assignmentStart && assignmentEnd) return { start: assignmentStart, end: assignmentEnd, source: 'assignment', explicit: true };
+    if (task.task_start_date && task.task_end_date) return { start: task.task_start_date, end: task.task_end_date, source: 'task', explicit: true };
+    if (task.task_start_date) return { start: task.task_start_date, end: this.addDays(task.task_start_date, 4), source: 'task', explicit: false };
+    if (task.task_end_date) return { start: this.addDays(task.task_end_date, -4), end: task.task_end_date, source: 'task', explicit: false };
+    if (project.start_date && project.end_date) return { start: project.start_date, end: project.end_date, source: 'project', explicit: false };
+    const today = this.toDateString(new Date());
+    return { start: today, end: this.addDays(today, 4), source: 'unscheduled', explicit: false };
+  },
+
+  makeTaskBar(task, project, userId, assignment = null) {
+    const phase = this.phases.find(ph => ph.id === task.phase_id);
+    const period = this.resolveTaskPeriod(task, project, assignment);
+    const workedH = Math.round(((task.minutes_worked || 0) / 60) * 10) / 10;
+    const budgetH = Number(task.budget_hours || 0);
+    return {
+      assignmentId: assignment?.id || null,
+      taskId: task.id,
+      taskName: task.name,
+      phaseName: phase?.name || '',
+      phaseId: task.phase_id,
+      projName: project.name,
+      projId: project.id,
+      projCode: project.abbreviation || project.code,
+      projColor: project.color || '#FFCB09',
+      userId,
+      start_date: period.start,
+      end_date: period.end,
+      periodSource: period.source,
+      hasExplicitPeriod: period.explicit,
+      budgetH,
+      workedH,
+      pct: budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0,
+    };
+  },
+
+  buildUserBars(activeProjects) {
+    const barsByUser = {};
+    const taskById = new Map(this.tasks.map(task => [String(task.id), task]));
+    const projectById = new Map(activeProjects.map(project => [String(project.id), project]));
+    const byTaskUser = new Map();
+    const sourceWeight = { assignment: 4, task: 3, project: 2, unscheduled: 1 };
+    const addBar = bar => {
+      const key = `${bar.taskId || 'project'}:${bar.userId}`;
+      const existing = byTaskUser.get(key);
+      if (existing && sourceWeight[existing.periodSource] >= sourceWeight[bar.periodSource]) return;
+      if (existing) {
+        const list = barsByUser[bar.userId] || [];
+        const index = list.indexOf(existing);
+        if (index >= 0) list.splice(index, 1);
+      }
+      if (!barsByUser[bar.userId]) barsByUser[bar.userId] = [];
+      barsByUser[bar.userId].push(bar);
+      byTaskUser.set(key, bar);
+    };
+
+    this.taskAssignments.forEach(assignment => {
+      const task = taskById.get(String(assignment.task_id));
+      const project = projectById.get(String(assignment.project_id));
+      if (task && project && assignment.user_id) addBar(this.makeTaskBar(task, project, assignment.user_id, assignment));
+    });
+
+    this.tasks.forEach(task => {
+      const project = projectById.get(String(task.project_id));
+      if (!project) return;
+      const assignedIds = new Set([task.assigned_user_id, ...(Array.isArray(task.assigned_users) ? task.assigned_users : [])].filter(Boolean).map(String));
+      assignedIds.forEach(userId => {
+        const matching = this.taskAssignments.find(a => String(a.task_id) === String(task.id) && String(a.user_id) === userId) || null;
+        addBar(this.makeTaskBar(task, project, userId, matching));
+      });
+    });
+
+    this.memberships.forEach(member => {
+      const project = projectById.get(String(member.project_id));
+      if (!project || !project.start_date || !project.end_date) return;
+      const existing = barsByUser[member.user_id] || [];
+      if (existing.some(bar => String(bar.projId) === String(project.id))) return;
+      barsByUser[member.user_id] = existing;
+      existing.push({
+        taskId: null,
+        taskName: '',
+        phaseName: '',
+        projName: project.name,
+        projId: project.id,
+        projCode: project.abbreviation || project.code,
+        projColor: project.color || '#FFCB09',
+        userId: member.user_id,
+        start_date: project.start_date,
+        end_date: project.end_date,
+        periodSource: 'project',
+        hasExplicitPeriod: false,
+        memberRole: member.role,
+        budgetH: 0,
+        workedH: 0,
+        pct: 0,
+      });
+    });
+    return barsByUser;
+  },
+
+  layoutBars(bars, startDate, days) {
+    const timelineStart = new Date(`${this.toDateString(startDate)}T12:00:00`);
+    const timelineEnd = new Date(timelineStart);
+    timelineEnd.setDate(timelineEnd.getDate() + days - 1);
+    const tracks = [];
+    const arranged = [];
+    [...bars].sort((a, b) => {
+      if (b.hasExplicitPeriod !== a.hasExplicitPeriod) return b.hasExplicitPeriod ? 1 : -1;
+      return new Date(`${a.start_date}T12:00:00`) - new Date(`${b.start_date}T12:00:00`);
+    }).forEach(bar => {
+      const sourceStart = new Date(`${bar.start_date}T12:00:00`);
+      const sourceEnd = new Date(`${bar.end_date}T12:00:00`);
+      const barStart = sourceStart < timelineStart ? timelineStart : sourceStart;
+      const barEnd = sourceEnd > timelineEnd ? timelineEnd : sourceEnd;
+      if (barStart > barEnd) return;
+      const left = Math.round((barStart - timelineStart) / 86400000) * this.ZOOM_PX;
+      const width = Math.max(this.ZOOM_PX, Math.round((barEnd - barStart) / 86400000 + 1) * this.ZOOM_PX);
+      let track = tracks.findIndex(end => end <= left);
+      if (track < 0) { track = tracks.length; tracks.push(-Infinity); }
+      tracks[track] = left + width + 3;
+      arranged.push({ ...bar, left, width, track });
+    });
+    const rowHeight = Math.max(this.ROW_H, 14 + Math.max(1, tracks.length) * (this.BAR_H + 7));
+    return { bars: arranged, rowHeight };
+  },
+
+  renderControls() {
+    if (!this.canManageView()) return '';
+    this.loadViewSettings();
+    const departments = [...new Set(this.users.map(user => user.department || 'General'))].sort((a, b) => a.localeCompare(b, 'ro'));
+    const roles = [...new Set(this.users.map(user => this.userRoleLabel(user)))].sort((a, b) => a.localeCompare(b, 'ro'));
+    const displayed = this.visibleUsers().length;
+    return `
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:.03em">VIZUALIZARE ECHIPĂ</span>
+        <select class="input" style="width:auto;min-width:145px;height:34px" onchange="ProcessOverview.setViewSetting('department', this.value)">
+          <option value="">Toate departamentele</option>
+          ${departments.map(department => `<option value="${department}" ${this.viewSettings.department === department ? 'selected' : ''}>${department}</option>`).join('')}
+        </select>
+        <select class="input" style="width:auto;min-width:130px;height:34px" onchange="ProcessOverview.setViewSetting('role', this.value)">
+          <option value="">Toate rolurile</option>
+          ${roles.map(role => `<option value="${role}" ${this.viewSettings.role === role ? 'selected' : ''}>${role}</option>`).join('')}
+        </select>
+        <select class="input" style="width:auto;min-width:150px;height:34px" onchange="ProcessOverview.setViewSetting('sort', this.value)">
+          <option value="department" ${this.viewSettings.sort === 'department' ? 'selected' : ''}>Grupează: departament</option>
+          <option value="role" ${this.viewSettings.sort === 'role' ? 'selected' : ''}>Grupează: rol</option>
+          <option value="alphabetic" ${this.viewSettings.sort === 'alphabetic' ? 'selected' : ''}>Ordonează: A–Z</option>
+        </select>
+        <button class="btn-secondary" style="height:34px;padding:0 10px" onclick="ProcessOverview.openPeopleSelector()">Persoane (${displayed})</button>
+        <button style="border:0;background:none;color:var(--text-muted);font-size:12px;cursor:pointer" onclick="ProcessOverview.resetViewSettings()">Resetează</button>
+      </div>`;
+  },
+
+  openPeopleSelector() {
+    if (!this.canManageView()) return;
+    this.loadViewSettings();
+    const selected = this.viewSettings.userIds === null ? new Set(this.users.map(user => String(user.id))) : new Set(this.viewSettings.userIds.map(String));
+    const users = [...this.users].filter(user => user.is_active !== false).sort((a, b) => String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro'));
+    openModal('Persoane afișate în Gantt', `
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:12px"><span class="text-sm text-muted">Alege persoanele care apar în Gantt. Preferința se salvează pentru contul tău.</span><button class="btn-secondary" style="padding:5px 8px;font-size:11px" onclick="ProcessOverview.toggleAllPeople(true)">Toți</button></div>
+      <div id="po-people-list" style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        ${users.map(user => `<label style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer"><input type="checkbox" class="po-person-check" value="${user.id}" ${selected.has(String(user.id)) ? 'checked' : ''}/><span style="flex:1"><strong style="font-size:13px">${user.full_name || user.name}</strong><span class="text-xs text-muted" style="display:block;margin-top:2px">${user.department || 'General'} · ${this.userRoleLabel(user)}</span></span></label>`).join('')}
+      </div>
+    `, `<button class="btn-secondary" onclick="closeModalForce()">Anulează</button><button class="btn-brand" onclick="ProcessOverview.savePeopleSelection()">Salvează afișarea</button>`);
+  },
+
+  toggleAllPeople(checked) {
+    document.querySelectorAll('.po-person-check').forEach(input => { input.checked = checked; });
+  },
+
+  savePeopleSelection() {
+    this.loadViewSettings();
+    this.viewSettings.userIds = [...document.querySelectorAll('.po-person-check:checked')].map(input => input.value);
+    this.saveViewSettings();
+    closeModalForce();
+    this.renderPage();
+  },
 
   async render() {
     const content = document.getElementById('page-content');
@@ -35,7 +307,7 @@ const ProcessOverview = {
         dbQuery('project_members', q =>
           q.select('project_id,user_id,role').in('project_id', projIds), []),
         dbQuery('project_tasks', q =>
-          q.select('id,name,phase_id,project_id,assigned_user_id,assigned_users,budget_hours,minutes_worked').in('project_id', projIds), []),
+          q.select('id,name,phase_id,project_id,assigned_user_id,assigned_users,task_start_date,task_end_date,budget_hours,minutes_worked,status').in('project_id', projIds), []),
         dbQuery('project_phases', q =>
           q.select('id,name,project_id').in('project_id', projIds), []),
         dbQuery('project_task_assignments', q =>
@@ -67,74 +339,10 @@ const ProcessOverview = {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
 
-    // Map: userId → lista de bare
-    const userBarsMap = {};
-
-    // Bare din project_task_assignments (cu perioadă explicită per task)
-    this.taskAssignments.forEach(a => {
-      if (!a.start_date || !a.end_date) return;
-      const task = this.tasks.find(t => t.id === a.task_id);
-      const proj = this.projects.find(p => p.id === a.project_id);
-      if (!task || !proj) return;
-      const phase = this.phases.find(ph => ph.id === task.phase_id);
-      if (!userBarsMap[a.user_id]) userBarsMap[a.user_id] = [];
-      const workedH = Math.round((task.minutes_worked || 0) / 60 * 10) / 10;
-      const budgetH = task.budget_hours || 0;
-      const pct = budgetH > 0 ? Math.min(100, Math.round((workedH / budgetH) * 100)) : 0;
-      userBarsMap[a.user_id].push({
-        assignmentId: a.id,
-        taskId: task.id,
-        taskName: task.name,
-        phaseName: phase ? phase.name : '',
-        phaseId: task.phase_id,
-        projName: proj.name,
-        projId: proj.id,
-        projCode: proj.abbreviation || proj.code,
-        projColor: proj.color || '#FFCB09',
-        start_date: a.start_date,
-        end_date: a.end_date,
-        hasExplicitPeriod: true,
-        budgetH,
-        workedH,
-        pct,
-      });
-    });
-
-    // Fallback: membrii fără task assignments → bara proiectului (semitransparentă)
-    this.memberships.forEach(m => {
-      const proj = this.projects.find(p => p.id === m.project_id);
-      if (!proj || !proj.start_date || !proj.end_date) return;
-      const hasExplicit = (userBarsMap[m.user_id] || []).some(b =>
-        b.projCode === (proj.abbreviation || proj.code) && b.hasExplicitPeriod
-      );
-      if (hasExplicit) return;
-      if (!userBarsMap[m.user_id]) userBarsMap[m.user_id] = [];
-      userBarsMap[m.user_id].push({
-        taskId: null,
-        taskName: '',
-        phaseName: '',
-        phaseId: null,
-        projName: proj.name,
-        projId: proj.id,
-        projCode: proj.abbreviation || proj.code,
-        projColor: proj.color || '#FFCB09',
-        start_date: proj.start_date,
-        end_date: proj.end_date,
-        hasExplicitPeriod: false,
-        memberRole: m.role,
-        budgetH: 0,
-        workedH: 0,
-        pct: 0,
-      });
-    });
-
-    // Grupează angajații pe departamente
-    const deptMap = {};
-    this.users.forEach(u => {
-      const dept = u.department || 'General';
-      if (!deptMap[dept]) deptMap[dept] = [];
-      deptMap[dept].push(u);
-    });
+    // Toate task-urile alocate sunt incluse: assignment explicit, alocare directă,
+    // perioadă proprie de task sau fallback clar al proiectului.
+    const userBarsMap = this.buildUserBars(activeProjects);
+    const userGroups = this.groupedUsers();
 
     // Month header
     let monthSegs = [];
@@ -159,125 +367,42 @@ const ProcessOverview = {
       dayHeader += `<div class="gantt-day-cell ${isToday ? 'today' : ''} ${isWeekend ? 'weekend' : ''}">${dt.getDate()}</div>`;
     }
 
-    // Rows
+    // Rânduri: fiecare task suprapus primește o pistă verticală proprie.
     let rowsHtml = '';
-    let totalRows = 0;
-
-    if (Object.keys(deptMap).length === 0) {
-      rowsHtml = `<div style="padding:48px;text-align:center;color:var(--text-muted)">Nu există angajați.</div>`;
+    if (userGroups.length === 0) {
+      rowsHtml = `<div style="padding:48px;text-align:center;color:var(--text-muted)">Nu există persoane care corespund filtrelor selectate.</div>`;
     } else {
-      Object.entries(deptMap).forEach(([dept, members]) => {
+      userGroups.forEach(group => {
         rowsHtml += `
           <div class="gantt-row dept-row">
-            <div class="gantt-label dept-label" style="width:${LW}px">${dept}</div>
-            <div class="gantt-cells" style="width:${totalW}px">
-              ${this._weekendCells(startDate, days)}
-            </div>
-          </div>
-        `;
-
-        members.forEach(user => {
-          const bars = userBarsMap[user.id] || [];
-          let barsHtml = '';
-
-          // Bare stivuite pe piste verticale (3 piste în ROW_H=44px, BAR_H=12px)
-          // Pistele: top=4, top=18, top=32
-          const TRACK_TOPS = [4, 18, 32];
-          const MAX_TRACKS = TRACK_TOPS.length;
-          const sortedBars = [...bars].sort((a, b) => {
-            if (b.hasExplicitPeriod !== a.hasExplicitPeriod) return (b.hasExplicitPeriod ? 1 : 0) - (a.hasExplicitPeriod ? 1 : 0);
-            return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
-          });
-          // Algoritm greedy: aloca fiecare bară pe prima pistă liberă
-          const trackEnds = new Array(MAX_TRACKS).fill(-Infinity);
-          sortedBars.forEach((bar, idx) => {
-            const ps = new Date(bar.start_date);
-            const pe = new Date(bar.end_date);
-            const gs = new Date(startDate);
-            const ge = new Date(startDate);
-            ge.setDate(ge.getDate() + days - 1);
-            const barStart = ps < gs ? gs : ps;
-            const barEnd = pe > ge ? ge : pe;
-            if (barStart > barEnd) return;
-
-            const left = Math.round((barStart - gs) / 86400000) * this.ZOOM_PX;
-            const width = Math.max(this.ZOOM_PX, Math.round((barEnd - barStart) / 86400000 + 1) * this.ZOOM_PX);
-            // Găsește prima pistă liberă
-            let trackIdx = -1;
-            for (let t = 0; t < MAX_TRACKS; t++) {
-              if (trackEnds[t] <= left) { trackIdx = t; break; }
-            }
-            if (trackIdx === -1) trackIdx = trackEnds.indexOf(Math.min(...trackEnds));
-            trackEnds[trackIdx] = left + width;
-            const top = TRACK_TOPS[trackIdx];
+            <div class="gantt-label dept-label" style="width:${LW}px">${group.label}</div>
+            <div class="gantt-cells" style="width:${totalW}px">${this._weekendCells(startDate, days)}</div>
+          </div>`;
+        group.users.forEach(user => {
+          const layout = this.layoutBars(userBarsMap[user.id] || [], startDate, days);
+          const barsHtml = layout.bars.map(bar => {
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
-
-            let tooltipParts = [bar.projName];
-            if (bar.phaseName) tooltipParts.push(bar.phaseName);
-            if (bar.taskName) tooltipParts.push(bar.taskName);
-            const tooltip = tooltipParts.join(' \u2192 ');
-
-            const barLabel = bar.taskName
-              ? `${bar.projCode}: ${bar.taskName}`
-              : `${bar.projCode}${bar.memberRole === 'coordonator' ? ' \u2605' : ''}`;
-
-            const opacity = bar.hasExplicitPeriod ? '1' : '0.6';
-            const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.25);';
+            const top = 8 + bar.track * (this.BAR_H + 7);
+            const barLabel = bar.taskName ? `${bar.projCode}: ${bar.taskName}` : `${bar.projCode}${bar.memberRole === 'coordonator' ? ' ★' : ''}`;
+            const opacity = bar.hasExplicitPeriod ? '1' : '0.72';
+            const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.32);';
+            const periodHint = bar.periodSource === 'unscheduled' ? 'Perioadă estimată' : bar.hasExplicitPeriod ? 'Perioadă task' : 'Perioadă estimată';
             const safeTaskName = (bar.taskName || '').replace(/"/g, '&quot;');
             const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
             const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
-
-            // Drag handles vizibili doar pentru admin/coord pe bare cu task explicit
-            const canDrag = isAdmin && bar.hasExplicitPeriod && bar.assignmentId;
-            const dragHandles = canDrag ? `
-                <div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div>
-                <div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>
-              ` : '';
-            barsHtml += `
-              <div class="gantt-bar po-bar"
-                   style="left:${left}px;top:${top}px;width:${width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute"
-                   data-assignment-id="${bar.assignmentId || ''}"
-                   data-task-id="${bar.taskId || ''}"
-                   data-proj-id="${bar.projId || ''}"
-                   data-is-admin="${isAdmin ? '1' : '0'}"
-                   data-task-name="${safeTaskName}"
-                   data-proj-name="${safeProjName}"
-                   data-phase-name="${safePhaseName}"
-                   data-start="${bar.start_date}"
-                   data-end="${bar.end_date}"
-                   data-budget="${bar.budgetH}"
-                   data-worked="${bar.workedH}"
-                   data-pct="${bar.pct}"
-                   data-bar-color="${color}"
-                   onmouseenter="ProcessOverview.showTooltip(event,this)"
-                   onmouseleave="ProcessOverview.hideTooltip()"
-                   onclick="ProcessOverview.handleBarClick(event,this)">
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>
-                ${dragHandles}
-              </div>
-            `;
-          });
-
-          // Înălțime fixă pentru toți angajații - compact și uniform
-          const FIXED_ROW_H = this.ROW_H;
+            const canDrag = this.canManageView() && bar.assignmentId;
+            const dragHandles = canDrag ? `<div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div><div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>` : '';
+            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.canManageView() ? '1' : '0'}" data-task-name="${safeTaskName}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
+          }).join('');
           rowsHtml += `
-            <div class="gantt-row" style="height:${FIXED_ROW_H}px">
-              <div class="gantt-label" style="width:${LW}px;height:${FIXED_ROW_H}px">
-                <div class="gantt-user-avatar">${Auth.getInitials(user.full_name)}</div>
-                <div class="gantt-user-info">
-                  <div class="gantt-user-name">${user.full_name}</div>
-                  <div class="gantt-user-pos" style="font-size:10px">${user.position || user.job_title || ''}</div>
-                </div>
+            <div class="gantt-row" style="height:${layout.rowHeight}px">
+              <div class="gantt-label" style="width:${LW}px;height:${layout.rowHeight}px">
+                <div class="gantt-user-avatar">${Auth.getInitials(user.full_name || user.name || '')}</div>
+                <div class="gantt-user-info"><div class="gantt-user-name">${user.full_name || user.name || 'Fără nume'}</div><div class="gantt-user-pos" style="font-size:10px">${this.userRoleLabel(user)}</div></div>
               </div>
-              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${FIXED_ROW_H}px">
-                ${this._weekendCells(startDate, days)}
-                ${this._todayLine(startDate, days)}
-                ${barsHtml}
-              </div>
-            </div>
-          `;
-          totalRows++;
+              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${layout.rowHeight}px">${this._weekendCells(startDate, days)}${this._todayLine(startDate, days)}${barsHtml}</div>
+            </div>`;
         });
       });
     }
@@ -304,6 +429,7 @@ const ProcessOverview = {
           </button>
         </div>
       </div>
+      ${this.renderControls()}
       <div class="card" style="padding:0;overflow:hidden">
         ${activeProjects.length > 0 ? `
         <div class="gantt-legend">
@@ -316,7 +442,7 @@ const ProcessOverview = {
             ).join('')}
             <div style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--text-muted)">
               <div style="width:20px;height:10px;background:#aaa;border:1px dashed rgba(0,0,0,0.3);border-radius:2px;opacity:0.6"></div>
-              <span>Perioad\u0103 proiect (f\u0103r\u0103 task alocat explicit)</span>
+              <span>Perioadă estimată — task fără interval explicit</span>
             </div>
           </div>
         </div>` : ''}
