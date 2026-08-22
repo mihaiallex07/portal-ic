@@ -418,7 +418,7 @@ const Evenimente = {
     }
     if (type === 'custom') {
       const { data: users } = await DB.getUsers();
-      const allUsers = users || [];
+      const allUsers = (users || []).filter(user => !user.is_pre_created);
       container.innerHTML = `
         <div style="max-height:180px;overflow-y:auto;border:1.5px solid var(--border);border-radius:8px;padding:8px">
           ${allUsers.map(u => `
