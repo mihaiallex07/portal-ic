@@ -1827,7 +1827,7 @@ const TaskManager = {
     
     // Fetch time entries with correct date field
     let query = sb.from('time_entries')
-      .select('id,project_task_id,project_id,duration_minutes,date,start_time,end_time,activity_type,description')
+      .select('id,project_task_id,project_id,duration_minutes,date,start_time,end_time,activity_type,task_name,description')
       .eq('user_id', userId)
       .gte('date', dateFrom)
       .lte('date', dateTo);
@@ -1945,11 +1945,11 @@ const TaskManager = {
 
   getUnassignedReportEntries(data) {
     if (data.projectFilter) return [];
-    return (data.timeEntries || []).filter(entry => !entry.project_id && String(entry.description || '').trim());
+    return (data.timeEntries || []).filter(entry => !entry.project_id && String(entry.task_name || '').trim());
   },
 
   getReportActivityDescription(entry) {
-    return String(entry.description || '').trim();
+    return String(entry.task_name || '').trim();
   },
 
   displayReport(data) {
