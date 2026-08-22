@@ -222,7 +222,10 @@ const Propuneri = {
               <span class="text-xs text-muted" style="margin-left:auto">${total} răspunsuri · feedback comunitar</span>
             </div>
           </div>
-          ${canChangeStatus ? `<button onclick="Propuneri.openStatusModal(${id})" style="flex:0 0 auto;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer" title="Actualizează statusul">Status</button>` : ''}
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+            ${canChangeStatus ? `<button onclick="Propuneri.openStatusModal(${id})" style="border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:5px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer" title="Actualizează statusul">Status</button>` : ''}
+            ${this.isAdmin() ? `<button onclick="Propuneri.openDeleteModal(${id})" style="border:1px solid #F3C7C3;background:#FFF7F6;color:#B42318;border-radius:5px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer" title="Șterge definitiv propunerea">Șterge</button>` : ''}
+          </div>
         </div>
       </div>
     `;
@@ -231,6 +234,31 @@ const Propuneri = {
   async vote(id, voteType) {
     const { error } = await DB.voteProposal(id, voteType);
     if (error) { showToast('Eroare la feedback: ' + error.message, 'error'); return; }
+    await this.render();
+  },
+
+  openDeleteModal(id) {
+    if (!this.isAdmin()) return;
+    const proposal = this.items.find(item => String(item.id) === String(id));
+    if (!proposal) return;
+    const ref = this.escapeHtml(proposal.reference_number || proposal.title || 'această propunere');
+    openModal('Șterge propunerea', `
+      <div style="padding:4px 0">
+        <p style="margin:0 0 10px;font-weight:700">Ștergi definitiv propunerea ${ref}?</p>
+        <p class="text-sm text-muted" style="margin:0">Acțiunea nu poate fi anulată. Feedbackul asociat va fi șters automat.</p>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button style="border:0;background:#B42318;color:#fff;border-radius:6px;padding:9px 13px;font-weight:700;cursor:pointer" onclick="Propuneri.deleteProposal(${this.jsArg(id)})">Șterge definitiv</button>
+    `);
+  },
+
+  async deleteProposal(id) {
+    if (!this.isAdmin()) return;
+    const { error } = await DB.deleteProposal(id);
+    if (error) { showToast('Eroare la ștergerea propunerii: ' + error.message, 'error'); return; }
+    closeModalForce();
+    showToast('Propunerea și feedbackul asociat au fost șterse.', 'success');
     await this.render();
   },
 
