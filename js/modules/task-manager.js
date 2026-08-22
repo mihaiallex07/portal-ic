@@ -1451,12 +1451,7 @@ const TaskManager = {
 
   // ── NAVIGARE PROIECT ──────────────────────────────────────────
   goToProject(projectId) {
-    navigate('proiecte', null);
-    setTimeout(() => {
-      if (typeof Proiecte !== 'undefined' && Proiecte.openProject) {
-        Proiecte.openProject(projectId);
-      }
-    }, 300);
+    openProjectDirect(projectId);
   },
 
   // ── FILTRE & SEARCH (tab personal) ───────────────────────────
