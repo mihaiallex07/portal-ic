@@ -31,6 +31,8 @@ const Dashboard = {
   async render() {
     const userId = Auth.currentUser?.id;
     const isAdmin = Auth.currentProfile?.role === 'admin';
+    const isCoord = Auth.currentProfile?.role === 'coordonator';
+    const canControlHours = isAdmin || isCoord;
     const currentWeek = getCurrentCalendarWeek();
     const [projectsRes, timeRes, newsRes, notifRes, profilesRes, tasksRes, membershipsRes] = await Promise.all([
       DB.getProjects(),
@@ -178,6 +180,12 @@ const Dashboard = {
             <div class="metric-value" style="color:${unreadNotifs > 0 ? 'var(--brand-dark)' : 'var(--text)'}">${unreadNotifs}</div>
             <div class="metric-sub">${unreadNotifs === 1 ? 'necitită' : 'necitite'}</div>
           </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;padding:12px 14px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px">
+          <span style="font-size:12px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-right:2px">Acțiuni rapide</span>
+          <button class="btn-brand" style="font-size:12px;padding:7px 12px" onclick="Dashboard.openTaskManagerTab('reports')">📊 Generează raport</button>
+          ${canControlHours ? `<button class="btn-secondary" style="font-size:12px;padding:7px 12px" onclick="Dashboard.openTaskManagerTab('hours-admin')">📈 Control ore</button>` : ''}
         </div>
 
         <!-- Main grid -->
@@ -349,6 +357,20 @@ const Dashboard = {
     `;
 
     MiniCalendar.init();
+  },
+
+  openTaskManagerTab(tab) {
+    navigate('task-manager', null);
+    let attempts = 0;
+    const activateTab = () => {
+      attempts += 1;
+      if (window.TaskManager && document.getElementById('tm-tab-content')) {
+        TaskManager.setTab(tab);
+        return;
+      }
+      if (attempts < 20) setTimeout(activateTab, 80);
+    };
+    setTimeout(activateTab, 80);
   }
 };
 
