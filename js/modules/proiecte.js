@@ -725,8 +725,8 @@ const Proiecte = {
             </div>
             <span style="font-size:11px;color:${isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : 'var(--text-muted)'};width:36px">${isOverBudget ? rawPct + '%' : pct + '%'}</span>
           </div>
-          ${isExact100 ? `<div style="font-size:10px;color:#10B981;font-weight:600;margin-top:2px">✓ Done</div>` : ''}
-          ${isOverBudget ? `<div style="font-size:10px;color:#EF4444;font-weight:600;margin-top:2px">⚠ Depăşit</div>` : ''}
+          ${(isExact100 || isFinalized) ? `<div style="font-size:10px;color:#10B981;font-weight:600;margin-top:2px">✓ Done</div>` : ''}
+          ${isOverBudget && !isFinalized ? `<div style="font-size:10px;color:#EF4444;font-weight:600;margin-top:2px">⚠ Depăşit</div>` : ''}
         </td>
         <td style="padding:8px 12px;font-size:12px">
           ${canEdit && isAdminOrCoord ? `
