@@ -742,7 +742,7 @@ const Proiecte = {
           ${canEdit ? `
             <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
           ` : ''}
-          ${isAdminOrCoord ? `<button onclick="Proiecte.toggleTaskCompletion(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:11px;margin-left:4px;padding:3px 6px;border:1px solid #10B98140;border-radius:4px;font-weight:600" title="Finalizează sau redeschide task-ul">✓ Finalizează / Redeschide</button>` : ''}
+          ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.toggleTaskCompletion(${task.id})" style="background:none;border:1px solid var(--border);cursor:pointer;color:${isFinalized ? '#64748B' : 'var(--text-muted)'};font-size:10px;margin-left:4px;padding:2px 5px;border-radius:4px;font-weight:600" title="${isFinalized ? 'Redeschide task-ul' : 'Marchează task-ul ca finalizat'}">${isFinalized ? '↶ Redeschide' : '✓ Finalizează'}</button>` : ''}
           ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>` : ''}
         </td>
       </tr>
