@@ -672,12 +672,18 @@ const TimeTracking = {
 
   // ── Vizualizare / ștergere intrare ───────────────────────────────────────
 
-  viewEntry(id) {
+  async viewEntry(id) {
     const e = this.entries.find(e => e.id === id);
     if (!e) return;
     const proj = this.projects.find(p => p.id === e.project_id);
     const st = this.parseStartTime(e);
     const et = this.parseEndTime(e);
+    const eventMatch = String(e.gcal_event_id || '').match(/^company_event:(\d+):/);
+    let event = null;
+    if (eventMatch && typeof DB.getCompanyEventById === 'function') {
+      const { data } = await DB.getCompanyEventById(Number(eventMatch[1]));
+      event = data || null;
+    }
     openModal('Detalii activitate', `
       <div class="space-y-3">
         <div style="font-size:16px;font-weight:600">${e.task_name || 'Activitate'}</div>
@@ -688,12 +694,29 @@ const TimeTracking = {
         </div>
         ${proj ? `<div style="font-size:13px">Proiect: <strong>${proj.emoji || ''} ${proj.name}</strong></div>` : ''}
         ${e.description ? `<div style="font-size:13px;color:var(--text-muted)">${e.description}</div>` : ''}
+        ${event ? `
+          <div style="margin-top:14px;padding:14px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#2563eb;margin-bottom:8px">Eveniment firmă</div>
+            <div style="font-size:14px;font-weight:700;color:#1e3a8a">${event.title}</div>
+            <div style="font-size:13px;color:#334155;margin-top:5px">${this.fmtDate(event.event_date)} · ${this.fmtTime(st.h, st.m)}${et ? ' → ' + this.fmtTime(et.h, et.m) : ''}</div>
+            ${event.location ? `<div style="font-size:13px;color:#334155;margin-top:4px">Locație: ${event.location}</div>` : ''}
+            ${event.description ? `<div style="font-size:13px;color:#475569;line-height:1.5;margin-top:8px">${event.description}</div>` : ''}
+            ${event.meeting_link ? `<a href="${event.meeting_link}" target="_blank" rel="noopener" style="display:inline-block;margin-top:10px;font-size:13px;font-weight:700;color:#1d4ed8">Deschide linkul întâlnirii ↗</a>` : ''}
+          </div>
+        ` : ''}
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Închide</button>
+      ${eventMatch ? `<button class="btn-secondary" onclick="TimeTracking.openCompanyEvent(${eventMatch[1]})">Vezi evenimentul</button>` : ''}
       <button class="btn-secondary" onclick="TimeTracking.openEditModal(${id})">✏️ Editează</button>
       <button class="btn-danger" onclick="TimeTracking.deleteEntry(${id});closeModalForce()">🗑 Șterge</button>
     `);
+  },
+
+  async openCompanyEvent(eventId) {
+    closeModalForce();
+    await navigate('evenimente', null);
+    setTimeout(() => Evenimente?.openDetailsModal?.(Number(eventId)), 250);
   },
 
 
