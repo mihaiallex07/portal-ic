@@ -34,6 +34,129 @@ let sidebarCollapsed = false;
 let authSessionPromise = null;
 let authSessionUserId = null;
 
+// Afișările existente care nu indică explicit o localizare adoptă implicit ro-RO.
+if (!window.__icRomanianDateLocaleApplied) {
+  const nativeToLocaleDateString = Date.prototype.toLocaleDateString;
+  Date.prototype.toLocaleDateString = function(locales, options) {
+    return nativeToLocaleDateString.call(this, locales || 'ro-RO', options);
+  };
+  window.__icRomanianDateLocaleApplied = true;
+}
+
+// ── DATE ROMÂNEȘTI ────────────────────────────────────────────
+// Formularele portalului salvează date ISO (YYYY-MM-DD), dar le afișează și
+// permit introducerea lor în formatul unitar DD/MM/YYYY, independent de limba browserului.
+const RomanianDateFields = {
+  sequence: 0,
+
+  format(isoDate) {
+    const match = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : '';
+  },
+
+  parse(value) {
+    const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return null;
+    const [, day, month, year] = match;
+    const candidate = `${year}-${month}-${day}`;
+    const date = new Date(`${candidate}T12:00:00`);
+    return !Number.isNaN(date.getTime()) && date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month) && date.getDate() === Number(day)
+      ? candidate
+      : null;
+  },
+
+  enhance(input) {
+    if (!input || input.dataset.roDateEnhanced === 'true') return;
+    input.dataset.roDateEnhanced = 'true';
+
+    const originalId = input.id || `ro-date-field-${++this.sequence}`;
+    if (!input.id) input.id = originalId;
+    const display = input.cloneNode(false);
+    display.type = 'text';
+    display.id = `${originalId}-display`;
+    display.name = '';
+    display.required = false;
+    display.autocomplete = 'off';
+    display.inputMode = 'numeric';
+    display.placeholder = 'DD/MM/YYYY';
+    display.value = this.format(input.value);
+    display.removeAttribute('min');
+    display.removeAttribute('max');
+    display.removeAttribute('onchange');
+    display.removeAttribute('oninput');
+    display.setAttribute('aria-label', input.getAttribute('aria-label') || 'Dată în format zi/lună/an');
+
+    document.querySelectorAll(`label[for="${CSS.escape(originalId)}"]`).forEach(label => {
+      label.htmlFor = display.id;
+    });
+
+    const wrapper = document.createElement('span');
+    wrapper.className = 'ro-date-field';
+    wrapper.style.cssText = 'position:relative;display:block;width:100%';
+    input.parentNode.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+    wrapper.appendChild(display);
+
+    const picker = document.createElement('button');
+    picker.type = 'button';
+    picker.title = 'Alege data';
+    picker.setAttribute('aria-label', 'Alege data din calendar');
+    picker.textContent = '▣';
+    picker.style.cssText = 'position:absolute;right:10px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--text-muted);font-size:15px;line-height:1;cursor:pointer;padding:3px 4px;z-index:2';
+    wrapper.appendChild(picker);
+
+    input.style.cssText += ';position:absolute !important;opacity:0 !important;pointer-events:none !important;width:1px !important;height:1px !important;inset:0 auto auto 0 !important';
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+
+    const syncDisplay = () => { display.value = this.format(input.value); };
+    input.addEventListener('change', syncDisplay);
+    picker.addEventListener('click', () => {
+      if (input.disabled) return;
+      if (typeof input.showPicker === 'function') input.showPicker();
+      else input.focus();
+    });
+    display.addEventListener('blur', () => {
+      const isoDate = this.parse(display.value);
+      if (!display.value.trim()) {
+        input.value = '';
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      if (!isoDate) {
+        display.value = this.format(input.value);
+        display.setCustomValidity('Folosește formatul DD/MM/YYYY.');
+        display.reportValidity();
+        display.setCustomValidity('');
+        return;
+      }
+      input.value = isoDate;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      syncDisplay();
+    });
+    display.addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); display.blur(); }
+    });
+  },
+
+  scan(root = document) {
+    const fields = [];
+    if (root instanceof HTMLInputElement && root.type === 'date') fields.push(root);
+    if (root.querySelectorAll) fields.push(...root.querySelectorAll('input[type="date"]'));
+    fields.forEach(input => this.enhance(input));
+  },
+
+  start() {
+    document.documentElement.lang = 'ro-RO';
+    this.scan();
+    new MutationObserver(records => {
+      records.forEach(record => record.addedNodes.forEach(node => {
+        if (node.nodeType === Node.ELEMENT_NODE) this.scan(node);
+      }));
+    }).observe(document.body, { childList: true, subtree: true });
+  },
+};
+
 function getOAuthErrorFromUrl() {
   const sources = [window.location.search, window.location.hash].filter(Boolean);
   for (const source of sources) {
@@ -87,6 +210,7 @@ async function processAuthSession(session, sb) {
 
 // ── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  RomanianDateFields.start();
   initSupabase();
   const sb = getSupabase();
   const oauthError = getOAuthErrorFromUrl();
