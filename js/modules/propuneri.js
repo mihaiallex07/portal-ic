@@ -186,6 +186,11 @@ const Propuneri = {
     return 'Destinatar: Administrator';
   },
 
+  visibilityLabel(proposal) {
+    if (proposal.manager_id) return 'Vizibilă doar autorului și coordonatorului destinatar';
+    return 'Idee comună — vizibilă tuturor utilizatorilor din portal';
+  },
+
   renderCard(proposal) {
     const support = Number(proposal.votes_support || 0);
     const oppose = Number(proposal.votes_oppose || 0);
@@ -208,6 +213,7 @@ const Propuneri = {
             </div>
             <div style="font-size:15px;font-weight:700;margin-bottom:5px">${this.escapeHtml(proposal.title)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${this.recipientLabel(proposal)}</div>
+            <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 7px;margin:-2px 0 10px;border-radius:5px;background:#F8FAFC;border:1px solid #E5E7EB;color:#64748B;font-size:11px;line-height:1.3">◌ ${this.visibilityLabel(proposal)}</div>
             <div class="text-sm text-muted mb-3" style="line-height:1.55">${description}</div>
             <div style="border-top:1px solid var(--border);padding-top:10px">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -302,7 +308,7 @@ const Propuneri = {
             <option value="admin_team">Administrator</option>
             ${coordinatorOptions || '<option value="" disabled>Niciun coordonator de proiect disponibil</option>'}
           </select>
-          <div class="text-xs text-muted" style="margin-top:5px">Pentru coordonator, selectează și proiectul activ de mai jos.</div>
+          <div id="prop-visibility-hint" class="text-xs text-muted" style="margin-top:6px;line-height:1.45"></div>
         </div>
         <div id="prop-project-wrap" style="display:${coordinatorOptions ? 'block' : 'none'}">
           <label class="label">Proiect activ *</label>
@@ -326,7 +332,13 @@ const Propuneri = {
   updateRecipientFields() {
     const target = document.getElementById('prop-target')?.value || 'admin_team';
     const wrap = document.getElementById('prop-project-wrap');
+    const hint = document.getElementById('prop-visibility-hint');
     if (wrap) wrap.style.display = target === 'admin_team' ? 'none' : 'block';
+    if (hint) {
+      hint.textContent = target === 'admin_team'
+        ? 'Idee comună: propunerea va fi vizibilă tuturor utilizatorilor autentificați din portal.'
+        : 'Propunere confidențială: va fi vizibilă doar ție și coordonatorului selectat.';
+    }
   },
 
   async saveNew() {
