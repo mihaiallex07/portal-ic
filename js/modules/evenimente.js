@@ -196,6 +196,28 @@ const Evenimente = {
     return 'Recurent';
   },
 
+  async openDetailsModal(eventId) {
+    let ev = this.events.find(event => Number(event.id) === Number(eventId));
+    if (!ev) {
+      const { data } = await DB.getCompanyEventById(Number(eventId));
+      ev = data || null;
+    }
+    if (!ev) { showToast('Evenimentul nu mai este disponibil.', 'error'); return; }
+    const start = new Date(ev.start_time);
+    const end = new Date(ev.end_time);
+    const formatTime = value => String(value.getHours()).padStart(2, '0') + ':' + String(value.getMinutes()).padStart(2, '0');
+    const dateLabel = String(ev.event_date || '').split('-').reverse().join('/');
+    openModal(`Eveniment · ${ev.title}`, `
+      <div class="space-y-3">
+        <div style="font-size:13px;color:var(--text-muted)">${dateLabel} · ${formatTime(start)} → ${formatTime(end)}</div>
+        ${this._getRecurrenceLabel(ev) ? `<div style="font-size:12px;font-weight:700;color:#4338ca">↻ ${this._getRecurrenceLabel(ev)}</div>` : ''}
+        ${ev.location ? `<div style="font-size:13px">Locație: <strong>${ev.location}</strong></div>` : ''}
+        ${ev.description ? `<div style="font-size:14px;line-height:1.6;color:var(--text-muted)">${ev.description}</div>` : ''}
+        ${ev.meeting_link ? `<a href="${ev.meeting_link}" target="_blank" rel="noopener" style="font-size:13px;font-weight:700;color:#1d4ed8">Deschide linkul întâlnirii ↗</a>` : ''}
+      </div>
+    `, `<button class="btn-secondary" onclick="closeModalForce()">Închide</button>`);
+  },
+
   setFilter(f) {
     this.filterStatus = f;
     this.renderPage();
@@ -555,9 +577,10 @@ const Evenimente = {
           <div style="display:flex;flex-direction:column;gap:8px">
             ${(participants || []).map(p => `
               <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
-                <div style="width:36px;height:36px;border-radius:50%;background:var(--brand);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${(p.profiles?.full_name || 'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
+                <div style="width:36px;height:36px;border-radius:50%;background:var(--brand);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;overflow:hidden">${p.profiles?.avatar_url ? `<img src="${p.profiles.avatar_url}" alt="" style="width:100%;height:100%;object-fit:cover">` : (p.profiles?.full_name || p.profiles?.name || p.profiles?.email || 'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
                 <div style="flex:1;min-width:0">
-                  <div style="font-size:13px;font-weight:600">${p.profiles?.full_name || 'Utilizator'}</div>
+                  <div style="font-size:13px;font-weight:600">${p.profiles?.full_name || p.profiles?.name || p.profiles?.email || 'Utilizator'}</div>
+                  ${(p.profiles?.position || p.profiles?.department) ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${p.profiles.position || p.profiles.department}</div>` : ''}
                   ${p.decline_reason ? `<div style="font-size:11px;color:var(--text-muted)">${p.decline_reason}</div>` : ''}
                 </div>
                 <span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:10px;background:${statusColors[p.status] || '#f59e0b'}20;color:${statusColors[p.status] || '#f59e0b'}">${statusLabels[p.status] || 'Neconfirmat'}</span>
@@ -596,7 +619,7 @@ const Evenimente = {
             type: 'event',
             title: `❌ Eveniment anulat: ${ev?.title || ''}`,
             message: `Evenimentul din ${ev?.event_date || ''} a fost anulat.`,
-            link: '#evenimente',
+            link: '#evenimente:' + id,
             is_read: false,
           }));
         if (notifRows.length > 0) await sb.from('notifications').insert(notifRows);
