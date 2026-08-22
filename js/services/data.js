@@ -245,7 +245,17 @@ const DB = {
 
   async getProposals() {
     if (APP_CONFIG.demoMode) return { data: this.demo.proposals };
-    return dbQuery('proposals', q => q.select('*, profiles(full_name,avatar_url)').order('created_at', { ascending: false }), this.demo.proposals);
+    const currentId = Auth.currentUser?.id || Auth.currentProfile?.id || null;
+    const role = Auth.currentProfile?.role;
+    return dbQuery('proposals', q => {
+      let query = q.select('*,profiles!proposals_author_id_fkey(full_name,avatar_url),manager:profiles!proposals_manager_id_fkey(full_name,avatar_url)').order('created_at', { ascending: false });
+      if (currentId && !['admin', 'coordonator', 'coordinator', 'coord'].includes(role)) {
+        query = query.eq('author_id', currentId);
+      } else if (currentId && ['coordonator', 'coordinator', 'coord'].includes(role)) {
+        query = query.or(`author_id.eq.${currentId},manager_id.eq.${currentId}`);
+      }
+      return query;
+    }, this.demo.proposals);
   },
 
   async voteProposal(proposalId, vote) {
@@ -274,12 +284,38 @@ const DB = {
   },
 
   async createProposal(proposal) {
+    const safeProposal = {
+      reference_number: proposal.reference_number || `PROP-${new Date().getFullYear()}-${Date.now()}`,
+      status: proposal.status || 'in_review',
+      ...proposal,
+    };
     if (APP_CONFIG.demoMode) {
-      const newP = { ...proposal, id: Date.now(), votes_for: 0, votes_against: 0, user_voted: null, author_name: Auth.currentProfile?.full_name, status: 'in_review', created_at: new Date().toISOString() };
+      const newP = { ...safeProposal, id: Date.now(), votes_for: 0, votes_against: 0, user_voted: null, author_name: Auth.currentProfile?.full_name, created_at: new Date().toISOString() };
       this.demo.proposals.unshift(newP);
       return { data: newP, error: null };
     }
-    return dbQuery('proposals', q => q.insert(proposal).select().single(), null);
+    return dbQuery('proposals', q => q.insert(safeProposal).select().single(), null);
+  },
+
+  async getProposalProjectMemberships(userId) {
+    if (APP_CONFIG.demoMode) return { data: [] };
+    return dbQuery('project_members', q => q.select('project_id,user_id,projects(id,name,manager_id,status)').eq('user_id', userId), []);
+  },
+
+  async updateProposalStatus(proposalId, status) {
+    if (APP_CONFIG.demoMode) {
+      const proposal = this.demo.proposals.find(p => String(p.id) === String(proposalId));
+      if (proposal) proposal.status = status;
+      return { data: proposal || null, error: null };
+    }
+    return dbQuery('proposals', q => q.update({ status }).eq('id', proposalId).select().single(), null);
+  },
+
+  async createNotifications(notifications) {
+    if (!Array.isArray(notifications) || notifications.length === 0) return { data: [], error: null };
+    if (APP_CONFIG.demoMode) return { data: notifications, error: null };
+    const sb = getSupabase();
+    return sb.from('notifications').insert(notifications);
   },
 
   async getUsers() {
