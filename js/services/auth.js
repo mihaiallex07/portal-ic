@@ -5,6 +5,7 @@
 const Auth = {
   currentUser: null,
   currentProfile: null,
+  providerToken: null,
 
   // Utilizator demo implicit
   demoUser: {
@@ -30,6 +31,26 @@ const Auth = {
       || user?.identities?.[0]?.identity_data?.avatar_url
       || user?.identities?.[0]?.identity_data?.picture
       || null;
+  },
+
+  // Când Google nu trimite imaginea în metadatele Supabase, folosim tokenul
+  // OAuth primit chiar la autentificare pentru endpointul oficial userinfo.
+  // Nu persistăm tokenul și nu modificăm alte date ale contului Google.
+  async resolveGoogleAvatar(user) {
+    const metadataAvatar = this.getGoogleAvatar(user);
+    if (metadataAvatar) return metadataAvatar;
+    if (!this.providerToken) return null;
+    try {
+      const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { Authorization: `Bearer ${this.providerToken}` },
+      });
+      if (!response.ok) return null;
+      const googleProfile = await response.json();
+      return googleProfile?.picture || null;
+    } catch (error) {
+      console.warn('[Auth] Nu am putut citi avatarul Google:', error.message);
+      return null;
+    }
   },
 
   getGoogleFullName(user) {
@@ -145,7 +166,7 @@ const Auth = {
           return;
         }
       }
-      const avatarUrl = this.getGoogleAvatar(user);
+      const avatarUrl = await this.resolveGoogleAvatar(user);
       this.currentProfile = await this.syncAvatar(sb, userId, profileById, avatarUrl);
       if (user?.email) await this.restoreOrphanedProjectLinks(sb, userId, user.email);
       return;
@@ -164,7 +185,7 @@ const Auth = {
         }
         // Profil pre-creat găsit: migrează cu RPC SECURITY DEFINER, păstrând datele HR și legăturile.
         console.log('[Auth] Profil pre-creat găsit, migrare cu RPC...', profileByEmail.email);
-        const avatarUrl = this.getGoogleAvatar(user);
+        const avatarUrl = await this.resolveGoogleAvatar(user);
         const fullNameFromGoogle = this.getGoogleFullName(user);
         let migratedProfile = null;
         let rpcError = null;
@@ -221,7 +242,7 @@ const Auth = {
 
     // 3. Crează profil nou dacă nu există deloc
     const fullName = this.getGoogleFullName(user);
-    const avatarUrl = this.getGoogleAvatar(user);
+    const avatarUrl = await this.resolveGoogleAvatar(user);
     const employeeCode = fullName
       .split(' ')
       .filter(w => w.length > 0)
@@ -323,6 +344,7 @@ const Auth = {
       provider: 'google',
       options: {
         redirectTo: window.location.origin + window.location.pathname,
+        scopes: 'openid email profile',
       },
     });
     if (error) return { success: false, error: error.message };
