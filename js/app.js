@@ -240,15 +240,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  const profile = await Auth.init();
-  if (profile) {
-    authSessionUserId = Auth.currentUser?.id || authSessionUserId;
-    showApp(Auth.currentUser, profile);
+  // O singură rută încarcă profilul după OAuth. Auth.init() făcea aceeași
+  // operație în paralel cu listenerul de mai sus; la un profil pre-creat,
+  // cele două încărcări puteau porni două migrări concomitente și una ajungea
+  // temporar să nu mai vadă rândul profilului, declanșând logout-ul eronat.
+  const { data: { session } = {} } = sb ? await sb.auth.getSession() : { data: {} };
+  if (session?.user) {
+    await processAuthSession(session, sb);
   } else if (!APP_CONFIG.demoMode && !oauthError) {
-    const { data: { session } = {} } = sb ? await sb.auth.getSession() : { data: {} };
-    // Dacă există o sesiune, listenerul de mai sus procesează profilul; nu
-    // afișăm loginul intermitent peste redirectul Google.
-    if (!session?.user) showLogin();
+    showLogin();
   }
 });
 
