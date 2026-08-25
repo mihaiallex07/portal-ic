@@ -188,6 +188,7 @@ async function processAuthSession(session, sb) {
   authSessionUserId = user.id;
   authSessionPromise = (async () => {
     Auth.currentUser = user;
+    Auth.providerToken = session.provider_token || null;
     Auth._accessDenied = false;
     await Auth.loadProfile(user.id);
     // SECURITATE: dacă profilul e null după loadProfile, emailul nu este autorizat
