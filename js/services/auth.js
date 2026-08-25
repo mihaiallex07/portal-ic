@@ -69,7 +69,11 @@ const Auth = {
       .eq('id', userId)
       .select('*')
       .maybeSingle();
-    if (!error && updatedProfile) return updatedProfile;
+    if (!error && updatedProfile) {
+      sessionStorage.removeItem('ic_google_avatar_recovery_pending');
+      sessionStorage.removeItem('ic_google_avatar_consent_attempted');
+      return updatedProfile;
+    }
     if (error) console.warn('[Auth] Nu am putut sincroniza avatarul Google:', error.message);
     return profile;
   },
@@ -340,11 +344,16 @@ const Auth = {
     }
 
     const sb = getSupabase();
+    const needsAvatarRecovery = Boolean(sessionStorage.getItem('ic_google_avatar_recovery_pending'));
+    const consentAlreadyRequested = sessionStorage.getItem('ic_google_avatar_consent_attempted') === '1';
+    const requestFreshGoogleConsent = needsAvatarRecovery && !consentAlreadyRequested;
+    if (requestFreshGoogleConsent) sessionStorage.setItem('ic_google_avatar_consent_attempted', '1');
     const { error } = await sb.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin + window.location.pathname,
         scopes: 'openid email profile',
+        ...(requestFreshGoogleConsent ? { queryParams: { prompt: 'consent' } } : {}),
       },
     });
     if (error) return { success: false, error: error.message };
@@ -369,6 +378,9 @@ const Auth = {
       this.currentUser = null;
       this.currentProfile = null;
       return;
+    }
+    if (!this.currentProfile?.avatar_url && this.currentUser?.email) {
+      sessionStorage.setItem('ic_google_avatar_recovery_pending', this.currentUser.email.toLowerCase());
     }
     const sb = getSupabase();
     if (sb) await sb.auth.signOut();
