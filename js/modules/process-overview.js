@@ -1,7 +1,7 @@
 // ============================================================
 // Process Overview — Portal Inginerie Creativă
-// Gantt-style timeline: angajați × task-uri alocate cu perioadă
-// Afișează Proiect → Etapă → Task per angajat
+// Gantt: afișează exclusiv Proiect → Etapă → Task alocat, în perioada programată reală.
+// Fără bare generale de membership sau proiect fără task; alocările viitoare rămân pe axa cronologică.
 // ============================================================
 const ProcessOverview = {
   ZOOM_PX: 28,
@@ -245,16 +245,17 @@ const ProcessOverview = {
     const assignmentEnd = assignment?.end_date;
     if (assignmentStart && assignmentEnd) return { start: assignmentStart, end: assignmentEnd, source: 'assignment', explicit: true };
     if (task.task_start_date && task.task_end_date) return { start: task.task_start_date, end: task.task_end_date, source: 'task', explicit: true };
+    if (assignmentStart) return { start: assignmentStart, end: this.addDays(assignmentStart, 4), source: 'assignment', explicit: false };
+    if (assignmentEnd) return { start: this.addDays(assignmentEnd, -4), end: assignmentEnd, source: 'assignment', explicit: false };
     if (task.task_start_date) return { start: task.task_start_date, end: this.addDays(task.task_start_date, 4), source: 'task', explicit: false };
     if (task.task_end_date) return { start: this.addDays(task.task_end_date, -4), end: task.task_end_date, source: 'task', explicit: false };
-    if (project.start_date && project.end_date) return { start: project.start_date, end: project.end_date, source: 'project', explicit: false };
-    const today = this.toDateString(new Date());
-    return { start: today, end: this.addDays(today, 4), source: 'unscheduled', explicit: false };
+    return null;
   },
 
   makeTaskBar(task, project, userId, assignment = null) {
     const phase = this.phases.find(ph => ph.id === task.phase_id);
     const period = this.resolveTaskPeriod(task, project, assignment);
+    if (!period) return null;
     const workedH = Math.round(((task.minutes_worked || 0) / 60) * 10) / 10;
     const budgetH = Number(task.budget_hours || 0);
     return {
@@ -285,6 +286,7 @@ const ProcessOverview = {
     const byTaskUser = new Map();
     const sourceWeight = { assignment: 4, task: 3, project: 2, unscheduled: 1 };
     const addBar = bar => {
+      if (!bar) return;
       const key = `${bar.taskId || 'project'}:${bar.userId}`;
       const existing = byTaskUser.get(key);
       if (existing && sourceWeight[existing.periodSource] >= sourceWeight[bar.periodSource]) return;
@@ -314,32 +316,7 @@ const ProcessOverview = {
       });
     });
 
-    this.memberships.forEach(member => {
-      const project = projectById.get(String(member.project_id));
-      if (!project || !project.start_date || !project.end_date) return;
-      const existing = barsByUser[member.user_id] || [];
-      if (existing.some(bar => String(bar.projId) === String(project.id))) return;
-      barsByUser[member.user_id] = existing;
-      existing.push({
-        taskId: null,
-        taskName: '',
-        phaseName: '',
-        projName: project.name,
-        projId: project.id,
-        projCode: project.abbreviation || project.code,
-        projColor: project.color || '#FFCB09',
-        userId: member.user_id,
-        start_date: project.start_date,
-        end_date: project.end_date,
-        periodSource: 'project',
-        hasExplicitPeriod: false,
-        memberRole: member.role,
-        budgetH: 0,
-        workedH: 0,
-        pct: 0,
-      });
-    });
-    return this.aggregateProjectBars(barsByUser);
+    return barsByUser;
   },
 
   aggregateProjectBars(barsByUser) {
@@ -493,8 +470,8 @@ const ProcessOverview = {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
 
-    // Toate task-urile alocate sunt incluse: assignment explicit, alocare directă,
-    // perioadă proprie de task sau fallback clar al proiectului.
+    // Sunt incluse numai task-urile alocate, cu perioadă pe alocare sau pe task.
+    // Proiectele fără task programat și simpla apartenență în proiect nu generează bare.
     const userBarsMap = this.buildUserBars(activeProjects);
     const userGroups = this.groupedUsers();
 
@@ -538,14 +515,14 @@ const ProcessOverview = {
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
             const top = 8 + bar.track * (this.BAR_H + 7);
-            const barLabel = `${bar.projCode} — ${bar.projName}`;
+            const barLabel = `${bar.projCode || bar.projName} — ${bar.taskName}`;
             const opacity = bar.hasExplicitPeriod ? '1' : '0.72';
             const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.32);';
-            const periodHint = bar.periodSource === 'unscheduled' ? 'Perioadă estimată' : bar.hasExplicitPeriod ? 'Perioadă task' : 'Perioadă estimată';
+            const periodHint = bar.hasExplicitPeriod ? 'Perioadă programată' : 'Perioadă estimată dintr-o dată setată';
             const safeTaskName = (bar.taskName || '').replace(/"/g, '&quot;');
             const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
             const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
-            const safeTaskList = encodeURIComponent((bar.taskDetails || []).join('\n'));
+            const safeTaskList = encodeURIComponent((bar.taskDetails || (bar.taskName ? [`${bar.phaseName ? `${bar.phaseName} — ` : ''}${bar.taskName}`] : [])).join('\n'));
             const canDrag = this.canManageView() && bar.assignmentId;
             const dragHandles = canDrag ? `<div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div><div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>` : '';
             return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
