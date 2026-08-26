@@ -1,4 +1,5 @@
 // Time Tracking Module — Portal Inginerie Creativă
+// Flux UI: același formular pentru adăugare și editare; intervalul orar și durata manuală se sincronizează bidirecțional.
 // Schema REALĂ Supabase time_entries (snake_case):
 //   id, user_id(uuid), project_id(int), project_task_id(int),
 //   date(date), start_time(time = "HH:MM:SS"), end_time(time = "HH:MM:SS"),
@@ -170,6 +171,13 @@ const TimeTracking = {
     }
   },
 
+  // Datele de alocare sunt încărcate explicit pentru modalurile accesate din afara paginii Time-Tracking.
+  async ensureAllocationData() {
+    if (!this.currentWeekStart) this.currentWeekStart = this.weekStart(new Date());
+    if (!this.projects?.length || !this.tasks?.length) await this.loadData();
+    return { projects: this.projects || [], tasks: this.tasks || [], phases: this.phases || [] };
+  },
+
   // ── Navigare săptămână ───────────────────────────────────────────────────
 
   async prevWeek() {
@@ -229,7 +237,7 @@ const TimeTracking = {
           const st = this.parseStartTime(e);
           const blockH = Math.max(18, (e.duration_minutes || 30));
           const topOffset = st.m; // minute de la începutul orei
-          return `<div onclick="TimeTracking.viewEntry(${e.id})"
+          return `<div onclick="event.stopPropagation();TimeTracking.viewEntry(${e.id})"
             title="${e.task_name || ''} · ${this.fmtDuration(e.duration_minutes)}"
             style="position:absolute;left:2px;right:2px;top:${topOffset}px;height:${blockH}px;
               background:${color}22;border-left:3px solid ${color};border-radius:3px;padding:2px 5px;
@@ -238,13 +246,9 @@ const TimeTracking = {
             <span style="color:var(--text-muted);margin-left:4px">${this.fmtDuration(e.duration_minutes)}</span>
           </div>`;
         }).join('');
-        const clickHandler = dayEntries.length === 0
-          ? `onclick="TimeTracking.openAddModal('${dStr}', ${hour})"`
-          : '';
-        return `<td ${clickHandler} style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;
-          ${dayEntries.length === 0 ? 'cursor:pointer' : ''}"
-          ${dayEntries.length === 0 ? `onmouseenter="this.style.background='rgba(255,203,9,0.08)'"` : ''}
-          ${dayEntries.length === 0 ? `onmouseleave="this.style.background=''"` : ''}>
+        return `<td onclick="TimeTracking.openAddModal('${dStr}', ${hour})" style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;cursor:pointer"
+          onmouseenter="this.style.background='rgba(255,203,9,0.08)'"
+          onmouseleave="this.style.background=''">
           ${blocks}
         </td>`;
       }).join('');
@@ -390,27 +394,37 @@ const TimeTracking = {
   },
 
   openAddModal(prefillDate, prefillHour, prefillMinute) {
-    const today = prefillDate || this.localDateStr();
+    this.openActivityModal({ prefillDate, prefillHour, prefillMinute });
+  },
+
+  openActivityModal({ entry = null, prefillDate, prefillHour, prefillMinute } = {}) {
     const now = new Date();
-    const startHour = prefillHour !== undefined ? prefillHour : now.getHours();
-    const startMin = prefillMinute !== undefined ? prefillMinute : 0;
+    const parsedStart = entry ? this.parseStartTime(entry) : null;
+    const parsedEnd = entry ? this.parseEndTime(entry) : null;
+    const startHour = parsedStart ? parsedStart.h : (prefillHour !== undefined ? prefillHour : now.getHours());
+    const startMin = parsedStart ? parsedStart.m : (prefillMinute !== undefined ? prefillMinute : 0);
     const startTotal = startHour * 60 + (Math.floor(startMin / 15) * 15);
-    const endTotal = Math.min(startTotal + 60, 24 * 60);
-
+    const storedDuration = Number(entry?.duration_minutes || 60);
+    const storedEnd = parsedEnd ? parsedEnd.h * 60 + parsedEnd.m : null;
+    const endTotal = storedEnd && storedEnd > startTotal ? storedEnd : Math.min(startTotal + storedDuration, 24 * 60);
+    const selectedProjectId = entry?.project_id || null;
+    const selectedTaskId = entry?.project_task_id || null;
+    const selectedTask = selectedTaskId ? this.tasks.find(t => Number(t.id) === Number(selectedTaskId)) : null;
+    const selectedPhaseId = selectedTask?.phase_id || null;
     const projectOptions = this.projects.map(p =>
-      `<option value="${p.id}">${p.emoji || ''} ${p.name}</option>`
+      `<option value="${p.id}"${Number(selectedProjectId) === Number(p.id) ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
     ).join('');
-
-    // Opțiuni Ora start: 00:00 → 23:45 (la pas de 15 min)
     const startOptions = this._buildTimeOptions(0, 23 * 60 + 45, startTotal);
-    // Opțiuni Ora final: 00:15 → 24:00
     const endOptions = this._buildTimeOptions(15, 24 * 60, endTotal);
+    const durationHours = Math.floor(storedDuration / 60);
+    const durationMinutes = storedDuration % 60;
+    const safeTaskName = String(entry?.task_name || '').replace(/"/g, '&quot;');
 
-    openModal('Adaugă activitate', `
+    openModal(entry ? 'Editează activitate' : 'Adaugă activitate', `
       <div class="space-y-3">
         <div>
           <label class="label">Data *</label>
-          <input type="date" id="tt-date" class="input" value="${today}">
+          <input type="date" id="tt-date" class="input" value="${entry?.date || prefillDate || this.localDateStr()}">
         </div>
         <div class="flex gap-3">
           <div style="flex:1">
@@ -426,12 +440,12 @@ const TimeTracking = {
           <label class="label">Timp lucrat *</label>
           <div class="flex gap-3" style="align-items:center">
             <div style="flex:1">
-              <input type="number" id="tt-manual-h" class="input" min="0" max="23" step="1" placeholder="Ore" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
+              <input type="number" id="tt-manual-h" class="input" min="0" max="23" step="1" value="${durationHours}" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
               <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Ore</div>
             </div>
             <div style="font-size:20px;font-weight:700;color:var(--text-muted);padding-bottom:16px">:</div>
             <div style="flex:1">
-              <input type="number" id="tt-manual-m" class="input" min="0" max="59" step="1" placeholder="Min" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
+              <input type="number" id="tt-manual-m" class="input" min="0" max="59" step="1" value="${durationMinutes}" style="text-align:center" oninput="TimeTracking._onManualDurChange()">
               <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Minute</div>
             </div>
             <div id="tt-duration-display" style="
@@ -451,7 +465,7 @@ const TimeTracking = {
         </div>
         <div>
           <label class="label">Descriere activitate *</label>
-          <input type="text" id="tt-task" class="input" placeholder="Ex: Planșe arhitectură etaj 2">
+          <input type="text" id="tt-task" class="input" value="${safeTaskName}" placeholder="Ex: Planșe arhitectură etaj 2">
         </div>
         <div>
           <label class="label">Proiect</label>
@@ -475,11 +489,24 @@ const TimeTracking = {
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-brand" onclick="TimeTracking.saveEntry()">Salvează</button>
+      <button class="btn-brand" onclick="${entry ? `TimeTracking.saveEditEntry(${entry.id})` : 'TimeTracking.saveEntry()'}">Salvează</button>
     `);
 
-    // Inițializează durata din start/end și sincronizează câmpurile manuale
-    setTimeout(() => this._onTimeChange(), 0);
+    setTimeout(() => {
+      if (selectedProjectId) {
+        const projectSelect = document.getElementById('tt-project');
+        if (projectSelect) projectSelect.value = selectedProjectId;
+        this.onProjectChange(selectedProjectId);
+        if (selectedPhaseId) {
+          const phaseSelect = document.getElementById('tt-phase');
+          if (phaseSelect) phaseSelect.value = selectedPhaseId;
+          this.onPhaseChange(selectedPhaseId);
+        }
+        const taskSelect = document.getElementById('tt-task-id');
+        if (taskSelect && selectedTaskId) taskSelect.value = selectedTaskId;
+      }
+      this._onTimeChange();
+    }, 0);
   },
 
   _onTimeChange() {
@@ -721,101 +748,29 @@ const TimeTracking = {
 
 
   openEditModal(id) {
-    const e = this.entries.find(e => e.id === id);
-    if (!e) return;
-    const st = this.parseStartTime(e);
-    const projectOptions = this.projects.map(p =>
-      `<option value="${p.id}"${e.project_id === p.id ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
-    ).join('');
-    const currentTasks = e.project_id
-      ? this.tasks.filter(t => t.project_id === e.project_id)
-      : [];
-    const taskOptions = currentTasks.map(t =>
-      `<option value="${t.id}"${e.project_task_id === t.id ? ' selected' : ''}>${t.name}</option>`
-    ).join('');
-    const editDurH = Math.floor((e.duration_minutes || 0) / 60);
-    const editDurM = (e.duration_minutes || 0) % 60;
-    openModal('Editează activitate', `
-      <div class="space-y-3">
-        <div class="flex gap-3">
-          <div style="flex:1">
-            <label class="label">Data *</label>
-            <input type="date" id="tt-edit-date" class="input" value="${e.date}">
-          </div>
-          <div style="flex:1">
-            <label class="label">Ora start</label>
-            <div class="flex gap-2">
-              <input type="number" id="tt-edit-hour" class="input" value="${st.h}" min="0" max="23" style="text-align:center">
-              <span style="align-self:center;font-weight:700">:</span>
-              <input type="number" id="tt-edit-min" class="input" value="${st.m}" min="0" max="59" style="text-align:center">
-            </div>
-          </div>
-        </div>
-        <div>
-          <label class="label">Timp lucrat *</label>
-          <div class="flex gap-3" style="align-items:center">
-            <div style="flex:1">
-              <input type="number" id="tt-edit-dur-h" class="input" min="0" max="99" step="1" value="${editDurH}" style="text-align:center">
-              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Ore</div>
-            </div>
-            <div style="font-size:20px;font-weight:700;color:var(--text-muted);padding-bottom:16px">:</div>
-            <div style="flex:1">
-              <input type="number" id="tt-edit-dur-m" class="input" min="0" max="59" step="1" value="${editDurM}" style="text-align:center">
-              <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:2px">Minute</div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <label class="label">Descriere activitate *</label>
-          <input type="text" id="tt-edit-task" class="input" value="${(e.task_name || '').replace(/"/g, '&quot;')}">
-        </div>
-        <div>
-          <label class="label">Proiect</label>
-          <select id="tt-edit-project" class="select" onchange="TimeTracking.onEditProjectChange(this.value, ${e.project_task_id || 'null'})">
-            <option value="">— Fără proiect —</option>
-            ${projectOptions}
-          </select>
-        </div>
-        <div>
-          <label class="label">Task proiect</label>
-          <select id="tt-edit-task-id" class="select">
-            <option value="">— Selectează task —</option>
-            ${taskOptions}
-          </select>
-        </div>
-      </div>
-    `, `
-      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-brand" onclick="TimeTracking.saveEditEntry(${id})">Salvează</button>
-    `);
-  },
-
-  onEditProjectChange(projectId, currentTaskId) {
-    const taskSelect = document.getElementById('tt-edit-task-id');
-    if (!taskSelect) return;
-    const pid = parseInt(projectId);
-    const tasks = this.tasks.filter(t => t.project_id === pid);
-    taskSelect.innerHTML = `<option value="">— Selectează task —</option>` +
-      tasks.map(t => `<option value="${t.id}"${t.id === currentTaskId ? ' selected' : ''}>${t.name}</option>`).join('');
+    const entry = this.entries.find(e => Number(e.id) === Number(id));
+    if (entry) this.openActivityModal({ entry });
   },
 
   async saveEditEntry(id) {
-    const taskName = document.getElementById('tt-edit-task')?.value?.trim();
+    const taskName = document.getElementById('tt-task')?.value?.trim();
     if (!taskName) { showToast('Completează descrierea activității', 'error'); return; }
-    const dateVal = document.getElementById('tt-edit-date')?.value;
+    const dateVal = document.getElementById('tt-date')?.value;
     if (!dateVal) { showToast('Selectează data', 'error'); return; }
-    const startHour = parseInt(document.getElementById('tt-edit-hour')?.value) || 0;
-    const startMin = parseInt(document.getElementById('tt-edit-min')?.value) || 0;
-    const durH = Math.max(0, parseInt(document.getElementById('tt-edit-dur-h')?.value) || 0);
-    const durM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-edit-dur-m')?.value) || 0));
-    const durationMinutes = durH * 60 + durM;
-    if (durationMinutes <= 0) { showToast('Completează timpul lucrat (Ore/Minute)', 'error'); return; }
-    const projectId = document.getElementById('tt-edit-project')?.value || null;
-    const taskId = document.getElementById('tt-edit-task-id')?.value || null;
+    const startTotalMin = parseInt(document.getElementById('tt-start')?.value) || 0;
+    const endTotalMin = parseInt(document.getElementById('tt-end')?.value) || 0;
+    const manualH = Math.max(0, parseInt(document.getElementById('tt-manual-h')?.value) || 0);
+    const manualM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-manual-m')?.value) || 0));
+    const durationMinutes = manualH * 60 + manualM || Math.max(0, endTotalMin - startTotalMin);
+    if (durationMinutes <= 0) { showToast('Completează timpul lucrat (Ore/Minute) sau selectează Oră start și Ora final', 'error'); return; }
+    const projectId = document.getElementById('tt-project')?.value || null;
+    const taskId = document.getElementById('tt-task-id')?.value || null;
+    const startHour = Math.floor(startTotalMin / 60);
+    const startMin = startTotalMin % 60;
     const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
-    const endTotalMin = startHour * 60 + startMin + durationMinutes;
-    const endH = Math.floor(endTotalMin / 60) % 24;
-    const endM = endTotalMin % 60;
+    const finalTotalMin = Math.min(startTotalMin + durationMinutes, 24 * 60);
+    const endH = Math.floor(finalTotalMin / 60) % 24;
+    const endM = finalTotalMin % 60;
     const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
     const sb = getSupabase();
     if (!sb) { showToast('Eroare: conexiune Supabase indisponibilă', 'error'); return; }
