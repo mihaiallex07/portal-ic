@@ -151,12 +151,10 @@ const TimeTracking = {
       ]);
       const allTasks = tasksRes.data || [];
       const assignedTaskIds = new Set((assignRes.data || []).map(a => String(a.task_id)));
-      const coordProjectIds = new Set(memberships.filter(m => m.role === 'coordonator').map(m => String(m.project_id)));
       const userIdStr = String(userId);
-      // Task-urile vizibile: alocate explicit (assigned_user_id, assigned_users array sau project_task_assignments)
-      // SAU dacă user-ul e coordonator pe proiect (coordonatorii văd toate task-urile din proiectele lor)
+      // Task-urile vizibile sunt numai cele alocate explicit utilizatorului curent,
+      // indiferent de rol: assigned_user_id, assigned_users sau project_task_assignments.
       this.tasks = allTasks.filter(t => {
-        if (coordProjectIds.has(String(t.project_id))) return true;
         if (String(t.assigned_user_id) === userIdStr) return true;
         if (Array.isArray(t.assigned_users) && t.assigned_users.map(String).includes(userIdStr)) return true;
         if (assignedTaskIds.has(String(t.id))) return true;
