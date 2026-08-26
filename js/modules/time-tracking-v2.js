@@ -378,17 +378,37 @@ const TimeTracking = {
 
   // ── Modal adăugare activitate ─────────────────────────────────────────────
 
-  // Construiește opțiuni HH:MM la pas de 15min (fromMin..toMin inclusiv)
+  // Construiește opțiuni HH:MM la pas de 5 minute; o valoare existentă cu minut exact rămâne selectabilă.
   _buildTimeOptions(fromTotalMin, toTotalMin, selectedTotalMin) {
-    const opts = [];
-    for (let m = fromTotalMin; m <= toTotalMin; m += 15) {
+    const values = [];
+    for (let m = fromTotalMin; m <= toTotalMin; m += 5) {
+      values.push(m);
+    }
+    if (Number.isFinite(selectedTotalMin) && selectedTotalMin >= fromTotalMin && selectedTotalMin <= toTotalMin && !values.includes(selectedTotalMin)) {
+      values.push(selectedTotalMin);
+      values.sort((a, b) => a - b);
+    }
+    return values.map(m => {
       const h = Math.floor(m / 60);
       const mm = m % 60;
       const label = String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
       const sel = m === selectedTotalMin ? ' selected' : '';
-      opts.push(`<option value="${m}"${sel}>${label}</option>`);
+      return `<option value="${m}"${sel}>${label}</option>`;
+    }).join('');
+  },
+
+  _setTimeSelectValue(selectEl, totalMinutes) {
+    if (!selectEl) return;
+    const value = Math.max(0, Math.min(24 * 60, Number(totalMinutes) || 0));
+    const exists = Array.from(selectEl.options).some(option => Number(option.value) === value);
+    if (!exists) {
+      const option = document.createElement('option');
+      option.value = String(value);
+      option.textContent = `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+      const before = Array.from(selectEl.options).find(item => Number(item.value) > value);
+      selectEl.insertBefore(option, before || null);
     }
-    return opts.join('');
+    selectEl.value = String(value);
   },
 
   openAddModal(prefillDate, prefillHour, prefillMinute) {
@@ -564,7 +584,7 @@ const TimeTracking = {
     if (startEl && endEl && dur > 0) {
       const startMin = parseInt(startEl.value) || 0;
       const newEnd = Math.min(startMin + dur, 24 * 60);
-      endEl.value = newEnd;
+      this._setTimeSelectValue(endEl, newEnd);
     }
   },
 
