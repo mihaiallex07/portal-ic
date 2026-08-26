@@ -786,9 +786,14 @@ async function stopActiveTimer() {
   }
 }
 
+// Quick start: încarcă explicit alocările personale, pentru aceeași regulă Proiect → Etapă → Task ca Time-Tracking.
 // Quick start modal - start rapid task din header
 // 3 dropdown-uri: Proiect → Etapă → Task (filtrate strict după arondare)
-function openQuickStartModal() {
+async function openQuickStartModal() {
+  if (typeof TimeTracking !== 'undefined' && typeof TimeTracking.ensureAllocationData === 'function') {
+    try { await TimeTracking.ensureAllocationData(); }
+    catch (error) { console.warn('[QuickStart] Nu am putut încărca alocările:', error.message); }
+  }
   let projects = [];
   if (typeof TimeTracking !== 'undefined' && TimeTracking.projects?.length) {
     projects = TimeTracking.projects;
@@ -909,10 +914,27 @@ function quickStartConfirm() {
 
   closeModalForce();
 
-  if (taskId && typeof Proiecte !== 'undefined' && Proiecte.startTask) {
-    // Găsim phase_id din task
-    const task = Proiecte.tasks?.find(t => t.id === taskId);
-    Proiecte.startTask(taskId, taskName, projectId, task?.phase_id || null);
+  if (taskId) {
+    const task = TimeTracking?.tasks?.find(t => Number(t.id) === Number(taskId))
+      || (typeof Proiecte !== 'undefined' ? Proiecte.tasks?.find(t => Number(t.id) === Number(taskId)) : null);
+    if (typeof Proiecte !== 'undefined' && Proiecte.startTask) {
+      Proiecte.startTask(taskId, taskName, projectId, task?.phase_id || null);
+      return;
+    }
+    if (window.activeTimerData) {
+      showToast('Oprește task-ul activ înainte de a începe altul.', 'warning');
+      return;
+    }
+    const now = new Date();
+    window.activeTimerData = {
+      taskId, taskName, projectId, phaseId: task?.phase_id || null,
+      userId: Auth?.currentUser?.id || null,
+      startTime: Date.now(), startHour: now.getHours(), startMin: now.getMinutes(), pausedMs: 0,
+    };
+    window.pausedTimerData = null;
+    if (typeof _timerSave === 'function') _timerSave();
+    if (typeof startGlobalTimer === 'function') startGlobalTimer();
+    showToast('▶ Task pornit: ' + taskName, 'success');
   } else {
     // Start simplu fără task din proiect
     const now = new Date();
