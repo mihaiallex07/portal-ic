@@ -566,10 +566,12 @@ const Proiecte = {
     const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
     const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => this.isTaskAssignedToProfile(t, profile?.id));
     const budgetH = phase.budget_hours || 0;
+    const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((sum, task) => sum + (task.budget_hours || 0), 0);
+    // Bugetul afișat și procentul folosesc aceeași bază: suma task-urilor, apoi fallback la etapa stocată.
+    const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
     const workedMin = phaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
     const workedH = Math.round(workedMin / 60 * 10) / 10;
-    const remainH = Math.round(Math.max(0, budgetH - workedH) * 10) / 10;  // Fix 3: max 1 zecimală
-    const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;  // Fix 4: pct real
+    const rawPct = displayBudget > 0 ? Math.round((workedH / displayBudget) * 100) : 0;
     const pct = Math.min(100, rawPct);
     const isExact100 = rawPct === 100;
     const isOverBudget = rawPct > 100;
@@ -577,9 +579,7 @@ const Proiecte = {
     const color = phase.color || '#3B82F6';
     const phaseBodyId = 'phasebody-' + phase.id;
 
-    const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((s, t) => s + (t.budget_hours || 0), 0);
-    const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
-    // Fix: remainH trebuie calculat din displayBudget (suma sarcinilor), nu din budgetH (valoarea DB care poate fi desincronizată)
+    // Orele rămase urmează aceeași bază ca bugetul și procentul de progres.
     const remainHPhase = Math.round(Math.max(0, displayBudget - workedH) * 10) / 10;  // Fix 3: max 1 zecimală
     const phaseRow = `
       <tbody>
@@ -901,7 +901,8 @@ const Proiecte = {
       // Fix 3: suma minute→ore o singură dată
       const phaseMinutes = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
       const worked = Math.round(phaseMinutes / 60 * 10) / 10;
-      const budget = phase.budget_hours || 0;
+      const tasksBudgetSum = allPhaseTasks.reduce((sum, task) => sum + (task.budget_hours || 0), 0);
+      const budget = tasksBudgetSum > 0 ? tasksBudgetSum : (phase.budget_hours || 0);
       const rawP = budget > 0 ? Math.round((worked / budget) * 100) : 0;  // Valoare reala, chiar daca >100%
       const p = Math.min(100, rawP);  // Pentru bara de progres (capped la 100%)
       const isOverBudgetPhase = rawP > 100;
