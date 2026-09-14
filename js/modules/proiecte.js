@@ -546,14 +546,25 @@ const Proiecte = {
     `;
   },
 
+  // Vizibilitate angajat: acceptă toate cele trei forme valide de alocare ale unui task.
+  isTaskAssignedToProfile(task, profileId) {
+    if (!task || !profileId) return false;
+    const targetId = String(profileId);
+    if (String(task.assigned_user_id || '') === targetId) return true;
+    if (Array.isArray(task.assigned_users) && task.assigned_users.some(userId => String(userId) === targetId)) return true;
+    return (this.taskAssignments || []).some(assignment =>
+      String(assignment.task_id) === String(task.id) && String(assignment.user_id) === targetId
+    );
+  },
+
   renderPhaseRows(phase, canEdit) {
     const profile = Auth.currentProfile;
     const isAdmin = profile?.role === 'admin';
     const profileIdStr = String(profile?.id || '');
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
-    // Admin și coordonatori văd toate task-urile; angajații văd doar task-urile asignate lor
+    // Adminii/coordonatorii văd toate task-urile; colegii văd orice task alocat explicit.
     const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
-    const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
+    const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => this.isTaskAssignedToProfile(t, profile?.id));
     const budgetH = phase.budget_hours || 0;
     const workedMin = phaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
     const workedH = Math.round(workedMin / 60 * 10) / 10;
@@ -886,7 +897,7 @@ const Proiecte = {
     // Calcul ore pe etapa
     const phaseRows = this.phases.map(phase => {
       const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
-      const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => t.assigned_user_id === profile?.id);
+      const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => this.isTaskAssignedToProfile(t, profile?.id));
       // Fix 3: suma minute→ore o singură dată
       const phaseMinutes = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0), 0);
       const worked = Math.round(phaseMinutes / 60 * 10) / 10;
