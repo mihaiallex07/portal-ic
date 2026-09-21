@@ -91,7 +91,7 @@ const Dashboard = {
     const weekMinutes = weekEntries.reduce((s, e) => s + (e.duration_minutes || 0), 0);
     const unreadNotifs = notifications.length;
 
-    // Task-uri urgente pentru widget dashboard (top 5 cu alertă buget sau în lucru)
+    // Widget dashboard: numai sarcini cu buget depășit și nefinalizate.
     let urgentTasks = [];
     if (!APP_CONFIG.demoMode) {
       try {
@@ -101,7 +101,7 @@ const Dashboard = {
           const projectIds = projects.map(p => p.id);
           if (projectIds.length > 0) {
             const [myTasksRes, assignRes] = await Promise.all([
-              sb.from('project_tasks').select('id,name,project_id,phase_id,assigned_user_id,assigned_users,budget_hours,minutes_worked').in('project_id', projectIds).order('display_order'),
+              sb.from('project_tasks').select('id,name,project_id,phase_id,assigned_user_id,assigned_users,budget_hours,minutes_worked,status').in('project_id', projectIds).order('display_order'),
               sb.from('project_task_assignments').select('task_id').eq('user_id', userId).in('project_id', projectIds),
             ]);
             const allMyTasks = myTasksRes.data || [];
@@ -119,21 +119,13 @@ const Dashboard = {
               const proj = projects.find(p => p.id === t.project_id);
               const workedH = Math.round((t.minutes_worked || 0) / 60 * 10) / 10;
               const budgetH = t.budget_hours || 0;
-              const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;  // Fix 4: pct real
-              const pct = Math.min(100, rawPct);
-              let alert = null;
-              if (rawPct > 100) alert = 'exceeded';  // Fix 4: >100 = Depăşit, 100 exact = Done
-              else if (rawPct === 100) alert = 'done';
-              else if (rawPct >= 90) alert = 'critical';
-              else if (rawPct >= 75) alert = 'warning';
-              return { ...t, proj, workedH, budgetH, pct, rawPct, alert };
-            }).filter(t => t.alert || (window.activeTimerData?.taskId === t.id))
-              .sort((a, b) => {
-                const order = { exceeded: 0, done: 1, critical: 2, warning: 3 };
-                const ao = order[a.alert] ?? 4;
-                const bo = order[b.alert] ?? 4;
-                return ao !== bo ? ao - bo : b.rawPct - a.rawPct;
-              }).slice(0, 5);
+              const rawPct = budgetH > 0 ? Math.round((workedH / budgetH) * 100) : 0;
+              const isFinalized = ['done', 'finalizat'].includes(String(t.status || '').toLowerCase());
+              const isOverBudget = budgetH > 0 && rawPct > 100;
+              return { ...t, proj, workedH, budgetH, rawPct, isFinalized, isOverBudget };
+            }).filter(t => t.isOverBudget && !t.isFinalized)
+              .sort((a, b) => b.rawPct - a.rawPct)
+              .slice(0, 5);
           }
         }
       } catch(e) { urgentTasks = []; }
@@ -260,12 +252,9 @@ const Dashboard = {
               </div>
               <div class="card-body" style="padding:0">
                 ${urgentTasks.map(t => {
-                  // Fix 4: 100% exact = verde Done, >100% = roşu Depăşit cu pct real
-                  const isExact100 = t.rawPct === 100;
-                  const isOverBudget = t.rawPct > 100;
-                  const barColor = isOverBudget ? '#EF4444' : isExact100 ? '#10B981' : t.pct >= 90 ? '#EF4444' : '#F59E0B';
-                  const displayPct = isOverBudget ? t.rawPct : t.pct;
-                  const alertLabel = isOverBudget ? '⚠ Depăşit' : isExact100 ? '✓ Done' : t.alert === 'critical' ? '🔴 <10%' : '🟡 <25%';
+                  const barColor = '#EF4444';
+                  const displayPct = t.rawPct;
+                  const alertLabel = '⚠ Depășit';
                   return `
                     <div class="flex items-center gap-3 p-3 cursor-pointer" style="border-bottom:1px solid var(--border)" onclick="navigate('task-manager', null)">
                       <div style="width:3px;height:36px;border-radius:2px;background:${barColor};flex-shrink:0"></div>
