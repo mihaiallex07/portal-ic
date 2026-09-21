@@ -493,7 +493,9 @@ const TimeTracking = {
     const parsedEnd = entry ? this.parseEndTime(entry) : null;
     const startHour = parsedStart ? parsedStart.h : (prefillHour !== undefined ? prefillHour : now.getHours());
     const startMin = parsedStart ? parsedStart.m : (prefillMinute !== undefined ? prefillMinute : 0);
-    const startTotal = startHour * 60 + (Math.floor(startMin / 15) * 15);
+    // La editare, păstrăm minutul exact salvat (ex. 10:20), nu îl rotunjim la 00/15/30/45.
+    // _buildTimeOptions adaugă automat această valoare în dropdown atunci când nu este pe pasul de 5 minute.
+    const startTotal = startHour * 60 + startMin;
     const storedDuration = Number(entry?.duration_minutes || 60);
     const storedEnd = parsedEnd ? parsedEnd.h * 60 + parsedEnd.m : null;
     const endTotal = storedEnd && storedEnd > startTotal ? storedEnd : Math.min(startTotal + storedDuration, 24 * 60);
