@@ -15,6 +15,7 @@ const TimeTracking = {
   projects: [],
   allocatedProjects: [],
   tasks: [],
+  currentTimeIndicatorTimer: null,
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -254,7 +255,7 @@ const TimeTracking = {
               box-sizing:border-box;background:${color}1A;border-left:3px solid ${color};border-radius:3px;
               padding:${isCompactBlock ? '0 4px' : '2px 5px'};cursor:pointer;font-size:${isCompactBlock ? '9px' : '10px'};
               line-height:1;overflow:hidden;z-index:1;display:flex;align-items:center;gap:4px;
-              box-shadow:0 1px 2px ${color}18">
+              box-shadow:inset 0 1px 0 rgba(255,255,255,.72),inset 0 -1px 0 rgba(15,23,42,.28),0 1px 2px ${color}18">
             <span style="min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:700;color:${color}">${emoji} ${e.task_name || 'Activitate'}</span>
             ${isCompactBlock ? '' : `<span style="flex:0 0 auto;white-space:nowrap;color:var(--text-muted);font-size:9px">${this.fmtDuration(e.duration_minutes)}</span>`}
           </div>`;
@@ -320,15 +321,20 @@ const TimeTracking = {
         <!-- Calendar săptămânal — scroll vertical, 7-18 vizibil -->
         <div class="card mb-3" style="overflow-x:auto">
           <div style="overflow-y:auto;max-height:580px;position:relative">
-            <table style="width:100%;border-collapse:collapse;min-width:700px" id="tt-calendar-table">
-              <thead style="position:sticky;top:0;z-index:10;background:var(--bg)">
-                <tr>
-                  <th style="width:50px;border-right:1px solid var(--border);background:var(--bg)"></th>
-                  ${dayHeaders}
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
+            <div id="tt-calendar-grid" style="position:relative;min-width:700px">
+              <table style="width:100%;border-collapse:collapse" id="tt-calendar-table">
+                <thead style="position:sticky;top:0;z-index:10;background:var(--bg)">
+                  <tr>
+                    <th style="width:50px;border-right:1px solid var(--border);background:var(--bg)"></th>
+                    ${dayHeaders}
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+              <div id="tt-calendar-now-indicator" aria-label="Ora curentă" style="display:none;position:absolute;left:50px;right:0;height:0;border-top:2px solid #EF4444;pointer-events:none;z-index:8;box-shadow:0 1px 0 rgba(255,255,255,.75)">
+                <span style="position:absolute;left:-6px;top:-6px;width:10px;height:10px;border-radius:50%;background:#EF4444;box-shadow:0 0 0 2px var(--card-bg)"></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -364,7 +370,53 @@ const TimeTracking = {
         const container = table.closest('[style*="overflow-y"]');
         if (container) container.scrollTop = trows[7].offsetTop;
       }
+      this.startCurrentTimeIndicator();
     }, 50);
+  },
+
+  stopCurrentTimeIndicator() {
+    if (this.currentTimeIndicatorTimer) {
+      window.clearTimeout(this.currentTimeIndicatorTimer);
+      this.currentTimeIndicatorTimer = null;
+    }
+  },
+
+  startCurrentTimeIndicator() {
+    this.stopCurrentTimeIndicator();
+    const tick = () => {
+      const indicator = document.getElementById('tt-calendar-now-indicator');
+      const grid = document.getElementById('tt-calendar-grid');
+      const table = document.getElementById('tt-calendar-table');
+      if (!indicator || !grid || !table) {
+        this.stopCurrentTimeIndicator();
+        return;
+      }
+
+      const now = new Date();
+      const today = this.localDateStr(now);
+      const isCurrentWeekVisible = this.getWeekDays().some(day => this.localDateStr(day) === today);
+      if (!isCurrentWeekVisible) {
+        indicator.style.display = 'none';
+        this.stopCurrentTimeIndicator();
+        return;
+      }
+
+      const targetRow = table.querySelectorAll('tbody tr')[now.getHours()];
+      if (!targetRow) {
+        indicator.style.display = 'none';
+        this.stopCurrentTimeIndicator();
+        return;
+      }
+
+      const gridTop = grid.getBoundingClientRect().top;
+      const rowTop = targetRow.getBoundingClientRect().top;
+      indicator.style.top = `${Math.round(rowTop - gridTop + now.getMinutes())}px`;
+      indicator.style.display = 'block';
+
+      const millisecondsToNextMinute = 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50;
+      this.currentTimeIndicatorTimer = window.setTimeout(tick, millisecondsToNextMinute);
+    };
+    tick();
   },
 
   getWeekDays() {
