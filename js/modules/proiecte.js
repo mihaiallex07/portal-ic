@@ -2625,12 +2625,55 @@ const Proiecte = {
     this.renderProjectDetail();
   },
 
-    openCreateModal() {
+  togglePresetPhaseTasks(code) {
+    const tasks = document.getElementById(`preset-phase-tasks-${code}`);
+    const button = document.getElementById(`preset-phase-toggle-${code}`);
+    if (!tasks || !button) return;
+    const willExpand = tasks.style.display === 'none' || !tasks.style.display;
+    tasks.style.display = willExpand ? 'block' : 'none';
+    button.textContent = willExpand ? '⌄' : '›';
+    button.title = willExpand ? 'Ascunde sarcinile' : 'Arată sarcinile';
+    button.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+  },
+
+  syncPresetPhaseTasks(code, isPhaseSelected) {
+    document.querySelectorAll(`input[data-preset-task-phase="${code}"]`).forEach(input => {
+      input.disabled = !isPhaseSelected;
+      input.closest('label')?.style.setProperty('opacity', isPhaseSelected ? '1' : '0.45');
+    });
+    const taskArea = document.getElementById(`preset-phase-tasks-${code}`);
+    if (taskArea) taskArea.style.opacity = isPhaseSelected ? '1' : '0.6';
+    this.updatePresetPhaseTaskCount(code);
+  },
+
+  updatePresetPhaseTaskCount(code) {
+    const inputs = Array.from(document.querySelectorAll(`input[data-preset-task-phase="${code}"]`));
+    const counter = document.getElementById(`preset-phase-count-${code}`);
+    if (!counter) return;
+    const selected = inputs.filter(input => input.checked).length;
+    counter.textContent = `${selected}/${inputs.length} sarcini selectate`;
+  },
+
+  openCreateModal() {
     const phaseCheckboxes = PRESET_PHASES.map(ph => `
-      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
-        <input type="checkbox" name="preset-phase" value="${ph.code}" checked style="width:16px;height:16px">
-        <span style="font-size:13px"><strong>${ph.code}.</strong> ${ph.name}</span>
-      </label>
+      <div style="border-bottom:1px solid var(--border);padding:7px 0" data-preset-phase="${ph.code}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="preset-phase-toggle-${ph.code}" type="button" onclick="Proiecte.togglePresetPhaseTasks('${ph.code}')" aria-expanded="false" title="Arată sarcinile" style="width:22px;height:22px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--text-muted);font-size:20px;line-height:18px;cursor:pointer">›</button>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0">
+            <input type="checkbox" name="preset-phase" value="${ph.code}" checked onchange="Proiecte.syncPresetPhaseTasks('${ph.code}', this.checked)" style="width:16px;height:16px;accent-color:var(--primary);flex-shrink:0">
+            <span style="font-size:13px;min-width:0"><strong>${ph.code}.</strong> ${ph.name}</span>
+          </label>
+          <span id="preset-phase-count-${ph.code}" style="font-size:11px;color:var(--text-muted);white-space:nowrap">${ph.tasks.length}/${ph.tasks.length} sarcini selectate</span>
+        </div>
+        <div id="preset-phase-tasks-${ph.code}" style="display:none;margin:8px 0 2px 30px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:7px">
+          ${ph.tasks.map((taskName, taskIndex) => `
+            <label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;cursor:pointer">
+              <input type="checkbox" name="preset-task-${ph.code}" data-preset-task-phase="${ph.code}" value="${taskIndex}" checked onchange="Proiecte.updatePresetPhaseTaskCount('${ph.code}')" style="width:15px;height:15px;margin-top:1px;accent-color:var(--primary);flex-shrink:0">
+              <span style="font-size:12px;line-height:1.35">${taskName}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
     `).join('');
     openModal('Proiect nou', `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -2693,6 +2736,16 @@ const Proiecte = {
     const code = document.getElementById('p-code') ? document.getElementById('p-code').value.trim() : '';
     if (!name || !code) { showToast('Completează numele și codul proiectului', 'error'); return; }
     const selectedPhases = Array.from(document.querySelectorAll('input[name="preset-phase"]:checked')).map(cb => cb.value);
+    const selectedTaskIndexesByPhase = Object.fromEntries(
+      selectedPhases.map(phaseCode => [
+        phaseCode,
+        new Set(
+          Array.from(document.querySelectorAll(`input[data-preset-task-phase="${phaseCode}"]:checked`))
+            .map(input => Number(input.value))
+            .filter(Number.isInteger)
+        ),
+      ])
+    );
     const project = {
       name,
       code,
@@ -2733,6 +2786,7 @@ const Proiecte = {
           const presetPhase = PRESET_PHASES.find(p => p.code === phase.code);
           if (presetPhase) {
             presetPhase.tasks.forEach((taskName, tidx) => {
+              if (!selectedTaskIndexesByPhase[phase.code]?.has(tidx)) return;
               tasksToInsert.push({
                 project_id: newProject.id,
                 phase_id: phase.id,
