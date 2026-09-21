@@ -1319,6 +1319,24 @@ const Proiecte = {
     const profileIdStr = String(profile?.id || '');
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canEdit = isAdmin || isCoord;
+    const selectedDecisionMakerIds = new Set([
+      ...(Array.isArray(decision.decision_makers) ? decision.decision_makers : []),
+      decision.decision_maker,
+    ].filter(Boolean).map(String));
+    const participantEditorHtml = canEdit ? `
+      <div style="margin-bottom:20px">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Cine a luat decizia?</label>
+        <div style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);padding:6px">
+          ${(this.members || []).map(member => {
+            const user = this.allUsers.find(item => String(item.id) === String(member.user_id));
+            const name = user?.full_name || user?.name || user?.email || 'Necunoscut';
+            const checked = selectedDecisionMakerIds.has(String(member.user_id)) ? ' checked' : '';
+            return `<label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text-primary)"><input type="checkbox" name="edit-decision-makers" value="${member.user_id}" style="accent-color:var(--primary)"${checked}><span>${name}</span></label>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:5px">Sunt afișați numai membrii proiectului. Selectează una sau mai multe persoane.</div>
+      </div>
+    ` : '';
     
     let historyHtml = '';
     if (history && history.length > 0) {
@@ -1350,6 +1368,7 @@ const Proiecte = {
           <textarea id="edit-decision-text" placeholder="Descrieți decizia..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:80px;background:var(--card-bg);color:var(--text-primary);box-sizing:border-box;${canEdit ? '' : 'opacity:0.6;cursor:not-allowed'}" ${canEdit ? '' : 'disabled'}>${decision.decision}</textarea>
         </div>
         
+        ${participantEditorHtml}
         ${historyHtml}
         
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
@@ -1364,8 +1383,15 @@ const Proiecte = {
 
   async saveEditedDecision(decisionId) {
     const newText = document.getElementById('edit-decision-text')?.value?.trim();
+    const decisionMakerIds = [...document.querySelectorAll('input[name="edit-decision-makers"]:checked')]
+      .map(input => input.value)
+      .filter(Boolean);
     if (!newText) {
       alert('Decizia nu poate fi goală!');
+      return;
+    }
+    if (decisionMakerIds.length === 0) {
+      alert('Selectează cel puțin o persoană care a luat decizia!');
       return;
     }
     
@@ -1375,10 +1401,22 @@ const Proiecte = {
     const profile = Auth.currentProfile;
     if (!profile) { alert('Profil necunoscut'); return; }
     
+    const profileIdStr = String(profile.id || '');
+    const isAdmin = profile.role === 'admin';
+    const isCoord = (this.members || []).some(member => String(member.user_id) === profileIdStr && (member.role === 'coordonator' || member.role === 'coord'));
+    if (!isAdmin && !isCoord) {
+      alert('Doar administratorul sau coordonatorul proiectului poate edita decizia.');
+      return;
+    }
+    const allowedMemberIds = new Set((this.members || []).map(member => String(member.user_id)));
+    if (decisionMakerIds.some(id => !allowedMemberIds.has(String(id)))) {
+      alert('Persoanele selectate trebuie să fie membri ai proiectului.');
+      return;
+    }
     // Get old decision
     const { data: oldData, error: fetchError } = await sb
       .from('project_decisions')
-      .select('decision')
+      .select('decision,decision_maker,decision_makers')
       .eq('id', decisionId)
       .single();
     
@@ -1392,7 +1430,11 @@ const Proiecte = {
     // Update decision
     const { error: updateError } = await sb
       .from('project_decisions')
-      .update({ decision: newText })
+      .update({
+        decision: newText,
+        decision_maker: decisionMakerIds[0],
+        decision_makers: decisionMakerIds,
+      })
       .eq('id', decisionId);
     
     if (updateError) {
