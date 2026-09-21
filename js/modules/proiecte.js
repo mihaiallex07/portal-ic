@@ -609,6 +609,7 @@ const Proiecte = {
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
+              <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;margin-right:6px" title="Redenumește etapă">✎</button>
               <button onclick="Proiecte.deletePhase(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Șterge etapă">🗑</button>
             ` : ''}
           </td>
@@ -1688,6 +1689,55 @@ const Proiecte = {
     }
   },
 
+  // ── Redenumire etapă ────────────────────────────────────────────────────
+  // Task-urile păstrează doar phase_id, astfel denumirea nouă este preluată automat
+  // în Time-Tracking, Process Overview și rapoarte la următoarea încărcare a datelor.
+  openEditPhaseModal(phaseId) {
+    const phase = (this.phases || []).find(p => String(p.id) === String(phaseId));
+    if (!phase) { showToast('Etapa nu mai este disponibilă.', 'error'); return; }
+    const safeName = String(phase.name || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const taskCount = (this.tasks || []).filter(task => String(task.phase_id) === String(phase.id)).length;
+    const phaseLabel = phase.code ? `${phase.code}. ` : '';
+    openModal('Redenumește etapă', `
+      <div style="display:grid;gap:12px">
+        <div>
+          <label class="form-label">Denumirea etapei</label>
+          <input id="edit-phase-name" class="form-input" value="${safeName}" maxlength="160" autocomplete="off">
+        </div>
+        <div style="padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--text-muted);line-height:1.5">
+          <strong style="color:var(--text)">${phaseLabel}${safeName}</strong> are ${taskCount} ${taskCount === 1 ? 'sarcină' : 'sarcini'} asociate. Se actualizează numai denumirea etapei; sarcinile, alocările, perioadele, orele și bugetele rămân neschimbate.
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" onclick="Proiecte.saveEditPhase(${phase.id})">Salvează denumirea</button>
+    `);
+    setTimeout(() => document.getElementById('edit-phase-name')?.focus(), 0);
+  },
+  async saveEditPhase(phaseId) {
+    const phase = (this.phases || []).find(p => String(p.id) === String(phaseId));
+    const newName = document.getElementById('edit-phase-name')?.value?.trim() || '';
+    if (!phase || !this.currentProject) { showToast('Etapa nu mai este disponibilă.', 'error'); return; }
+    if (!newName) { showToast('Completează denumirea etapei.', 'error'); return; }
+    const oldName = phase.name || '';
+    if (newName === oldName) { closeModalForce(); return; }
+    const sb = getSupabase();
+    if (!sb) { showToast('Nu există conexiune la baza de date.', 'error'); return; }
+    const { error } = await sb.from('project_phases')
+      .update({ name: newName })
+      .eq('id', phaseId)
+      .eq('project_id', this.currentProject.id);
+    if (error) { showToast('Eroare la redenumirea etapei: ' + error.message, 'error'); return; }
+    phase.name = newName;
+    await this.logChange('update', 'etapă', newName, oldName, newName, 'Denumire etapă actualizată');
+    closeModalForce();
+    showToast(`Etapa a fost redenumită din „${oldName}” în „${newName}”.`, 'success');
+    await this._refreshEtapeOnly();
+  },
   // ── Modal consum manual ore (admin/coordonator) ─────────────────────────────────────────────────
   async openManualConsumeModal(taskId) {
     const task = this.tasks.find(t => t.id === taskId);
