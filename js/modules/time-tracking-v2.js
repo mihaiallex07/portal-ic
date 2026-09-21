@@ -13,6 +13,7 @@ const TimeTracking = {
   currentWeekStart: null,
   entries: [],
   projects: [],
+  allocatedProjects: [],
   tasks: [],
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ const TimeTracking = {
     weekEnd.setDate(weekEnd.getDate() + 6);
     const userId = this.getNumericUserId();
     const sb = getSupabase();
-    if (!sb) { this.entries = []; this.projects = []; this.tasks = []; return; }
+    if (!sb) { this.entries = []; this.projects = []; this.allocatedProjects = []; this.tasks = []; return; }
 
     const dateFrom = this.localDateStr(this.currentWeekStart);
     const dateTo = this.localDateStr(weekEnd);
@@ -160,10 +161,16 @@ const TimeTracking = {
         if (assignedTaskIds.has(String(t.id))) return true;
         return false;
       });
-      // Stocăm etapele pentru dropdown
-      this.phases = phasesRes.data || [];
-      console.log('[TT] this.tasks after filter:', this.tasks.length, '/', allTasks.length, '| phases:', this.phases.length);
+      // Dropdown-urile din activitate urmează exact alocările la task, nu simpla
+      // apartenență la proiect: proiectele fără task alocat și etapele fără task alocat
+      // nu pot fi selectate.
+      const allocatedProjectIds = new Set(this.tasks.map(task => String(task.project_id)));
+      const allocatedPhaseIds = new Set(this.tasks.map(task => String(task.phase_id)).filter(id => id && id !== 'null' && id !== 'undefined'));
+      this.allocatedProjects = this.projects.filter(project => allocatedProjectIds.has(String(project.id)));
+      this.phases = (phasesRes.data || []).filter(phase => allocatedPhaseIds.has(String(phase.id)));
+      console.log('[TT] allocated projects/tasks/phases:', this.allocatedProjects.length, this.tasks.length, this.phases.length);
     } else {
+      this.allocatedProjects = [];
       this.tasks = [];
       this.phases = [];
     }
@@ -173,7 +180,7 @@ const TimeTracking = {
   async ensureAllocationData() {
     if (!this.currentWeekStart) this.currentWeekStart = this.weekStart(new Date());
     if (!this.projects?.length || !this.tasks?.length) await this.loadData();
-    return { projects: this.projects || [], tasks: this.tasks || [], phases: this.phases || [] };
+    return { projects: this.allocatedProjects || [], tasks: this.tasks || [], phases: this.phases || [] };
   },
 
   // ── Navigare săptămână ───────────────────────────────────────────────────
@@ -429,7 +436,7 @@ const TimeTracking = {
     const selectedTaskId = entry?.project_task_id || null;
     const selectedTask = selectedTaskId ? this.tasks.find(t => Number(t.id) === Number(selectedTaskId)) : null;
     const selectedPhaseId = selectedTask?.phase_id || null;
-    const projectOptions = this.projects.map(p =>
+    const projectOptions = (this.allocatedProjects || []).map(p =>
       `<option value="${p.id}"${Number(selectedProjectId) === Number(p.id) ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
     ).join('');
     const startOptions = this._buildTimeOptions(0, 23 * 60 + 45, startTotal);
