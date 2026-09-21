@@ -2476,8 +2476,9 @@ const Proiecte = {
         </div>
         <div>
           <label class="form-label">Culoare proiect</label>
+          <div style="font-size:11px;color:var(--text-muted);margin:-2px 0 6px">Recomandare: galben — proiecte · turcoaz — administrativ · negru — diverse · portocaliu — consultanță.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-            ${['#FFCB08','#1A1A1A','#FFFFFF','#E63946','#2A9D8F','#457B9D','#6D6875'].map(c => `<button type="button" onclick="document.getElementById('ep-color').value='${c}';document.querySelectorAll('.color-swatch-ep').forEach(s=>s.style.outline='none');this.style.outline='3px solid var(--primary)'" class="color-swatch-ep" style="width:28px;height:28px;border-radius:6px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${(p.color||'#FFCB08')===c?'3px solid var(--primary)':'none'};outline-offset:2px"></button>`).join('')}
+            ${['#FFCB08','#1A1A1A','#6D28D9','#E63946','#2A9D8F','#457B9D','#6D6875','#F97316','#16A34A'].map(c => `<button type="button" onclick="document.getElementById('ep-color').value='${c}';document.querySelectorAll('.color-swatch-ep').forEach(s=>s.style.outline='none');this.style.outline='3px solid var(--primary)'" class="color-swatch-ep" style="width:28px;height:28px;border-radius:6px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${(p.color||'#FFCB08')===c?'3px solid var(--primary)':'none'};outline-offset:2px"></button>`).join('')}
             <input id="ep-color" type="hidden" value="${p.color || '#FFCB08'}">
           </div>
         </div>
@@ -2553,8 +2554,9 @@ const Proiecte = {
         </div>
         <div style="grid-column:1/-1">
           <label class="form-label">Culoare proiect</label>
+          <div style="font-size:11px;color:var(--text-muted);margin:-2px 0 6px">Recomandare: galben — proiecte · turcoaz — administrativ · negru — diverse · portocaliu — consultanță.</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-            ${['#FFCB08','#1A1A1A','#FFFFFF','#E63946','#2A9D8F','#457B9D','#6D6875'].map(c => `<button type="button" onclick="document.getElementById('p-color').value='${c}';document.querySelectorAll('.color-swatch-p').forEach(s=>s.style.outline='none');this.style.outline='3px solid #333'" class="color-swatch-p" style="width:32px;height:32px;border-radius:8px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${c==='#FFCB08'?'3px solid #333':'none'};outline-offset:2px"></button>`).join('')}
+            ${['#FFCB08','#1A1A1A','#6D28D9','#E63946','#2A9D8F','#457B9D','#6D6875','#F97316','#16A34A'].map(c => `<button type="button" onclick="document.getElementById('p-color').value='${c}';document.querySelectorAll('.color-swatch-p').forEach(s=>s.style.outline='none');this.style.outline='3px solid #333'" class="color-swatch-p" style="width:32px;height:32px;border-radius:8px;background:${c};border:2px solid var(--border);cursor:pointer;outline:${c==='#FFCB08'?'3px solid #333':'none'};outline-offset:2px"></button>`).join('')}
             <input id="p-color" type="hidden" value="#FFCB08">
           </div>
         </div>
