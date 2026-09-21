@@ -33,6 +33,8 @@ let currentRoute = 'dashboard';
 let sidebarCollapsed = false;
 let authSessionPromise = null;
 let authSessionUserId = null;
+let pendingProgrammaticHashRoute = null;
+let directProjectNavigationRequest = 0;
 
 // Afișările existente care nu indică explicit o localizare adoptă implicit ro-RO.
 if (!window.__icRomanianDateLocaleApplied) {
@@ -320,6 +322,9 @@ function showApp(user, profile) {
 
   window.addEventListener('hashchange', () => {
     const h = window.location.hash.replace('#/', '');
+    const programmaticRoute = pendingProgrammaticHashRoute;
+    pendingProgrammaticHashRoute = null;
+    if (programmaticRoute === h) return;
     if (ROUTES[h]) navigate(h, null, true);
   });
 }
@@ -357,7 +362,15 @@ async function navigate(route, linkEl, fromHash = false) {
   // Fix routing: salvează ruta curentă în localStorage (fallback pentru refresh)
   try { localStorage.setItem('ic_last_route', route); } catch(e) {}
 
-  if (!fromHash) window.location.hash = '/' + route;
+  if (!fromHash) {
+    const targetHash = '#/' + route;
+    if (window.location.hash !== targetHash) {
+      // Hashchange este deja produs de această navigare; nu re-randa aceeași
+      // pagină a doua oară prin listenerul global.
+      pendingProgrammaticHashRoute = route;
+      window.location.hash = '/' + route;
+    }
+  }
 
   // Active state in sidebar
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -398,9 +411,18 @@ async function navigate(route, linkEl, fromHash = false) {
 async function openProjectDirect(projectId) {
   const id = Number(projectId);
   if (!Number.isFinite(id)) return;
+  const requestId = ++directProjectNavigationRequest;
   try { localStorage.setItem('ic_last_project_id', String(id)); } catch (_) {}
   await navigate('proiecte', null);
+  // Dacă a fost ales rapid un alt proiect între timp, doar ultima alegere
+  // deschide detaliul. Evită ca un răspuns vechi să înlocuiască proiectul curent.
+  if (requestId !== directProjectNavigationRequest || currentRoute !== 'proiecte') return;
   if (typeof Proiecte !== 'undefined' && typeof Proiecte.openProject === 'function') {
+    const accessible = (Proiecte.projects || []).some(project => Number(project.id) === id);
+    if (!accessible) {
+      showToast('Proiectul selectat nu este disponibil pentru profilul curent.', 'error');
+      return;
+    }
     await Proiecte.openProject(id);
   }
 }
