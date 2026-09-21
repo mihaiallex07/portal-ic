@@ -331,7 +331,7 @@ const TimeTracking = {
                 </thead>
                 <tbody>${rows}</tbody>
               </table>
-              <div id="tt-calendar-now-indicator" aria-label="Ora curentă" style="display:none;position:absolute;left:50px;right:0;height:0;border-top:2px solid #EF4444;pointer-events:none;z-index:8;box-shadow:0 1px 0 rgba(255,255,255,.75)">
+              <div id="tt-calendar-now-indicator" aria-label="Ora curentă" style="display:none;position:absolute;left:0;width:0;height:0;border-top:2px solid #EF4444;pointer-events:none;z-index:8;box-shadow:0 1px 0 rgba(255,255,255,.75)">
                 <span style="position:absolute;left:-6px;top:-6px;width:10px;height:10px;border-radius:50%;background:#EF4444;box-shadow:0 0 0 2px var(--card-bg)"></span>
               </div>
             </div>
@@ -394,23 +394,28 @@ const TimeTracking = {
 
       const now = new Date();
       const today = this.localDateStr(now);
-      const isCurrentWeekVisible = this.getWeekDays().some(day => this.localDateStr(day) === today);
-      if (!isCurrentWeekVisible) {
+      const weekDays = this.getWeekDays();
+      const currentDayIndex = weekDays.findIndex(day => this.localDateStr(day) === today);
+      if (currentDayIndex === -1) {
         indicator.style.display = 'none';
         this.stopCurrentTimeIndicator();
         return;
       }
 
       const targetRow = table.querySelectorAll('tbody tr')[now.getHours()];
-      if (!targetRow) {
+      const targetDayCell = targetRow?.children[currentDayIndex + 1];
+      if (!targetRow || !targetDayCell) {
         indicator.style.display = 'none';
         this.stopCurrentTimeIndicator();
         return;
       }
 
-      const gridTop = grid.getBoundingClientRect().top;
+      const gridRect = grid.getBoundingClientRect();
       const rowTop = targetRow.getBoundingClientRect().top;
-      indicator.style.top = `${Math.round(rowTop - gridTop + now.getMinutes())}px`;
+      const dayCellRect = targetDayCell.getBoundingClientRect();
+      indicator.style.left = `${Math.round(dayCellRect.left - gridRect.left)}px`;
+      indicator.style.width = `${Math.round(dayCellRect.width)}px`;
+      indicator.style.top = `${Math.round(rowTop - gridRect.top + now.getMinutes())}px`;
       indicator.style.display = 'block';
 
       const millisecondsToNextMinute = 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50;
