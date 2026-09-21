@@ -240,15 +240,23 @@ const TimeTracking = {
           const color = proj?.color || '#3B82F6';
           const emoji = proj?.emoji || '';
           const st = this.parseStartTime(e);
-          const blockH = Math.max(18, (e.duration_minutes || 30));
-          const topOffset = st.m; // minute de la începutul orei
+          // Un pixel reprezintă un minut. Fără înălțime minimă: o activitate
+          // de 15 minute se oprește exact la minutul 15, fără să acopere
+          // activitatea următoare. box-sizing păstrează border-ul și padding-ul
+          // în interiorul duratei reale.
+          const durationMinutes = Math.max(1, Number(e.duration_minutes) || 30);
+          const isCompactBlock = durationMinutes < 30;
+          const blockH = durationMinutes;
+          const topOffset = Math.max(0, Math.min(CELL_H - 1, st.m));
           return `<div onclick="event.stopPropagation();TimeTracking.viewEntry(${e.id})"
             title="${e.task_name || ''} · ${this.fmtDuration(e.duration_minutes)}"
             style="position:absolute;left:2px;right:2px;top:${topOffset}px;height:${blockH}px;
-              background:${color}22;border-left:3px solid ${color};border-radius:3px;padding:2px 5px;
-              cursor:pointer;font-size:10px;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;z-index:1">
-            <span style="font-weight:600;color:${color}">${emoji} ${e.task_name || 'Activitate'}</span>
-            <span style="color:var(--text-muted);margin-left:4px">${this.fmtDuration(e.duration_minutes)}</span>
+              box-sizing:border-box;background:${color}1A;border-left:3px solid ${color};border-radius:3px;
+              padding:${isCompactBlock ? '0 4px' : '2px 5px'};cursor:pointer;font-size:${isCompactBlock ? '9px' : '10px'};
+              line-height:1;overflow:hidden;z-index:1;display:flex;align-items:center;gap:4px;
+              box-shadow:0 1px 2px ${color}18">
+            <span style="min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:700;color:${color}">${emoji} ${e.task_name || 'Activitate'}</span>
+            ${isCompactBlock ? '' : `<span style="flex:0 0 auto;white-space:nowrap;color:var(--text-muted);font-size:9px">${this.fmtDuration(e.duration_minutes)}</span>`}
           </div>`;
         }).join('');
         return `<td onclick="TimeTracking.openAddModal('${dStr}', ${hour})" style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;cursor:pointer"
