@@ -159,6 +159,9 @@ const Proiecte = {
       dbQuery('project_tasks', q => q.select('*').eq('project_id', projectId).order('display_order'), []),
       dbQuery('project_task_assignments', q => q.select('task_id,user_id,start_date,end_date').eq('project_id', projectId), []),
     ]);
+    // Un proiect nou poate fi selectat înainte ca răspunsul anterior să ajungă.
+    // Nu lăsăm răspunsul vechi să suprascrie detaliile proiectului curent.
+    if (Number(this.currentProject?.id) !== Number(projectId)) return false;
     this.members = membersRes.data || [];
     this.phases = phasesRes.data || [];
     this.tasks = tasksRes.data || [];
@@ -166,6 +169,7 @@ const Proiecte = {
     // Sincronizare automată minutes_worked din time_entries + manual_hours_log
     // Rulează în background și re-renderizează dacă găsește diferențe
     this._syncTaskMinutes(projectId).catch(e => console.warn('[Proiecte] _syncTaskMinutes error:', e));
+    return true;
   },
 
   // ── Recalcul centralizat minutes_worked pentru UN task (din zero, din DB) ──
@@ -312,13 +316,17 @@ const Proiecte = {
   },
 
   async openProject(projectId) {
-    this.currentProject = this.projects.find(p => p.id === projectId);
-    if (!this.currentProject) return;
-    await this.loadProjectDetails(projectId);
+    const id = Number(projectId);
+    const project = this.projects.find(p => Number(p.id) === id);
+    if (!project) return false;
+    this.currentProject = project;
+    const loaded = await this.loadProjectDetails(id);
+    if (!loaded || Number(this.currentProject?.id) !== id) return false;
     this.currentTab = 'etape';
     this.editMode = false;  // reset la fiecare deschidere
-    localStorage.setItem('ic_last_project_id', projectId);  // Fix 1: persistă proiectul curent
+    localStorage.setItem('ic_last_project_id', String(id));  // Fix 1: persistă proiectul curent
     this.renderProjectDetail();
+    return true;
   },
 
   // ── Activează / dezactivează modul editare ────────────────────────────────
