@@ -1597,14 +1597,16 @@ const TaskManager = {
       const { data: profilesWithTotals, error } = await sb.rpc('get_admin_hours_dashboard', { p_from: period.from, p_to: period.to });
       if (error) throw error;
       const workdays = this.workdaysBetween(period.from, period.to);
-      this.adminHoursRows = (profilesWithTotals || []).map(profile => {
+      // Protecție suplimentară în client: funcția DB livrează deja doar profile active
+      // cu cont Auth, iar acest filtru exclude orice profil pre-creat returnat accidental.
+      this.adminHoursRows = (profilesWithTotals || []).filter(profile => profile && !profile.is_pre_created).map(profile => {
         const recorded = (Number(profile.recorded_minutes) || 0) / 60;
         const expected = workdays * (Number(profile.work_hours_per_day) || 8);
         const coverage = expected > 0 ? Math.round((recorded / expected) * 100) : 0;
-        const state = profile.is_pre_created ? 'neactivat' : recorded <= 0 ? 'fara_ore' : coverage < 60 ? 'sub_nivel' : 'inregistrat';
+        const state = recorded <= 0 ? 'fara_ore' : coverage < 60 ? 'sub_nivel' : 'inregistrat';
         return { ...profile, recorded, expected, coverage, workdays, lastDate: profile.last_recorded_date, entries: Number(profile.record_count) || 0, state };
       }).sort((a, b) => {
-        const rank = { fara_ore: 0, sub_nivel: 1, neactivat: 2, inregistrat: 3 };
+        const rank = { fara_ore: 0, sub_nivel: 1, inregistrat: 2 };
         return (rank[a.state] - rank[b.state]) || (a.recorded - b.recorded) || String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro');
       });
       const totalHours = this.adminHoursRows.reduce((sum, row) => sum + row.recorded, 0);
@@ -1657,7 +1659,6 @@ const TaskManager = {
     const custom = this.adminHoursRange === 'custom';
     const rangeButton = (key, label) => `<button onclick="TaskManager.setAdminHoursRange('${key}')" style="padding:7px 11px;border-radius:7px;border:1px solid ${this.adminHoursRange === key ? 'var(--brand)' : 'var(--border)'};background:${this.adminHoursRange === key ? 'var(--brand)' : 'var(--card-bg)'};color:${this.adminHoursRange === key ? '#000' : 'var(--text)'};font-size:12px;font-weight:700;cursor:pointer">${label}</button>`;
     const state = {
-      neactivat: { label: 'Profil neactivat', color: '#6b7280', bg: '#f3f4f6' },
       fara_ore: { label: 'Fără ore', color: '#dc2626', bg: '#fee2e2' },
       sub_nivel: { label: 'Sub nivel', color: '#b45309', bg: '#fef3c7' },
       inregistrat: { label: 'Înregistrat', color: '#047857', bg: '#d1fae5' },
