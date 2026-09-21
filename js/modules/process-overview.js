@@ -18,6 +18,7 @@ const ProcessOverview = {
   taskAssignments: [],
   tasks: [],
   phases: [],
+  availability: [],
   viewSettings: null,
 
   isAdmin() {
@@ -76,6 +77,80 @@ const ProcessOverview = {
     const d = new Date(`${dateString}T12:00:00`);
     d.setDate(d.getDate() + days);
     return this.toDateString(d);
+  },
+
+  availabilityDetails(requestType) {
+    if (requestType === 'telemunca') return { kind: 'remote', label: 'Telemuncă', color: '#0EA5E9' };
+    if (requestType === 'absenta') return { kind: 'leave', label: 'Indisponibil', color: '#6B7280' };
+    // În Gantt nu se afișează motivul personal al concediului; inclusiv medical.
+    return { kind: 'leave', label: 'Concediu', color: '#7C3AED' };
+  },
+
+  async loadAvailabilityForView() {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + this.offsetDays);
+    const periodStart = this.toDateString(startDate);
+    const periodEnd = this.addDays(periodStart, this.DAYS - 1);
+    const { data, error } = await getSupabase().rpc('get_approved_work_availability', {
+      p_start: periodStart,
+      p_end: periodEnd,
+    });
+    if (error) {
+      console.warn('[ProcessOverview] approved availability load failed:', error);
+      this.availability = [];
+      return;
+    }
+    this.availability = data || [];
+  },
+
+  makeAvailabilityBar(item) {
+    const details = this.availabilityDetails(item.request_type);
+    return {
+      availabilityId: item.request_id,
+      availabilityKind: details.kind,
+      availabilityType: item.request_type,
+      availabilityLabel: details.label,
+      isAvailability: true,
+      assignmentId: null,
+      taskId: null,
+      taskName: '',
+      phaseName: '',
+      phaseId: null,
+      projName: details.label,
+      projId: null,
+      projCode: '',
+      projColor: details.color,
+      userId: item.user_id,
+      start_date: item.period_start,
+      end_date: item.period_end,
+      periodSource: 'availability',
+      hasExplicitPeriod: true,
+      budgetH: 0,
+      workedH: 0,
+      pct: 0,
+    };
+  },
+
+  maskTasksDuringLeave(bars) {
+    const leaveBars = bars.filter(bar => bar.availabilityKind === 'leave');
+    if (!leaveBars.length) return bars;
+    const splitAroundLeave = sourceBars => sourceBars.flatMap(bar => {
+      let segments = [{ ...bar }];
+      leaveBars.forEach(leave => {
+        segments = segments.flatMap(segment => {
+          if (segment.end_date < leave.start_date || segment.start_date > leave.end_date) return [segment];
+          const next = [];
+          if (segment.start_date < leave.start_date) next.push({ ...segment, end_date: this.addDays(leave.start_date, -1) });
+          if (segment.end_date > leave.end_date) next.push({ ...segment, start_date: this.addDays(leave.end_date, 1) });
+          return next;
+        });
+      });
+      return segments;
+    });
+    const taskSegments = splitAroundLeave(bars.filter(bar => !bar.isAvailability));
+    // Dacă există accidental telemuncă și concediu în același interval, concediul rămâne singurul marcaj vizibil.
+    const remoteSegments = splitAroundLeave(bars.filter(bar => bar.availabilityKind === 'remote'));
+    return [...taskSegments, ...remoteSegments, ...leaveBars];
   },
 
   userRoleLabel(user) {
@@ -316,6 +391,16 @@ const ProcessOverview = {
       });
     });
 
+    this.availability.forEach(item => {
+      if (!item?.user_id || !item.period_start || !item.period_end) return;
+      if (!barsByUser[item.user_id]) barsByUser[item.user_id] = [];
+      barsByUser[item.user_id].push(this.makeAvailabilityBar(item));
+    });
+
+    Object.keys(barsByUser).forEach(userId => {
+      barsByUser[userId] = this.maskTasksDuringLeave(barsByUser[userId]);
+    });
+
     return barsByUser;
   },
 
@@ -429,6 +514,7 @@ const ProcessOverview = {
     this.projects = (projRes.data || []).filter(p => p.status !== 'arhivat');
     this.users = userRes.data || [];
     await this.loadViewSettings();
+    await this.loadAvailabilityForView();
 
     const activeProjects = this.projects.filter(p => p.status === 'activ' || p.status === 'in_progress');
 
@@ -512,20 +598,28 @@ const ProcessOverview = {
         group.users.forEach(user => {
           const layout = this.layoutBars(userBarsMap[user.id] || [], startDate, days);
           const barsHtml = layout.bars.map(bar => {
+            const isAvailability = Boolean(bar.isAvailability);
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
             const top = 8 + bar.track * (this.BAR_H + 7);
-            const barLabel = `${bar.projCode || bar.projName} — ${bar.taskName}`;
-            const opacity = bar.hasExplicitPeriod ? '1' : '0.72';
-            const border = bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.32);';
-            const periodHint = bar.hasExplicitPeriod ? 'Perioadă programată' : 'Perioadă estimată dintr-o dată setată';
+            const barLabel = isAvailability ? bar.availabilityLabel : `${bar.projCode || bar.projName} — ${bar.taskName}`;
+            const opacity = isAvailability ? '1' : (bar.hasExplicitPeriod ? '1' : '0.72');
+            const border = isAvailability
+              ? `border:1px solid ${bar.availabilityKind === 'remote' ? 'rgba(7,89,133,.7)' : 'rgba(76,29,149,.7)'};`
+              : (bar.hasExplicitPeriod ? '' : 'border:1px dashed rgba(0,0,0,0.32);');
+            const periodHint = isAvailability
+              ? (bar.availabilityKind === 'remote' ? 'Telemuncă aprobată' : 'Concediu aprobat')
+              : (bar.hasExplicitPeriod ? 'Perioadă programată' : 'Perioadă estimată dintr-o dată setată');
+            const background = isAvailability && bar.availabilityKind === 'leave'
+              ? 'repeating-linear-gradient(135deg,#7C3AED 0,#7C3AED 7px,#6D28D9 7px,#6D28D9 14px)'
+              : color;
             const safeTaskName = (bar.taskName || '').replace(/"/g, '&quot;');
             const safeProjName = (bar.projName || '').replace(/"/g, '&quot;');
             const safePhaseName = (bar.phaseName || '').replace(/"/g, '&quot;');
             const safeTaskList = encodeURIComponent((bar.taskDetails || (bar.taskName ? [`${bar.phaseName ? `${bar.phaseName} — ` : ''}${bar.taskName}`] : [])).join('\n'));
-            const canDrag = this.canManageView() && bar.assignmentId;
+            const canDrag = !isAvailability && this.canManageView() && bar.assignmentId;
             const dragHandles = canDrag ? `<div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div><div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>` : '';
-            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${color};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
+            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${background};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
           }).join('');
           rowsHtml += `
             <div class="gantt-row" style="height:${layout.rowHeight}px">
@@ -563,19 +657,27 @@ const ProcessOverview = {
       </div>
       ${this.renderControls()}
       <div class="card" style="padding:0;overflow:hidden">
-        ${activeProjects.length > 0 ? `
+        ${activeProjects.length > 0 || this.availability.length > 0 ? `
         <div class="gantt-legend">
           <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             ${activeProjects.map(p =>
               `<div class="gantt-legend-item">
                 <div class="gantt-legend-dot" style="background:${p.color || '#FFCB09'}"></div>
-                <span>${p.abbreviation || p.code} \u2014 ${p.name}</span>
+                <span>${p.abbreviation || p.code} — ${p.name}</span>
               </div>`
             ).join('')}
-            <div style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--text-muted)">
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#5b21b6;font-weight:600">
+              <div style="width:20px;height:10px;background:repeating-linear-gradient(135deg,#7C3AED 0,#7C3AED 7px,#6D28D9 7px,#6D28D9 14px);border-radius:2px"></div>
+              <span>Concediu aprobat</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#075985;font-weight:600">
+              <div style="width:20px;height:10px;background:#0EA5E9;border:1px solid #075985;border-radius:2px"></div>
+              <span>Telemuncă aprobată</span>
+            </div>
+            ${activeProjects.length ? `<div style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--text-muted)">
               <div style="width:20px;height:10px;background:#aaa;border:1px dashed rgba(0,0,0,0.3);border-radius:2px;opacity:0.6"></div>
               <span>Perioadă estimată — task fără interval explicit</span>
-            </div>
+            </div>` : ''}
           </div>
         </div>` : ''}
         <div class="gantt-container" id="gantt-scroll">
@@ -841,15 +943,17 @@ const ProcessOverview = {
     ProcessOverview._dragState = null;
   },
 
-  shiftDays(n) {
+  async shiftDays(n) {
     this.offsetDays += n;
+    await this.loadAvailabilityForView();
     this.renderPage();
     const scroll = document.getElementById('gantt-scroll');
     if (scroll) scroll.scrollLeft = 0;
   },
 
-  resetView() {
+  async resetView() {
     this.offsetDays = 0;
+    await this.loadAvailabilityForView();
     this.renderPage();
   },
 
