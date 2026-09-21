@@ -86,6 +86,12 @@ const ProcessOverview = {
     return { kind: 'leave', label: 'Concediu', color: '#7C3AED' };
   },
 
+  compactProjectCode(projectCode) {
+    const source = String(projectCode || '').trim();
+    const numericCode = source.match(/\d{3}/)?.[0];
+    return numericCode || source.slice(0, 3).toUpperCase() || 'PRJ';
+  },
+
   async loadAvailabilityForView() {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() + this.offsetDays);
@@ -638,7 +644,11 @@ const ProcessOverview = {
             const color = bar.projColor;
             const textColor = this.isLightColor(color) ? '#221F1F' : '#fff';
             const top = 8 + bar.track * (this.BAR_H + 7);
-            const barLabel = isAvailability ? bar.availabilityLabel : `${bar.projCode || bar.projName} — ${bar.taskName}`;
+            const isSingleDayTask = !isAvailability && bar.width <= this.ZOOM_PX;
+            const barLabel = isAvailability
+              ? bar.availabilityLabel
+              : (isSingleDayTask ? this.compactProjectCode(bar.projCode) : `${bar.projCode || bar.projName} — ${bar.taskName}`);
+            const compactLabelStyle = isSingleDayTask ? 'padding:0 1px;text-align:center;line-height:12px;font-size:10px;font-weight:800;letter-spacing:-.2px;' : '';
             const opacity = isAvailability ? '1' : (bar.hasExplicitPeriod ? '1' : '0.72');
             const border = isAvailability
               ? `border:1px solid ${bar.availabilityKind === 'remote' ? 'rgba(7,89,133,.7)' : 'rgba(76,29,149,.7)'};`
@@ -655,7 +665,7 @@ const ProcessOverview = {
             const safeTaskList = encodeURIComponent((bar.taskDetails || (bar.taskName ? [`${bar.phaseName ? `${bar.phaseName} — ` : ''}${bar.taskName}`] : [])).join('\n'));
             const canDrag = !isAvailability && this.canManageView() && bar.assignmentId;
             const dragHandles = canDrag ? `<div class="gantt-bar-handle gantt-bar-handle-left" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'left')" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:4px 0 0 4px"></div><div class="gantt-bar-handle gantt-bar-handle-right" onmousedown="ProcessOverview.startDrag(event,this.parentElement,'right')" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;background:rgba(0,0,0,0.15);border-radius:0 4px 4px 0"></div>` : '';
-            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${background};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
+            return `<div class="gantt-bar po-bar" style="left:${bar.left}px;top:${top}px;width:${bar.width}px;background:${background};color:${textColor};opacity:${opacity};${border}cursor:pointer;position:absolute;${compactLabelStyle}" data-assignment-id="${bar.assignmentId || ''}" data-task-id="${bar.taskId || ''}" data-proj-id="${bar.projId || ''}" data-is-admin="${this.isAdmin() ? '1' : '0'}" data-task-name="${safeTaskName}" data-task-list="${safeTaskList}" data-proj-name="${safeProjName}" data-phase-name="${safePhaseName}" data-start="${bar.start_date}" data-end="${bar.end_date}" data-budget="${bar.budgetH}" data-worked="${bar.workedH}" data-pct="${bar.pct}" data-bar-color="${color}" title="${periodHint}" onmouseenter="ProcessOverview.showTooltip(event,this)" onmouseleave="ProcessOverview.hideTooltip()" onclick="ProcessOverview.handleBarClick(event,this)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none">${barLabel}</span>${dragHandles}</div>`;
           }).join('');
           rowsHtml += `
             <div class="gantt-row" style="height:${layout.rowHeight}px">
