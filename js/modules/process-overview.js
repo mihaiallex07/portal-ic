@@ -148,9 +148,41 @@ const ProcessOverview = {
       return segments;
     });
     const taskSegments = splitAroundLeave(bars.filter(bar => !bar.isAvailability));
-    // Dacă există accidental telemuncă și concediu în același interval, concediul rămâne singurul marcaj vizibil.
-    const remoteSegments = splitAroundLeave(bars.filter(bar => bar.availabilityKind === 'remote'));
-    return [...taskSegments, ...remoteSegments, ...leaveBars];
+    return [...taskSegments, ...leaveBars];
+  },
+
+  layoutRemoteWorkBackgrounds(userId, startDate, days) {
+    const timelineStart = new Date(`${this.toDateString(startDate)}T12:00:00`);
+    const timelineEnd = new Date(timelineStart);
+    timelineEnd.setDate(timelineEnd.getDate() + days - 1);
+    const remoteItems = this.availability.filter(item => String(item.user_id) === String(userId) && item.request_type === 'telemunca');
+    const leaveItems = this.availability.filter(item => String(item.user_id) === String(userId) && this.availabilityDetails(item.request_type).kind === 'leave');
+
+    const splitAroundLeave = segments => segments.flatMap(segment => {
+      let remaining = [{ ...segment }];
+      leaveItems.forEach(leave => {
+        remaining = remaining.flatMap(part => {
+          if (part.end_date < leave.period_start || part.start_date > leave.period_end) return [part];
+          const next = [];
+          if (part.start_date < leave.period_start) next.push({ ...part, end_date: this.addDays(leave.period_start, -1) });
+          if (part.end_date > leave.period_end) next.push({ ...part, start_date: this.addDays(leave.period_end, 1) });
+          return next;
+        });
+      });
+      return remaining;
+    });
+
+    return splitAroundLeave(remoteItems.map(item => ({ start_date: item.period_start, end_date: item.period_end }))).flatMap(segment => {
+      const sourceStart = new Date(`${segment.start_date}T12:00:00`);
+      const sourceEnd = new Date(`${segment.end_date}T12:00:00`);
+      const visibleStart = sourceStart < timelineStart ? timelineStart : sourceStart;
+      const visibleEnd = sourceEnd > timelineEnd ? timelineEnd : sourceEnd;
+      if (visibleStart > visibleEnd) return [];
+      return [{
+        left: Math.round((visibleStart - timelineStart) / 86400000) * this.ZOOM_PX,
+        width: Math.max(this.ZOOM_PX, Math.round((visibleEnd - visibleStart) / 86400000 + 1) * this.ZOOM_PX),
+      }];
+    });
   },
 
   userRoleLabel(user) {
@@ -393,6 +425,7 @@ const ProcessOverview = {
 
     this.availability.forEach(item => {
       if (!item?.user_id || !item.period_start || !item.period_end) return;
+      if (this.availabilityDetails(item.request_type).kind === 'remote') return;
       if (!barsByUser[item.user_id]) barsByUser[item.user_id] = [];
       barsByUser[item.user_id].push(this.makeAvailabilityBar(item));
     });
@@ -597,6 +630,9 @@ const ProcessOverview = {
           </div>`;
         group.users.forEach(user => {
           const layout = this.layoutBars(userBarsMap[user.id] || [], startDate, days);
+          const remoteBackgrounds = this.layoutRemoteWorkBackgrounds(user.id, startDate, days).map(segment => `
+            <div title="Telemuncă aprobată" style="position:absolute;left:${segment.left}px;top:3px;width:${segment.width}px;height:calc(100% - 6px);box-sizing:border-box;pointer-events:none;z-index:0;border-left:1px dashed rgba(3,105,161,.45);border-right:1px dashed rgba(3,105,161,.45);background:repeating-linear-gradient(135deg,rgba(14,165,233,.14) 0,rgba(14,165,233,.14) 6px,rgba(14,165,233,.07) 6px,rgba(14,165,233,.07) 12px)">${segment.width >= this.ZOOM_PX * 2 ? '<span style="position:absolute;left:4px;top:2px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.72);color:#075985;font-size:10px;font-weight:700;white-space:nowrap">🏠 Telemuncă</span>' : ''}</div>
+          `).join('');
           const barsHtml = layout.bars.map(bar => {
             const isAvailability = Boolean(bar.isAvailability);
             const color = bar.projColor;
@@ -627,7 +663,7 @@ const ProcessOverview = {
                 <div class="gantt-user-avatar">${Auth.getInitials(user.full_name || user.name || '')}</div>
                 <div class="gantt-user-info"><div class="gantt-user-name">${user.full_name || user.name || 'Fără nume'}</div><div class="gantt-user-pos" style="font-size:10px">${this.userRoleLabel(user)}</div></div>
               </div>
-              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${layout.rowHeight}px">${this._weekendCells(startDate, days)}${this._todayLine(startDate, days)}${barsHtml}</div>
+              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${layout.rowHeight}px">${this._weekendCells(startDate, days)}${remoteBackgrounds}${this._todayLine(startDate, days)}${barsHtml}</div>
             </div>`;
         });
       });
@@ -671,8 +707,8 @@ const ProcessOverview = {
               <span>Concediu aprobat</span>
             </div>
             <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#075985;font-weight:600">
-              <div style="width:20px;height:10px;background:#0EA5E9;border:1px solid #075985;border-radius:2px"></div>
-              <span>Telemuncă aprobată</span>
+              <div style="width:20px;height:10px;background:repeating-linear-gradient(135deg,rgba(14,165,233,.28) 0,rgba(14,165,233,.28) 6px,rgba(14,165,233,.12) 6px,rgba(14,165,233,.12) 12px);border-left:1px dashed #075985;border-right:1px dashed #075985;border-radius:2px"></div>
+              <span>Telemuncă · fundal</span>
             </div>
             ${activeProjects.length ? `<div style="display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--text-muted)">
               <div style="width:20px;height:10px;background:#aaa;border:1px dashed rgba(0,0,0,0.3);border-radius:2px;opacity:0.6"></div>
