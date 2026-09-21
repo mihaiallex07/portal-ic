@@ -137,24 +137,23 @@ const ProcessOverview = {
     };
   },
 
-  maskTasksDuringLeave(bars) {
-    const leaveBars = bars.filter(bar => bar.availabilityKind === 'leave');
-    if (!leaveBars.length) return bars;
+  maskTasksDuringLeave(bars, userId) {
+    const leaveItems = this.availability.filter(item => String(item.user_id) === String(userId) && this.availabilityDetails(item.request_type).kind === 'leave');
+    if (!leaveItems.length) return bars;
     const splitAroundLeave = sourceBars => sourceBars.flatMap(bar => {
       let segments = [{ ...bar }];
-      leaveBars.forEach(leave => {
+      leaveItems.forEach(leave => {
         segments = segments.flatMap(segment => {
-          if (segment.end_date < leave.start_date || segment.start_date > leave.end_date) return [segment];
+          if (segment.end_date < leave.period_start || segment.start_date > leave.period_end) return [segment];
           const next = [];
-          if (segment.start_date < leave.start_date) next.push({ ...segment, end_date: this.addDays(leave.start_date, -1) });
-          if (segment.end_date > leave.end_date) next.push({ ...segment, start_date: this.addDays(leave.end_date, 1) });
+          if (segment.start_date < leave.period_start) next.push({ ...segment, end_date: this.addDays(leave.period_start, -1) });
+          if (segment.end_date > leave.period_end) next.push({ ...segment, start_date: this.addDays(leave.period_end, 1) });
           return next;
         });
       });
       return segments;
     });
-    const taskSegments = splitAroundLeave(bars.filter(bar => !bar.isAvailability));
-    return [...taskSegments, ...leaveBars];
+    return splitAroundLeave(bars.filter(bar => !bar.isAvailability));
   },
 
   layoutRemoteWorkBackgrounds(userId, startDate, days) {
@@ -181,6 +180,24 @@ const ProcessOverview = {
     return splitAroundLeave(remoteItems.map(item => ({ start_date: item.period_start, end_date: item.period_end }))).flatMap(segment => {
       const sourceStart = new Date(`${segment.start_date}T12:00:00`);
       const sourceEnd = new Date(`${segment.end_date}T12:00:00`);
+      const visibleStart = sourceStart < timelineStart ? timelineStart : sourceStart;
+      const visibleEnd = sourceEnd > timelineEnd ? timelineEnd : sourceEnd;
+      if (visibleStart > visibleEnd) return [];
+      return [{
+        left: Math.round((visibleStart - timelineStart) / 86400000) * this.ZOOM_PX,
+        width: Math.max(this.ZOOM_PX, Math.round((visibleEnd - visibleStart) / 86400000 + 1) * this.ZOOM_PX),
+      }];
+    });
+  },
+
+  layoutLeaveMarkers(userId, startDate, days) {
+    const timelineStart = new Date(`${this.toDateString(startDate)}T12:00:00`);
+    const timelineEnd = new Date(timelineStart);
+    timelineEnd.setDate(timelineEnd.getDate() + days - 1);
+    const leaveItems = this.availability.filter(item => String(item.user_id) === String(userId) && this.availabilityDetails(item.request_type).kind === 'leave');
+    return leaveItems.flatMap(item => {
+      const sourceStart = new Date(`${item.period_start}T12:00:00`);
+      const sourceEnd = new Date(`${item.period_end}T12:00:00`);
       const visibleStart = sourceStart < timelineStart ? timelineStart : sourceStart;
       const visibleEnd = sourceEnd > timelineEnd ? timelineEnd : sourceEnd;
       if (visibleStart > visibleEnd) return [];
@@ -429,15 +446,8 @@ const ProcessOverview = {
       });
     });
 
-    this.availability.forEach(item => {
-      if (!item?.user_id || !item.period_start || !item.period_end) return;
-      if (this.availabilityDetails(item.request_type).kind === 'remote') return;
-      if (!barsByUser[item.user_id]) barsByUser[item.user_id] = [];
-      barsByUser[item.user_id].push(this.makeAvailabilityBar(item));
-    });
-
     Object.keys(barsByUser).forEach(userId => {
-      barsByUser[userId] = this.maskTasksDuringLeave(barsByUser[userId]);
+      barsByUser[userId] = this.maskTasksDuringLeave(barsByUser[userId], userId);
     });
 
     return barsByUser;
@@ -639,6 +649,9 @@ const ProcessOverview = {
           const remoteBackgrounds = this.layoutRemoteWorkBackgrounds(user.id, startDate, days).map(segment => `
             <div title="Telemuncă aprobată" style="position:absolute;left:${segment.left}px;top:3px;width:${segment.width}px;height:calc(100% - 6px);box-sizing:border-box;pointer-events:none;z-index:0;border-left:1px dashed rgba(3,105,161,.45);border-right:1px dashed rgba(3,105,161,.45);background:repeating-linear-gradient(135deg,rgba(14,165,233,.14) 0,rgba(14,165,233,.14) 6px,rgba(14,165,233,.07) 6px,rgba(14,165,233,.07) 12px)">${segment.width >= this.ZOOM_PX * 2 ? '<span style="position:absolute;left:4px;top:2px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.72);color:#075985;font-size:10px;font-weight:700;white-space:nowrap">🏠 Telemuncă</span>' : ''}</div>
           `).join('');
+          const leaveMarkers = this.layoutLeaveMarkers(user.id, startDate, days).map(segment => `
+            <div title="Concediu aprobat" style="position:absolute;left:${segment.left}px;top:0;width:${segment.width}px;height:100%;box-sizing:border-box;pointer-events:none;z-index:3;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:900;line-height:1;background:repeating-linear-gradient(135deg,#7C3AED 0,#7C3AED 7px,#6D28D9 7px,#6D28D9 14px);border-left:1px solid rgba(76,29,149,.9);border-right:1px solid rgba(76,29,149,.9);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)">C</div>
+          `).join('');
           const barsHtml = layout.bars.map(bar => {
             const isAvailability = Boolean(bar.isAvailability);
             const color = bar.projColor;
@@ -673,7 +686,7 @@ const ProcessOverview = {
                 <div class="gantt-user-avatar">${Auth.getInitials(user.full_name || user.name || '')}</div>
                 <div class="gantt-user-info"><div class="gantt-user-name">${user.full_name || user.name || 'Fără nume'}</div><div class="gantt-user-pos" style="font-size:10px">${this.userRoleLabel(user)}</div></div>
               </div>
-              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${layout.rowHeight}px">${this._weekendCells(startDate, days)}${remoteBackgrounds}${this._todayLine(startDate, days)}${barsHtml}</div>
+              <div class="gantt-cells" style="width:${totalW}px;position:relative;height:${layout.rowHeight}px">${this._weekendCells(startDate, days)}${remoteBackgrounds}${this._todayLine(startDate, days)}${barsHtml}${leaveMarkers}</div>
             </div>`;
         });
       });
