@@ -1683,7 +1683,7 @@ const TaskManager = {
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);padding:11px;border-radius:10px">${rangeButton('week', 'Săptămână')}${rangeButton('month', 'Lună')}${rangeButton('year', 'An')}${rangeButton('custom', 'Zile personalizate')}${custom ? `<span style="display:flex;gap:6px;align-items:center;margin-left:4px"><input id="tm-admin-hours-from" type="date" value="${this.adminHoursCustomFrom || period.from}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><span style="font-size:12px;color:var(--text-muted)">—</span><input id="tm-admin-hours-to" type="date" value="${this.adminHoursCustomTo || period.to}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><button onclick="TaskManager.applyAdminHoursCustomRange()" style="padding:6px 9px;border:0;border-radius:6px;background:var(--brand);color:#000;font-weight:700;font-size:12px;cursor:pointer">Aplică</button></span>` : ''}</div>
       ${this.adminHoursLoading ? `<div style="padding:42px;text-align:center;color:var(--text-muted)">Se centralizează orele lucrate…</div>` : summary?.error ? `<div style="padding:20px;background:#fee2e2;color:#b91c1c;border-radius:10px">${this.escapeAdminHours(summary.error)}</div>` : `
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px">
-        ${[{ label: 'Persoane urmărite', value: summary?.people || 0, color: '#2563eb', note: `${summary?.workdays || 0} zile lucrătoare` }, { label: 'Ore înregistrate', value: `${this.formatAdminHours(summary?.totalHours)} h`, color: '#047857', note: 'time-tracking + ore manuale' }, { label: 'Fără ore', value: summary?.noHours || 0, color: '#dc2626', note: 'în perioada selectată' }, { label: 'Sub nivel', value: summary?.lowCoverage || 0, color: '#b45309', note: 'sub 60% din norma estimată' }].map(card => `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700">${card.label}</div><div style="font-size:24px;color:${card.color};font-weight:850;margin-top:5px">${card.value}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${card.note}</div></div>`).join('')}
+        ${[{ label: 'Persoane urmărite', value: summary?.people || 0, color: '#2563eb', note: `${summary?.workdays || 0} zile lucrătoare` }, { label: 'Ore înregistrate', value: `${this.formatAdminHours(summary?.totalHours)} h`, color: '#047857', note: 'doar activități Time-Tracking' }, { label: 'Fără ore', value: summary?.noHours || 0, color: '#dc2626', note: 'în perioada selectată' }, { label: 'Sub nivel', value: summary?.lowCoverage || 0, color: '#b45309', note: 'sub 60% din norma estimată' }].map(card => `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700">${card.label}</div><div style="font-size:24px;color:${card.color};font-weight:850;margin-top:5px">${card.value}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${card.note}</div></div>`).join('')}
       </div>
       <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:auto"><div style="padding:13px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-muted)">Tabelul pune întâi persoanele fără ore sau sub nivel, pentru verificare rapidă.</div><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="background:var(--bg);text-align:left"><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">#</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Angajat</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Lucrate</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Normă estimată</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Acoperire</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Ultima înregistrare</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Stare</th></tr></thead><tbody>${rows || `<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-muted)">Nu există profiluri active pentru această perioadă.</td></tr>`}</tbody></table></div>`}
     </div>`;
@@ -1843,20 +1843,9 @@ const TaskManager = {
       return;
     }
     
-    // Continuăm și când nu există ore în perioadă: un task poate fi finalizat
-    // manual fără să aibă consum în intervalul selectat.
-    
-    // Fetch manual hours
-    let manualQuery = sb.from('manual_hours_log')
-      .select('id,task_id,minutes,created_at,description')
-      .eq('added_by_profile_id', userId)
-      .gte('created_at', dateFrom + 'T00:00:00')
-      .lte('created_at', dateTo + 'T23:59:59');
-    
-    const { data: manualHours } = await manualQuery;
-    
-    // Fetch tasks with project and phase info, inclusiv task-uri finalizate fără ore în interval.
-    const timeTaskIds = [...new Set([...(timeEntries || []).map(t => t.project_task_id).filter(Boolean), ...(manualHours || []).map(m => m.task_id).filter(Boolean)])];
+    // Raportul de activitate reflectă exclusiv pontajul efectiv din Time-Tracking.
+    // Consumul manual ajustează bugetul task-ului, dar nu reprezintă ore lucrate într-o zi/perioadă.
+    const timeTaskIds = [...new Set((timeEntries || []).map(t => t.project_task_id).filter(Boolean))];
     const selectedUserId = String(userId);
     const assignedProjectIds = this.allAssignments
       .filter(a => String(a.user_id) === selectedUserId)
@@ -1918,7 +1907,6 @@ const TaskManager = {
       dateFrom,
       dateTo,
       timeEntries: timeEntries || [],
-      manualHours: manualHours || [],
       tasks: tasksData,
       completionSummary: (() => {
         const completed = completionTasksData.filter(t => {
