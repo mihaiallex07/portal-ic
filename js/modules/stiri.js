@@ -262,31 +262,12 @@ const Stiri = {
       author_name: Auth.currentProfile?.full_name || 'Redacție IC',
       author_id: Auth.currentUser?.id,
     };
-    const { data: newsData, error } = await DB.createNews(item);
+    const { error } = await DB.createNews(item);
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
     closeModalForce();
     showToast('Știre publicată! Notificări trimise echipei.', 'success');
-    // Trimite notificări tuturor utilizatorilor
-    try {
-      const { data: users } = await DB.getUsers();
-      if (users && users.length > 0) {
-        const sb = getSupabase();
-        const currentUserId = Auth.currentUser?.id;
-        const notifRows = users
-          .filter(u => u.id !== currentUserId)
-          .map(u => ({
-            user_id: u.id,
-            type: 'news',
-            title: '📰 Știre nouă: ' + title,
-            message: item.excerpt || 'A fost publicată o știre nouă în portal.',
-            link: '#stiri:' + newsData.id,
-            is_read: false,
-          }));
-        if (notifRows.length > 0) {
-          await sb.from('notifications').insert(notifRows);
-        }
-      }
-    } catch(e) { console.warn('Notificări știre:', e); }
+    // Triggerul DB este unica sursă pentru notificările portal + e-mail.
+    // Astfel se evită duplicatele și sunt incluși numai destinatarii eligibili.
     await this.render();
   },
 
