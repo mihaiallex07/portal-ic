@@ -325,7 +325,7 @@ const Proiecte = {
   toggleEditMode() {
     this.editMode = !this.editMode;
     console.log('🔄 toggleEditMode:', { editMode: this.editMode });
-    this.renderProjectDetail();
+    this.renderProjectDetail({ preserveScroll: true });
     // Re-renderizează tab-ul curent pentru a reflecta schimbarea canEdit
     setTimeout(() => {
       const tabContent = document.getElementById('tab-content');
@@ -342,7 +342,7 @@ const Proiecte = {
   // ── Salvează și iese din mod editare ─────────────────────────────────────
   async saveEditMode() {
     this.editMode = false;
-    this.renderProjectDetail();
+    this.renderProjectDetail({ preserveScroll: true });
     showToast('Modificări salvate ✓', 'success');
   },
 
@@ -368,8 +368,34 @@ const Proiecte = {
       console.warn('logChange error:', e.message);
     }
   },
+  // Păstrează poziția de lucru la actualizările inline. `page-content` este
+  // containerul principal cu scroll, iar tabelul etapelor are propriul scroll.
+  _captureProjectEditScroll() {
+    const pageContent = document.getElementById('page-content');
+    const etapeContainer = document.querySelector('#tab-content [data-etape-scroll]');
+    return {
+      pageScrollTop: pageContent?.scrollTop || 0,
+      etapeScrollTop: etapeContainer?.scrollTop || 0,
+    };
+  },
+  _restoreProjectEditScroll(scrollState) {
+    if (!scrollState) return;
+    const restore = () => {
+      const pageContent = document.getElementById('page-content');
+      const etapeContainer = document.querySelector('#tab-content [data-etape-scroll]');
+      if (pageContent) pageContent.scrollTop = scrollState.pageScrollTop;
+      if (etapeContainer) etapeContainer.scrollTop = scrollState.etapeScrollTop;
+    };
+    // A doua frame rulează după recalcularea layout-ului tabelului și evită
+    // saltul de poziție când înălțimea unui rând se schimbă după editare.
+    requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
+  },
   // Fix 2: re-renderizează doar tab-ul Etape fără scroll-reset
   async _refreshEtapeOnly() {
+    const scrollState = this._captureProjectEditScroll();
     await this.loadProjectDetails(this.currentProject.id);
     const profile = Auth.currentProfile;
     const isAdmin = profile && profile.role === 'admin';
@@ -395,25 +421,16 @@ const Proiecte = {
       progressBar.style.width = totalPct + '%';
       progressBar.style.background = totalBarColor;
     }
-    // Fix 2: salvează scroll-ul pe page-content (containerul principal) și pe data-etape-scroll
-    const pageContent = document.getElementById('page-content');
-    const savedPageScroll = pageContent ? pageContent.scrollTop : 0;
     const tabContent = document.getElementById('tab-content');
     if (tabContent) {
-      const etapeContainer = tabContent.querySelector('[data-etape-scroll]');
-      const savedEtapeScroll = etapeContainer ? etapeContainer.scrollTop : 0;
       tabContent.innerHTML = this.renderTab(this.currentTab, canEdit);
-      // Restaurează scroll-ul pe page-content
-      if (pageContent && savedPageScroll > 0) pageContent.scrollTop = savedPageScroll;
-      // Restaurează scroll-ul pe containerul de etape
-      const newEtapeContainer = tabContent.querySelector('[data-etape-scroll]');
-      if (newEtapeContainer && savedEtapeScroll > 0) newEtapeContainer.scrollTop = savedEtapeScroll;
+      this._restoreProjectEditScroll(scrollState);
     } else {
-      this.renderProjectDetail();
+      this.renderProjectDetail({ preserveScroll: true });
     }
   },
 
-  renderProjectDetail() {
+  renderProjectDetail({ preserveScroll = this.editMode } = {}) {
     const p = this.currentProject;
     if (!p) return;
     const profile = Auth.currentProfile;
@@ -427,6 +444,7 @@ const Proiecte = {
 
     const container = document.getElementById('page-content');
     if (!container) return;
+    const scrollState = preserveScroll ? this._captureProjectEditScroll() : null;
 
     // Calculăm consumed_hours și budget_hours din suma task-urilor (dacă task-urile sunt deja încărcate)
     const consumedFromTasks = this.tasks.length > 0
@@ -494,6 +512,7 @@ const Proiecte = {
         ${this.renderTab(this.currentTab, canEdit)}
       </div>
     `;
+    this._restoreProjectEditScroll(scrollState);
   },
 
   renderTab(tab, canEdit) {
