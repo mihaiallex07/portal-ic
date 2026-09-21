@@ -40,6 +40,9 @@ const TaskManager = {
     setPageLoading(true);
     await this.loadData();
     this.renderPage();
+    // Scurtătura din Dashboard setează direct tabul înainte de randare.
+    // În acest caz nu trece prin setTab(), deci inițiem explicit prima încărcare.
+    if (this.activeTab === 'hours-admin') await this.loadAdminHoursDashboard();
     setPageLoading(false);
   },
 
@@ -1528,6 +1531,7 @@ const TaskManager = {
     setPageLoading(true);
     await this.loadData();
     this.renderPage();
+    if (this.activeTab === 'hours-admin') await this.loadAdminHoursDashboard();
     setPageLoading(false);
     showToast('Date reîncărcate ✓', 'success');
   },
