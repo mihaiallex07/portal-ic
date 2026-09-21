@@ -1832,15 +1832,17 @@ const Proiecte = {
                 const h = Math.floor((te.duration_minutes || 0) / 60);
                 const m = (te.duration_minutes || 0) % 60;
                 const durStr = h > 0 ? (m > 0 ? h + 'h ' + m + 'min' : h + 'h') : m + 'min';
-                const rawDate = te.start_time || te.date || te.created_at;
-                const parsedDate = rawDate ? new Date(rawDate) : null;
-                const dateStr = (parsedDate && !isNaN(parsedDate)) ? parsedDate.toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+                const activityDate = te.date ? new Date(`${te.date}T12:00:00`) : (te.created_at ? new Date(te.created_at) : null);
+                const dateStr = (activityDate && !isNaN(activityDate)) ? activityDate.toLocaleDateString('ro-RO', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+                const startLabel = te.start_time ? String(te.start_time).slice(0, 5) : '';
+                const endLabel = te.end_time ? String(te.end_time).slice(0, 5) : '';
+                const timeRange = startLabel ? ` · ${startLabel}${endLabel ? `–${endLabel}` : ''}` : '';
                 const who = te.profiles?.full_name || te.profiles?.employee_code || 'Necunoscut';
                 return `<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px">
                   <div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:center;gap:8px">
                       <span style="font-weight:600;font-size:13px;color:#3B82F6">${durStr}</span>
-                      <span style="font-size:11px;color:var(--text-muted)">${who} · ${dateStr}</span>
+                      <span style="font-size:11px;color:var(--text-muted)">${who} · 📅 ${dateStr}${timeRange}</span>
                     </div>
                     ${te.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;font-style:italic">&quot;${te.description}&quot;</div>` : ''}
                   </div>
@@ -1913,7 +1915,7 @@ const Proiecte = {
           <input id="manual-note" class="form-input" placeholder="Ex: Ore lucrate înainte de crearea proiectului în portal">
         </div>
         <div style="font-size:12px;color:var(--text-muted)">
-          ⚠️ Aceste ore vor fi adăugate direct la contorul de ore consumate al sarcinii, fără a crea o înregistrare în Time-Tracking.
+          ⚠️ Aceste ore ajustează doar contorul de ore consumate al sarcinii. Nu creează activități Time-Tracking și nu intră în „Ore azi”, rapoarte de activitate sau Control ore.
         </div>
         ${timeEntriesHtml}
         ${logHtml}
