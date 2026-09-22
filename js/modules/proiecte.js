@@ -599,18 +599,15 @@ const Proiecte = {
   },
 
   renderPhaseRows(phase, canEdit) {
-    const profile = Auth.currentProfile;
-    const isAdmin = profile?.role === 'admin';
-    const profileIdStr = String(profile?.id || '');
-    const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
-    // Adminii/coordonatorii văd toate task-urile; colegii văd orice task alocat explicit.
+    // În pagina Proiecte, toți membrii proiectului văd aceeași structură completă.
+    // Drepturile de editare rămân controlate separat prin `canEdit`.
     const allPhaseTasks = this.tasks.filter(t => t.phase_id === phase.id);
-    const phaseTasks = (isAdmin || isCoord) ? allPhaseTasks : allPhaseTasks.filter(t => this.isTaskAssignedToProfile(t, profile?.id));
+    const phaseTasks = allPhaseTasks;
     const budgetH = phase.budget_hours || 0;
     const tasksBudgetSum = this.tasks.filter(t => t.phase_id === phase.id).reduce((sum, task) => sum + (task.budget_hours || 0), 0);
     // Bugetul afișat și procentul folosesc aceeași bază: suma task-urilor, apoi fallback la etapa stocată.
     const displayBudget = tasksBudgetSum > 0 ? tasksBudgetSum : budgetH;
-    const workedMin = phaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
+    const workedMin = allPhaseTasks.reduce((sum, t) => sum + (t.minutes_worked || 0), 0);
     const workedH = Math.round(workedMin / 60 * 10) / 10;
     const rawPct = displayBudget > 0 ? Math.round((workedH / displayBudget) * 100) : 0;
     const pct = Math.min(100, rawPct);
@@ -738,8 +735,9 @@ const Proiecte = {
     // Verifică și project_task_assignments pentru alocare
     const taskAssignedUserIds = (this.taskAssignments || []).filter(a => a.task_id === task.id).map(a => a.user_id);
     const isAssigned = assignedIds.includes(profile.id) || taskAssignedUserIds.includes(profile.id);
-    // Doar persoanele alocate explicit pot porni timerul (adminii nu pot porni task-uri la care nu sunt alocati)
-    const canStart = isAssigned;
+    // Pagina Proiecte este read-only pentru angajați: doar administratorii/coordonatorii
+    // pot controla un timer de aici, exclusiv pentru un task la care sunt alocați.
+    const canStart = isAdminOrCoord && isAssigned;
 
     // Generăm avatarele pentru toți responsabilii (stivă cu overlap)
     const avatarsHtml = assignedIds.length > 0
