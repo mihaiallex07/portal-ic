@@ -636,7 +636,7 @@ const Proiecte = {
           <td style="padding:10px 12px;text-align:right">
             ${canEdit ? `
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
-              <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;margin-right:6px" title="Redenumește etapă">✎</button>
+              <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;margin-right:6px" title="Editează etapă">✎</button>
               <button onclick="Proiecte.deletePhase(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Șterge etapă">🗑</button>
             ` : ''}
           </td>
@@ -1699,15 +1699,12 @@ const Proiecte = {
     // Nu re-render complet pentru a nu pierde focus
   },
 
-  // ── Recalculează bugetul etapei din suma task-urilor ─────────────────────
+  // ── Bugetul etapei rămâne o valoare explicită ─────────────────────────────
+  // Suma task-urilor este deja folosită separat pentru afișare/progres când are
+  // valori pozitive. Nu suprascriem aici bugetul introdus manual al etapei.
   async recalcPhaseBudget(phaseId) {
-    const phaseTasks = this.tasks.filter(t => t.phase_id === phaseId);
-    const totalBudget = phaseTasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
-    const sb = getSupabase();
-    if (!sb) return;
-    await sb.from('project_phases').update({ budget_hours: totalBudget }).eq('id', phaseId);
-    const phase = this.phases.find(p => p.id === phaseId);
-    if (phase) phase.budget_hours = totalBudget;
+    const phase = this.phases.find(p => String(p.id) === String(phaseId));
+    return Number(phase?.budget_hours) || 0;
   },
 
   // ── Ștergere task ─────────────────────────────────────────────────────────
@@ -1769,42 +1766,65 @@ const Proiecte = {
       .replace(/"/g, '&quot;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    const taskCount = (this.tasks || []).filter(task => String(task.phase_id) === String(phase.id)).length;
+    const phaseTasks = (this.tasks || []).filter(task => String(task.phase_id) === String(phase.id));
+    const taskCount = phaseTasks.length;
+    const taskBudgetSum = phaseTasks.reduce((sum, task) => sum + (Number(task.budget_hours) || 0), 0);
+    const phaseBudget = Number(phase.budget_hours) || 0;
+    const effectiveBudget = taskBudgetSum > 0 ? taskBudgetSum : phaseBudget;
     const phaseLabel = phase.code ? `${phase.code}. ` : '';
-    openModal('Redenumește etapă', `
+    openModal('Editează etapă', `
       <div style="display:grid;gap:12px">
         <div>
           <label class="form-label">Denumirea etapei</label>
           <input id="edit-phase-name" class="form-input" value="${safeName}" maxlength="160" autocomplete="off">
         </div>
+        <div>
+          <label class="form-label">Ore bugetate etapă</label>
+          <input id="edit-phase-budget" type="number" class="form-input" value="${phaseBudget}" min="0" max="999999" step="0.25" inputmode="decimal" autocomplete="off">
+        </div>
         <div style="padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--text-muted);line-height:1.5">
-          <strong style="color:var(--text)">${phaseLabel}${safeName}</strong> are ${taskCount} ${taskCount === 1 ? 'sarcină' : 'sarcini'} asociate. Se actualizează numai denumirea etapei; sarcinile, alocările, perioadele, orele și bugetele rămân neschimbate.
+          <strong style="color:var(--text)">${phaseLabel}${safeName}</strong> are ${taskCount} ${taskCount === 1 ? 'sarcină' : 'sarcini'} asociate. Bugetul curent folosit pentru etapă este <strong style="color:var(--text)">${effectiveBudget}h</strong>. Sarcinile, alocările, perioadele și orele deja înregistrate nu sunt modificate.
+          ${taskBudgetSum > 0 ? `<br><span style="display:inline-block;margin-top:4px">Task-urile au deja ${taskBudgetSum}h bugetate; suma lor rămâne baza pentru afișarea progresului etapei.</span>` : '<br><span style="display:inline-block;margin-top:4px">Task-urile nu au ore bugetate; valoarea introdusă aici devine bugetul afișat al etapei.</span>'}
         </div>
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-primary" onclick="Proiecte.saveEditPhase(${phase.id})">Salvează denumirea</button>
+      <button class="btn-primary" onclick="Proiecte.saveEditPhase(${phase.id})">Salvează modificările</button>
     `);
     setTimeout(() => document.getElementById('edit-phase-name')?.focus(), 0);
   },
   async saveEditPhase(phaseId) {
     const phase = (this.phases || []).find(p => String(p.id) === String(phaseId));
     const newName = document.getElementById('edit-phase-name')?.value?.trim() || '';
+    const budgetInput = document.getElementById('edit-phase-budget')?.value;
+    const newBudget = Number.parseFloat(budgetInput);
     if (!phase || !this.currentProject) { showToast('Etapa nu mai este disponibilă.', 'error'); return; }
     if (!newName) { showToast('Completează denumirea etapei.', 'error'); return; }
+    if (!Number.isFinite(newBudget) || newBudget < 0) { showToast('Bugetul etapei trebuie să fie un număr pozitiv sau 0.', 'error'); return; }
     const oldName = phase.name || '';
-    if (newName === oldName) { closeModalForce(); return; }
+    const oldBudget = Number(phase.budget_hours) || 0;
+    const normalizedBudget = Math.round(newBudget * 100) / 100;
+    if (newName === oldName && normalizedBudget === oldBudget) { closeModalForce(); return; }
     const sb = getSupabase();
     if (!sb) { showToast('Nu există conexiune la baza de date.', 'error'); return; }
+    const updates = { updated_at: new Date().toISOString() };
+    if (newName !== oldName) updates.name = newName;
+    if (normalizedBudget !== oldBudget) updates.budget_hours = normalizedBudget;
     const { error } = await sb.from('project_phases')
-      .update({ name: newName })
+      .update(updates)
       .eq('id', phaseId)
       .eq('project_id', this.currentProject.id);
-    if (error) { showToast('Eroare la redenumirea etapei: ' + error.message, 'error'); return; }
+    if (error) { showToast('Eroare la actualizarea etapei: ' + error.message, 'error'); return; }
     phase.name = newName;
-    await this.logChange('update', 'etapă', newName, oldName, newName, 'Denumire etapă actualizată');
+    phase.budget_hours = normalizedBudget;
+    if (newName !== oldName) {
+      await this.logChange('update', 'etapă', newName, oldName, newName, 'Denumire etapă actualizată');
+    }
+    if (normalizedBudget !== oldBudget) {
+      await this.logChange('budget', 'etapă', newName, oldBudget + 'h', normalizedBudget + 'h', 'Buget ore etapă actualizat');
+    }
     closeModalForce();
-    showToast(`Etapa a fost redenumită din „${oldName}” în „${newName}”.`, 'success');
+    showToast('Etapa a fost actualizată.', 'success');
     await this._refreshEtapeOnly();
   },
   // ── Modal consum manual ore (admin/coordonator) ─────────────────────────────────────────────────
