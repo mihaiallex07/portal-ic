@@ -260,7 +260,7 @@ const TimeTracking = {
             ${isCompactBlock ? '' : `<span style="flex:0 0 auto;white-space:nowrap;color:var(--text-muted);font-size:9px">${this.fmtDuration(e.duration_minutes)}</span>`}
           </div>`;
         }).join('');
-        return `<td onclick="TimeTracking.openAddModal('${dStr}', ${hour})" style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;cursor:pointer"
+        return `<td onclick="TimeTracking.openAddModalFromCalendar(event,'${dStr}',${hour},this)" style="border:1px solid var(--border);padding:0;vertical-align:top;height:60px;position:relative;cursor:pointer"
           onmouseenter="this.style.background='rgba(255,203,9,0.08)'"
           onmouseleave="this.style.background=''">
           ${blocks}
@@ -487,6 +487,93 @@ const TimeTracking = {
     this.openActivityModal({ prefillDate, prefillHour, prefillMinute });
   },
 
+  openAddModalFromCalendar(event, prefillDate, prefillHour, cell) {
+    const rect = cell?.getBoundingClientRect();
+    const minute = rect
+      ? Math.max(0, Math.min(59, Math.floor(event.clientY - rect.top)))
+      : 0;
+    this.openAddModal(prefillDate, prefillHour, minute);
+  },
+
+  _entryInterval(entry) {
+    const start = this.parseStartTime(entry);
+    const startTotal = start.h * 60 + start.m;
+    const parsedEnd = this.parseEndTime(entry);
+    const derivedDuration = parsedEnd ? (parsedEnd.h * 60 + parsedEnd.m) - startTotal : 0;
+    const duration = Math.max(0, Number(entry?.duration_minutes) || derivedDuration);
+    return { start: startTotal, end: startTotal + duration };
+  },
+
+  findScheduleConflicts(date, startTotal, durationMinutes, excludeEntryId = null) {
+    const start = Number(startTotal);
+    const end = start + Number(durationMinutes);
+    if (!date || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+    return (this.entries || []).filter(entry => {
+      if (String(entry.date) !== String(date)) return false;
+      if (excludeEntryId !== null && Number(entry.id) === Number(excludeEntryId)) return false;
+      const interval = this._entryInterval(entry);
+      return interval.start < end && start < interval.end;
+    });
+  },
+
+  _formatEntryInterval(entry) {
+    const interval = this._entryInterval(entry);
+    return `${this.fmtTime(Math.floor(interval.start / 60), interval.start % 60)}–${this.fmtTime(Math.floor(interval.end / 60), interval.end % 60)}`;
+  },
+
+  _updateScheduleAvailability() {
+    const hint = document.getElementById('tt-schedule-hint');
+    const date = document.getElementById('tt-date')?.value;
+    const start = Number(document.getElementById('tt-start')?.value);
+    const manualH = Math.max(0, Number(document.getElementById('tt-manual-h')?.value) || 0);
+    const manualM = Math.max(0, Math.min(59, Number(document.getElementById('tt-manual-m')?.value) || 0));
+    const duration = manualH * 60 + manualM;
+    const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
+    if (!hint || !date || !Number.isFinite(start) || duration <= 0) return;
+    const end = start + duration;
+    if (end > 24 * 60) {
+      hint.textContent = '⚠ Intervalul depășește ora 24:00. Alege o durată mai mică.';
+      hint.style.color = '#B91C1C';
+      hint.style.display = 'block';
+      return;
+    }
+    const conflicts = this.findScheduleConflicts(date, start, duration, editingEntryId || null);
+    if (conflicts.length > 0) {
+      const first = conflicts[0];
+      hint.textContent = `⚠ Interval indisponibil: se suprapune cu „${first.task_name || 'Activitate'}” (${this._formatEntryInterval(first)}).`;
+      hint.style.color = '#B91C1C';
+      hint.style.display = 'block';
+      return;
+    }
+    hint.textContent = `✓ Interval disponibil: ${this.fmtTime(Math.floor(start / 60), start % 60)}–${this.fmtTime(Math.floor(end / 60), end % 60)}.`;
+    hint.style.color = '#047857';
+    hint.style.display = 'block';
+  },
+
+  _refreshAvailableStartTimes() {
+    const startEl = document.getElementById('tt-start');
+    const date = document.getElementById('tt-date')?.value;
+    if (!startEl || !date) return;
+    const selected = Number(startEl.value);
+    const manualH = Math.max(0, Number(document.getElementById('tt-manual-h')?.value) || 0);
+    const manualM = Math.max(0, Math.min(59, Number(document.getElementById('tt-manual-m')?.value) || 0));
+    const duration = manualH * 60 + manualM;
+    const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
+    if (duration <= 0 || !Number.isFinite(selected)) return;
+
+    const values = [];
+    for (let minute = 0; minute <= 23 * 60 + 45; minute += 5) values.push(minute);
+    if (!values.includes(selected)) {
+      values.push(selected);
+      values.sort((a, b) => a - b);
+    }
+    startEl.innerHTML = values.map(minute => {
+      const blocked = minute + duration > 24 * 60 || this.findScheduleConflicts(date, minute, duration, editingEntryId || null).length > 0;
+      const label = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+      return `<option value="${minute}"${minute === selected ? ' selected' : ''}${blocked ? ' disabled' : ''}>${label}${blocked ? ' — ocupat' : ''}</option>`;
+    }).join('');
+  },
+
   openActivityModal({ entry = null, prefillDate, prefillHour, prefillMinute } = {}) {
     const now = new Date();
     const parsedStart = entry ? this.parseStartTime(entry) : null;
@@ -516,7 +603,7 @@ const TimeTracking = {
       <div class="space-y-3">
         <div>
           <label class="label">Data *</label>
-          <input type="date" id="tt-date" class="input" value="${entry?.date || prefillDate || this.localDateStr()}">
+          <input type="date" id="tt-date" class="input" value="${entry?.date || prefillDate || this.localDateStr()}" onchange="TimeTracking._refreshAvailableStartTimes();TimeTracking._updateScheduleAvailability()">
         </div>
         <div class="flex gap-3">
           <div style="flex:1">
@@ -554,6 +641,7 @@ const TimeTracking = {
             ">—</div>
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">💡 Poți completa manual orele/minutele SAU selecta Oră start / Oră final — câmpurile se sincronizează automat.</div>
+          <div id="tt-schedule-hint" role="status" style="display:none;font-size:11px;margin-top:5px;font-weight:600"></div>
         </div>
         <div>
           <label class="label">Descriere activitate *</label>
@@ -578,11 +666,12 @@ const TimeTracking = {
             <option value="">— Selectează task —</option>
           </select>
         </div>
+        <input type="hidden" id="tt-entry-id" value="${entry?.id || ''}">
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-brand" onclick="${entry ? `TimeTracking.saveEditEntry(${entry.id})` : 'TimeTracking.saveEntry()'}">Salvează</button>
-    `);
+      <button class="btn-brand" onclick="${entry ? `TimeTracking.saveEditEntry(${entry.id})` : 'TimeTracking.saveEntry()'}">Finalizează</button>
+    `, { closeOnBackdrop: false, showClose: false });
 
     setTimeout(() => {
       if (selectedProjectId) {
@@ -630,6 +719,8 @@ const TimeTracking = {
       dispEl.textContent = label;
       dispEl.style.color = dur > 0 ? 'var(--text)' : '#dc2626';
     }
+    this._refreshAvailableStartTimes();
+    this._updateScheduleAvailability();
   },
 
   // Apelat când utilizatorul modifică manual câmpurile Ore/Minute
@@ -660,6 +751,8 @@ const TimeTracking = {
       const newEnd = Math.min(startMin + dur, 24 * 60);
       this._setTimeSelectValue(endEl, newEnd);
     }
+    this._refreshAvailableStartTimes();
+    this._updateScheduleAvailability();
   },
 
   onProjectChange(projectId) {
@@ -740,6 +833,18 @@ const TimeTracking = {
       return;
     }
 
+    const finalTotalMin = startTotalMin + durationMinutes;
+    if (finalTotalMin > 24 * 60) {
+      showToast('Intervalul ales depășește ora 24:00. Redu durata activității.', 'error');
+      return;
+    }
+    const scheduleConflicts = this.findScheduleConflicts(dateVal, startTotalMin, durationMinutes);
+    if (scheduleConflicts.length > 0) {
+      const conflict = scheduleConflicts[0];
+      showToast(`Interval indisponibil: se suprapune cu „${conflict.task_name || 'Activitate'}” (${this._formatEntryInterval(conflict)}).`, 'error');
+      return;
+    }
+
     const startHour = Math.floor(startTotalMin / 60);
     const startMin = startTotalMin % 60;
     const projectId = document.getElementById('tt-project')?.value || null;
@@ -750,8 +855,8 @@ const TimeTracking = {
 
     // Construiește valorile HH:MM:SS pentru start_time și end_time (tip TIME în Supabase, nu TIMESTAMP)
     const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
-    const endH = Math.floor(endTotalMin / 60) % 24;
-    const endM = endTotalMin % 60;
+    const endH = Math.floor(finalTotalMin / 60) % 24;
+    const endM = finalTotalMin % 60;
     const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
 
     // Câmpuri EXACTE din schema Supabase reală (snake_case)
@@ -855,12 +960,22 @@ const TimeTracking = {
     const manualM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-manual-m')?.value) || 0));
     const durationMinutes = manualH * 60 + manualM || Math.max(0, endTotalMin - startTotalMin);
     if (durationMinutes <= 0) { showToast('Completează timpul lucrat (Ore/Minute) sau selectează Oră start și Ora final', 'error'); return; }
+    const finalTotalMin = startTotalMin + durationMinutes;
+    if (finalTotalMin > 24 * 60) {
+      showToast('Intervalul ales depășește ora 24:00. Redu durata activității.', 'error');
+      return;
+    }
+    const scheduleConflicts = this.findScheduleConflicts(dateVal, startTotalMin, durationMinutes, id);
+    if (scheduleConflicts.length > 0) {
+      const conflict = scheduleConflicts[0];
+      showToast(`Interval indisponibil: se suprapune cu „${conflict.task_name || 'Activitate'}” (${this._formatEntryInterval(conflict)}).`, 'error');
+      return;
+    }
     const projectId = document.getElementById('tt-project')?.value || null;
     const taskId = document.getElementById('tt-task-id')?.value || null;
     const startHour = Math.floor(startTotalMin / 60);
     const startMin = startTotalMin % 60;
     const startTimeStr = String(startHour).padStart(2,'0') + ':' + String(startMin).padStart(2,'0') + ':00';
-    const finalTotalMin = Math.min(startTotalMin + durationMinutes, 24 * 60);
     const endH = Math.floor(finalTotalMin / 60) % 24;
     const endM = finalTotalMin % 60;
     const endTimeStr = String(endH).padStart(2,'0') + ':' + String(endM).padStart(2,'0') + ':00';
