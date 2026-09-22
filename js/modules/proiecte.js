@@ -577,7 +577,7 @@ const Proiecte = {
                 <th style="padding:10px 12px;text-align:center;width:100px">Rămas (H)</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Progres</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Responsabil</th>
-                <th style="padding:10px 14px;text-align:right;width:250px">Acțiuni</th>
+                <th style="position:relative;padding:10px 14px;text-align:right;width:250px"><span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);white-space:nowrap">Acțiuni</span></th>
               </tr>
             </thead>
             ${this.phases.map(phase => this.renderPhaseRows(phase, canEdit)).join('')}
@@ -644,8 +644,8 @@ const Proiecte = {
           </td>
           <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)"></td>
           <td style="padding:10px 12px;text-align:center"></td>
-          <td style="padding:8px 14px;text-align:right;width:250px;vertical-align:middle">
-            ${canEdit ? `<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px">
+          <td style="position:relative;padding:8px 14px;width:250px;vertical-align:middle;height:44px">
+            ${canEdit ? `<div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px;white-space:nowrap">
               <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#FFF8DB;border:1px solid #F5C400;cursor:pointer;color:#1A1A1A;font-size:15px;border-radius:6px" title="Adaugă sarcină">＋</button>
               <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;color:var(--text-muted);font-size:14px;border-radius:6px" title="Editează etapă">✎</button>
               <button onclick="Proiecte.deletePhase(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#FEF2F2;border:1px solid #FECACA;cursor:pointer;color:var(--danger);font-size:13px;border-radius:6px" title="Șterge etapă">🗑</button>
@@ -788,8 +788,8 @@ const Proiecte = {
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
 
-        <td style="padding:8px 14px;text-align:right;width:250px;vertical-align:middle">
-          <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px;white-space:nowrap">
+        <td style="position:relative;padding:8px 14px;width:250px;vertical-align:middle;height:44px">
+          <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px;white-space:nowrap">
             ${canStart ? this.renderTimerBtn(task) : ''}
             ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#ECFDF5;border:1px solid #A7F3D0;cursor:pointer;color:#047857;font-size:13px;padding:0;border-radius:6px" title="Consum manual ore">⏱</button>` : ''}
             ${canEdit ? `<button onclick="Proiecte.openEditTaskModal(${task.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;color:var(--text-muted);font-size:13px;padding:0;border-radius:6px" title="Editează sarcina">✏️</button>` : ''}
