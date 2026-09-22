@@ -293,6 +293,21 @@ const Propuneri = {
     return user?.full_name || user?.name || user?.email || 'coordonator';
   },
 
+  notificationProposalLabel(proposal) {
+    const title = String(proposal?.title || '').replace(/\s+/g, ' ').trim();
+    const reference = String(proposal?.reference_number || '').trim();
+    if (title && reference) return `„${title}” (${reference})`;
+    if (title) return `„${title}”`;
+    return reference || 'nouă';
+  },
+
+  notificationProposalExcerpt(proposal) {
+    const description = String(proposal?.description || '').replace(/\s+/g, ' ').trim();
+    if (!description) return '';
+    const truncated = description.length > 320 ? `${description.slice(0, 317).trimEnd()}…` : description;
+    return `\n\nConținut: ${truncated}`;
+  },
+
   openNewModal() {
     const coordinatorOptions = this.coordinatorOptions();
     const projectOptions = this.projectOptions();
@@ -387,12 +402,13 @@ const Propuneri = {
       ? this.users.filter(u => u.role === 'admin' && String(u.id) !== String(currentId))
       : this.users.filter(u => String(u.id) === String(managerId));
     if (!recipients.length) return;
-    const ref = proposal.reference_number || 'nouă';
+    const proposalLabel = this.notificationProposalLabel(proposal);
+    const proposalExcerpt = this.notificationProposalExcerpt(proposal);
     await DB.createNotifications(recipients.map(user => ({
       user_id: user.id,
       type: 'info',
       title: 'Propunere nouă',
-      message: `${this.currentProfile().full_name || 'Un coleg'} a trimis propunerea ${ref} către responsabilitatea ta.`,
+      message: `${this.currentProfile().full_name || 'Un coleg'} a trimis propunerea ${proposalLabel} către responsabilitatea ta.${proposalExcerpt}`,
       link: 'propuneri',
       is_read: false,
     })));
@@ -433,7 +449,7 @@ const Propuneri = {
         user_id: proposal.author_id,
         type: 'info',
         title: 'Status propunere actualizat',
-        message: `Propunerea ${proposal.reference_number || ''} are acum statusul „${this.statusMeta(status).label}”.`,
+        message: `Propunerea ${this.notificationProposalLabel(proposal)} are acum statusul „${this.statusMeta(status).label}”.${this.notificationProposalExcerpt(proposal)}`,
         link: 'propuneri',
         is_read: false,
       }]);
