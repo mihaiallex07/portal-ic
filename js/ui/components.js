@@ -25,16 +25,18 @@ function showToast(message, type = 'default', duration = 3500) {
 }
 
 // ── MODAL ──────────────────────────────────────────────────
-function openModal(title, contentHtml, footerHtml = '') {
+function openModal(title, contentHtml, footerHtml = '', options = {}) {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
+  const { closeOnBackdrop = true, showClose = true } = options;
+  overlay.dataset.closeOnBackdrop = String(closeOnBackdrop);
   
   content.innerHTML = `
     <div class="modal-header">
       <h3 class="modal-title">${title}</h3>
-      <button class="modal-close" onclick="closeModal()">
+      ${showClose ? `<button class="modal-close" onclick="closeModalForce()" title="Închide">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      </button>` : ''}
     </div>
     <div class="modal-body">${contentHtml}</div>
     ${footerHtml ? `<div class="modal-footer">${footerHtml}</div>` : ''}
@@ -45,8 +47,10 @@ function openModal(title, contentHtml, footerHtml = '') {
 }
 
 function closeModal(event) {
-  if (event && event.target !== document.getElementById('modal-overlay')) return;
-  document.getElementById('modal-overlay').style.display = 'none';
+  const overlay = document.getElementById('modal-overlay');
+  if (event && event.target !== overlay) return;
+  if (event && overlay.dataset.closeOnBackdrop === 'false') return;
+  overlay.style.display = 'none';
   // Only reset overflow if we're not in the app (auth page doesn't need overflow hidden)
   if (document.getElementById('app').style.display !== 'none') {
     document.body.style.overflow = 'hidden';
@@ -54,7 +58,9 @@ function closeModal(event) {
 }
 
 function closeModalForce() {
-  document.getElementById('modal-overlay').style.display = 'none';
+  const overlay = document.getElementById('modal-overlay');
+  overlay.style.display = 'none';
+  delete overlay.dataset.closeOnBackdrop;
   if (document.getElementById('app').style.display !== 'none') {
     document.body.style.overflow = 'hidden';
   }
