@@ -74,27 +74,61 @@ const DriveViewer = {
     });
   },
 
-  // Listează fișierele dintr-un folder Drive (suportă Shared Drives)
-  async listFolder(folderId) {
+  // Listează fișierele dintr-un folder Drive (suportă Shared Drives),
+  // cu motiv explicit atunci când este necesară conectarea sau lipsește accesul.
+  async listFolderResult(folderId) {
     try {
       const token = await this.getToken();
-      if (!token) return null;
+      if (!token) return { status: 'auth_required', files: [] };
       const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType,size,modifiedTime)&orderBy=name&pageSize=200&includeItemsFromAllDrives=true&supportsAllDrives=true`;
       const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
       if (resp.status === 401) {
         this._accessToken = null;
         localStorage.removeItem('ic_drive_token');
         const newToken = await this.getToken(false);
-        if (!newToken) return null;
+        if (!newToken) return { status: 'auth_required', files: [] };
         const resp2 = await fetch(url, { headers: { 'Authorization': `Bearer ${newToken}` } });
-        if (!resp2.ok) return null;
-        return (await resp2.json()).files || [];
+        if (resp2.status === 403 || resp2.status === 404) return { status: 'forbidden', files: [] };
+        if (!resp2.ok) return { status: 'error', files: [], httpStatus: resp2.status };
+        return { status: 'ok', files: (await resp2.json()).files || [] };
       }
-      if (!resp.ok) return null;
-      return (await resp.json()).files || [];
+      if (resp.status === 403 || resp.status === 404) return { status: 'forbidden', files: [] };
+      if (!resp.ok) return { status: 'error', files: [], httpStatus: resp.status };
+      return { status: 'ok', files: (await resp.json()).files || [] };
     } catch(e) {
       console.error('DriveViewer.listFolder error:', e);
-      return null;
+      return { status: 'error', files: [] };
+    }
+  },
+
+  // Compatibilitate pentru modulele existente care așteaptă direct un array.
+  async listFolder(folderId) {
+    const result = await this.listFolderResult(folderId);
+    return result.status === 'ok' ? result.files : null;
+  },
+
+  // Caută foldere la care contul curent are deja acces, inclusiv cele partajate
+  // direct cu angajatul (fără a necesita acces la folderul părinte).
+  async searchFoldersByNames(names) {
+    const validNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))];
+    if (!validNames.length) return { status: 'ok', files: [] };
+    try {
+      const token = await this.getToken();
+      if (!token) return { status: 'auth_required', files: [] };
+      const nameClauses = validNames.map(name => `name = '${name.replace(/'/g, "\\'")}'`).join(' or ');
+      const query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and (${nameClauses})`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime)&orderBy=modifiedTime+desc&pageSize=100&includeItemsFromAllDrives=true&supportsAllDrives=true`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 401) {
+        this._accessToken = null;
+        localStorage.removeItem('ic_drive_token');
+        return { status: 'auth_required', files: [] };
+      }
+      if (!response.ok) return { status: 'error', files: [], httpStatus: response.status };
+      return { status: 'ok', files: (await response.json()).files || [] };
+    } catch (error) {
+      console.error('DriveViewer.searchFoldersByNames error:', error);
+      return { status: 'error', files: [] };
     }
   },
 
@@ -175,14 +209,26 @@ const DriveViewer = {
         Se încarcă...
       </div>`;
 
-      const files = await this.listFolder(folderId);
-
-      if (files === null) {
-        // Fără token — afișăm prompt conectare
+      const result = await this.listFolderResult(folderId);
+      if (result.status === 'auth_required') {
+        // Fără token — afișăm prompt conectare.
         const shell = document.getElementById(`${instanceId}-shell`);
         if (shell) shell.innerHTML = this._renderConnectPrompt(instanceId, rootFolderId, opts);
         return;
       }
+
+      if (result.status === 'forbidden') {
+        const shell = document.getElementById(`${instanceId}-shell`);
+        if (shell) shell.innerHTML = this._renderAccessDenied(instanceId, rootFolderId, opts);
+        return;
+      }
+
+      if (result.status !== 'ok') {
+        listEl.innerHTML = `<div style="padding:28px 18px;text-align:center;color:var(--text-muted);font-size:13px"><div style="font-size:30px;margin-bottom:8px">⚠️</div><p style="margin:0 0 12px">Documentele nu au putut fi încărcate.</p><button onclick="DriveViewer.renderDriveExplorer('${instanceId}','${rootFolderId}',${JSON.stringify(opts).replace(/"/g,"'")})" style="border:1px solid var(--border);background:var(--card-bg);color:var(--text);padding:7px 12px;border-radius:7px;cursor:pointer;font-size:12px">↻ Reîncearcă</button></div>`;
+        return;
+      }
+
+      const files = result.files || [];
 
       if (files.length === 0) {
         listEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">
@@ -295,7 +341,7 @@ const DriveViewer = {
         <div>
           <h3 style="font-size:17px;font-weight:700;margin:0 0 8px;color:var(--text)">Conectează Google Drive</h3>
           <p style="color:var(--text-muted);font-size:13px;max-width:380px;margin:0;line-height:1.6">
-            Pentru a vizualiza documentele direct în portal, este necesară o permisiune de citire din Google Drive (contul tău <strong>@ingineriecreativa.ro</strong>).
+            Pentru a vizualiza documentele direct în portal, este necesară o permisiune de citire din Google Drive. Acordul Google se solicită o singură dată pentru acest portal și este reutilizat ulterior.
           </p>
         </div>
         <button onclick="DriveViewer._connectAndRender('${instanceId}','${rootFolderId}',${JSON.stringify(opts).replace(/"/g,"'")})"
@@ -304,6 +350,23 @@ const DriveViewer = {
           Conectează cu Google
         </button>
         ${opts.folderUrl ? `<a href="${opts.folderUrl}" target="_blank" style="font-size:12px;color:var(--primary);text-decoration:none">Sau deschide direct în Google Drive →</a>` : ''}
+      </div>
+    `;
+  },
+
+  // Accesul efectiv la documentele personale rămâne controlat în Google Drive.
+  _renderAccessDenied(instanceId, rootFolderId, opts) {
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;padding:60px 20px;gap:18px;text-align:center">
+        <div style="width:60px;height:60px;background:#fff7ed;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:30px">🔒</div>
+        <div>
+          <h3 style="font-size:17px;font-weight:700;margin:0 0 8px;color:var(--text)">Nu ai acces la acest folder</h3>
+          <p style="color:var(--text-muted);font-size:13px;max-width:420px;margin:0;line-height:1.6">Conectarea Google este activă, însă folderul nu este partajat cu contul Google folosit acum. Un administrator trebuie să partajeze folderul cu adresa ta de serviciu în Google Drive.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+          <button onclick="DriveViewer._connectAndRender('${instanceId}','${rootFolderId}',${JSON.stringify(opts).replace(/"/g,"'")})" style="background:var(--brand,#FFCB08);color:#000;font-weight:700;font-size:13px;padding:9px 14px;border-radius:8px;border:none;cursor:pointer">Schimbă contul Google</button>
+          ${opts.folderUrl ? `<a href="${opts.folderUrl}" target="_blank" style="font-size:13px;color:var(--primary);text-decoration:none;padding:9px 4px">Deschide în Google Drive ↗</a>` : ''}
+        </div>
       </div>
     `;
   },
