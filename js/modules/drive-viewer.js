@@ -107,31 +107,6 @@ const DriveViewer = {
     return result.status === 'ok' ? result.files : null;
   },
 
-  // Caută foldere la care contul curent are deja acces, inclusiv cele partajate
-  // direct cu angajatul (fără a necesita acces la folderul părinte).
-  async searchFoldersByNames(names) {
-    const validNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))];
-    if (!validNames.length) return { status: 'ok', files: [] };
-    try {
-      const token = await this.getToken();
-      if (!token) return { status: 'auth_required', files: [] };
-      const nameClauses = validNames.map(name => `name = '${name.replace(/'/g, "\\'")}'`).join(' or ');
-      const query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and (${nameClauses})`;
-      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime)&orderBy=modifiedTime+desc&pageSize=100&includeItemsFromAllDrives=true&supportsAllDrives=true`;
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (response.status === 401) {
-        this._accessToken = null;
-        localStorage.removeItem('ic_drive_token');
-        return { status: 'auth_required', files: [] };
-      }
-      if (!response.ok) return { status: 'error', files: [], httpStatus: response.status };
-      return { status: 'ok', files: (await response.json()).files || [] };
-    } catch (error) {
-      console.error('DriveViewer.searchFoldersByNames error:', error);
-      return { status: 'error', files: [] };
-    }
-  },
-
   // ── Template principal: sidebar + viewer ──────────────────
   // instanceId: ID unic pentru a permite mai multe instanțe pe pagină
   // opts: { title, subtitle, folderUrl, height, onConnect }
