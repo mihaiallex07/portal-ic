@@ -1573,6 +1573,46 @@ const TaskManager = {
     return days;
   },
 
+  getApprovedAvailabilitySummary(items, userId, from, to) {
+    const leaveDates = new Set();
+    const remoteDates = new Set();
+    const rangeStart = String(from || '').slice(0, 10);
+    const rangeEnd = String(to || '').slice(0, 10);
+    if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) {
+      return { leaveDays: 0, remoteDays: 0, leaveDates: [], remoteDates: [] };
+    }
+    (items || []).forEach(item => {
+      if (String(item?.user_id || '') !== String(userId || '')) return;
+      const requestType = String(item?.request_type || '');
+      const start = [rangeStart, String(item?.period_start || '').slice(0, 10)].filter(Boolean).sort().at(-1);
+      const end = [rangeEnd, String(item?.period_end || '').slice(0, 10)].filter(Boolean).sort()[0];
+      if (!start || !end || start > end) return;
+      const cursor = new Date(`${start}T12:00:00`);
+      const last = new Date(`${end}T12:00:00`);
+      while (cursor <= last) {
+        const weekday = cursor.getDay();
+        if (weekday !== 0 && weekday !== 6) {
+          const day = this.adminHoursDate(cursor);
+          if (requestType === 'telemunca') remoteDates.add(day);
+          if (['concediu_odihna', 'concediu_medical', 'absenta'].includes(requestType)) leaveDates.add(day);
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    });
+    // Dacă există simultan o absență și o telemuncă pe aceeași dată, concediul are prioritate.
+    leaveDates.forEach(day => remoteDates.delete(day));
+    return {
+      leaveDays: leaveDates.size,
+      remoteDays: remoteDates.size,
+      leaveDates: [...leaveDates].sort(),
+      remoteDates: [...remoteDates].sort(),
+    };
+  },
+
+  formatAvailabilityDays(days) {
+    return (days || []).map(day => this.formatAdminDate(day)).join(', ');
+  },
+
   escapeAdminHours(value) {
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   },
@@ -1598,19 +1638,28 @@ const TaskManager = {
     if (content && this.activeTab === 'hours-admin') content.innerHTML = this.renderAdminHoursTab();
 
     try {
-      const { data: profilesWithTotals, error } = await sb.rpc('get_admin_hours_dashboard', { p_from: period.from, p_to: period.to });
-      if (error) throw error;
+      const [hoursResult, availabilityResult] = await Promise.all([
+        sb.rpc('get_admin_hours_dashboard', { p_from: period.from, p_to: period.to }),
+        sb.rpc('get_admin_hours_availability', { p_from: period.from, p_to: period.to }),
+      ]);
+      if (hoursResult.error) throw hoursResult.error;
+      if (availabilityResult.error) throw availabilityResult.error;
+      const profilesWithTotals = hoursResult.data || [];
+      const leaveByProfile = new Map((availabilityResult.data || []).map(item => [String(item.profile_id), Number(item.approved_leave_days) || 0]));
       const workdays = this.workdaysBetween(period.from, period.to);
       // Protecție suplimentară în client: funcția DB livrează deja doar profile active
       // cu cont Auth, iar acest filtru exclude orice profil pre-creat returnat accidental.
-      this.adminHoursRows = (profilesWithTotals || []).filter(profile => profile && !profile.is_pre_created).map(profile => {
+      this.adminHoursRows = profilesWithTotals.filter(profile => profile && !profile.is_pre_created).map(profile => {
         const recorded = (Number(profile.recorded_minutes) || 0) / 60;
-        const expected = workdays * (Number(profile.work_hours_per_day) || 8);
+        const workHoursPerDay = Number(profile.work_hours_per_day) || 8;
+        const approvedLeaveDays = Math.min(workdays, leaveByProfile.get(String(profile.profile_id)) || 0);
+        const effectiveWorkdays = Math.max(0, workdays - approvedLeaveDays);
+        const expected = effectiveWorkdays * workHoursPerDay;
         const coverage = expected > 0 ? Math.round((recorded / expected) * 100) : 0;
-        const state = recorded <= 0 ? 'fara_ore' : coverage < 60 ? 'sub_nivel' : 'inregistrat';
-        return { ...profile, recorded, expected, coverage, workdays, lastDate: profile.last_recorded_date, entries: Number(profile.record_count) || 0, state };
+        const state = expected <= 0 ? 'concediu' : recorded <= 0 ? 'fara_ore' : coverage < 60 ? 'sub_nivel' : 'inregistrat';
+        return { ...profile, recorded, expected, coverage, workdays, effectiveWorkdays, approvedLeaveDays, workHoursPerDay, lastDate: profile.last_recorded_date, entries: Number(profile.record_count) || 0, state };
       }).sort((a, b) => {
-        const rank = { fara_ore: 0, sub_nivel: 1, inregistrat: 2 };
+        const rank = { fara_ore: 0, sub_nivel: 1, inregistrat: 2, concediu: 3 };
         return (rank[a.state] - rank[b.state]) || (a.recorded - b.recorded) || String(a.full_name || a.name || '').localeCompare(String(b.full_name || b.name || ''), 'ro');
       });
       const totalHours = this.adminHoursRows.reduce((sum, row) => sum + row.recorded, 0);
@@ -1620,6 +1669,7 @@ const TaskManager = {
         noHours: this.adminHoursRows.filter(row => row.state === 'fara_ore').length,
         lowCoverage: this.adminHoursRows.filter(row => row.state === 'sub_nivel').length,
         logged: this.adminHoursRows.filter(row => row.state === 'inregistrat').length,
+        approvedLeaveDays: this.adminHoursRows.reduce((sum, row) => sum + row.approvedLeaveDays, 0),
         workdays,
         period,
       };
@@ -1666,6 +1716,7 @@ const TaskManager = {
       fara_ore: { label: 'Fără ore', color: '#dc2626', bg: '#fee2e2' },
       sub_nivel: { label: 'Sub nivel', color: '#b45309', bg: '#fef3c7' },
       inregistrat: { label: 'Înregistrat', color: '#047857', bg: '#d1fae5' },
+      concediu: { label: 'Concediu aprobat', color: '#6d28d9', bg: '#ede9fe' },
     };
     const rows = this.adminHoursRows.map((row, index) => {
       const status = state[row.state] || state.fara_ore;
@@ -1675,7 +1726,7 @@ const TaskManager = {
         <td style="padding:12px 10px;color:var(--text-muted);font-size:12px">${index + 1}</td>
         <td style="padding:12px 10px"><div style="font-weight:750;font-size:13px">${this.escapeAdminHours(name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${this.escapeAdminHours(row.employee_code || '—')} · ${this.escapeAdminHours(row.department || 'Fără departament')}</div></td>
         <td style="padding:12px 10px;text-align:right;font-weight:800;font-size:14px">${this.formatAdminHours(row.recorded)} h</td>
-        <td style="padding:12px 10px;text-align:right;color:var(--text-muted);font-size:12px">${this.formatAdminHours(row.expected)} h</td>
+        <td style="padding:12px 10px;text-align:right;color:var(--text-muted);font-size:12px"><strong style="display:block;color:var(--text);font-size:13px">${this.formatAdminHours(row.expected)} h</strong><span style="display:block;margin-top:2px;font-size:10px">${row.effectiveWorkdays}/${row.workdays} zile lucrătoare${row.approvedLeaveDays ? ` · −${row.approvedLeaveDays} concediu` : ''}</span></td>
         <td style="padding:12px 10px;min-width:150px"><div style="display:flex;align-items:center;gap:7px"><div style="height:7px;flex:1;background:var(--bg);border-radius:99px;overflow:hidden"><div style="height:100%;width:${barWidth}%;background:${status.color};border-radius:99px"></div></div><span style="font-size:11px;color:var(--text-muted);width:34px;text-align:right">${row.coverage}%</span></div></td>
         <td style="padding:12px 10px;font-size:12px;color:var(--text-muted)">${this.formatAdminDate(row.lastDate)}</td>
         <td style="padding:12px 10px"><span style="display:inline-block;white-space:nowrap;padding:4px 7px;border-radius:999px;font-size:11px;font-weight:700;background:${status.bg};color:${status.color}">${status.label}</span></td>
@@ -1687,9 +1738,9 @@ const TaskManager = {
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px;background:var(--card-bg);border:1px solid var(--border);padding:11px;border-radius:10px">${rangeButton('week', 'Săptămână')}${rangeButton('month', 'Lună')}${rangeButton('year', 'An')}${rangeButton('custom', 'Zile personalizate')}${custom ? `<span style="display:flex;gap:6px;align-items:center;margin-left:4px"><input id="tm-admin-hours-from" type="date" value="${this.adminHoursCustomFrom || period.from}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><span style="font-size:12px;color:var(--text-muted)">—</span><input id="tm-admin-hours-to" type="date" value="${this.adminHoursCustomTo || period.to}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"><button onclick="TaskManager.applyAdminHoursCustomRange()" style="padding:6px 9px;border:0;border-radius:6px;background:var(--brand);color:#000;font-weight:700;font-size:12px;cursor:pointer">Aplică</button></span>` : ''}</div>
       ${this.adminHoursLoading ? `<div style="padding:42px;text-align:center;color:var(--text-muted)">Se centralizează orele lucrate…</div>` : summary?.error ? `<div style="padding:20px;background:#fee2e2;color:#b91c1c;border-radius:10px">${this.escapeAdminHours(summary.error)}</div>` : `
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px">
-        ${[{ label: 'Persoane urmărite', value: summary?.people || 0, color: '#2563eb', note: `${summary?.workdays || 0} zile lucrătoare` }, { label: 'Ore înregistrate', value: `${this.formatAdminHours(summary?.totalHours)} h`, color: '#047857', note: 'doar activități Time-Tracking' }, { label: 'Fără ore', value: summary?.noHours || 0, color: '#dc2626', note: 'în perioada selectată' }, { label: 'Sub nivel', value: summary?.lowCoverage || 0, color: '#b45309', note: 'sub 60% din norma estimată' }].map(card => `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700">${card.label}</div><div style="font-size:24px;color:${card.color};font-weight:850;margin-top:5px">${card.value}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${card.note}</div></div>`).join('')}
+        ${[{ label: 'Persoane urmărite', value: summary?.people || 0, color: '#2563eb', note: `${summary?.workdays || 0} zile lucrătoare` }, { label: 'Ore înregistrate', value: `${this.formatAdminHours(summary?.totalHours)} h`, color: '#047857', note: 'doar activități Time-Tracking' }, { label: 'Concediu aprobat', value: `${summary?.approvedLeaveDays || 0} zile`, color: '#6d28d9', note: 'scăzut din norma estimată' }, { label: 'Sub nivel', value: summary?.lowCoverage || 0, color: '#b45309', note: 'sub 60% din norma ajustată' }].map(card => `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700">${card.label}</div><div style="font-size:24px;color:${card.color};font-weight:850;margin-top:5px">${card.value}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px">${card.note}</div></div>`).join('')}
       </div>
-      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:auto"><div style="padding:13px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-muted)">Tabelul pune întâi persoanele fără ore sau sub nivel, pentru verificare rapidă.</div><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="background:var(--bg);text-align:left"><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">#</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Angajat</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Lucrate</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Normă estimată</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Acoperire</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Ultima înregistrare</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Stare</th></tr></thead><tbody>${rows || `<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-muted)">Nu există profiluri active pentru această perioadă.</td></tr>`}</tbody></table></div>`}
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:auto"><div style="padding:13px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-muted)">Norma estimată exclude automat zilele lucrătoare de concediu sau absență aprobate. Telemunca rămâne zi de lucru.</div><table style="width:100%;border-collapse:collapse;min-width:860px"><thead><tr style="background:var(--bg);text-align:left"><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">#</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Angajat</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Lucrate</th><th style="padding:10px;text-align:right;font-size:11px;color:var(--text-muted);font-weight:750">Normă estimată</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Acoperire</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Ultima înregistrare</th><th style="padding:10px;font-size:11px;color:var(--text-muted);font-weight:750">Stare</th></tr></thead><tbody>${rows || `<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-muted)">Nu există profiluri active pentru această perioadă.</td></tr>`}</tbody></table></div>`}
     </div>`;
   },
 
@@ -1846,6 +1897,15 @@ const TaskManager = {
       alert('Eroare: ' + error.message);
       return;
     }
+
+    // Raportul păstrează strict orele pontate, dar indică transparent zilele
+    // aprobate de concediu/absență și telemuncă din perioada selectată.
+    const { data: approvedAvailability, error: availabilityError } = await sb.rpc('get_approved_work_availability', {
+      p_start: dateFrom,
+      p_end: dateTo,
+    });
+    if (availabilityError) console.warn('[TaskManager] approved availability report load:', availabilityError);
+    const availabilitySummary = this.getApprovedAvailabilitySummary(approvedAvailability || [], userId, dateFrom, dateTo);
     
     // Raportul de activitate reflectă exclusiv pontajul efectiv din Time-Tracking.
     // Consumul manual ajustează bugetul task-ului, dar nu reprezintă ore lucrate într-o zi/perioadă.
@@ -1929,7 +1989,8 @@ const TaskManager = {
       })(),
       projects: projectsData,
       phases: phasesData,
-      projectFilter: projectId
+      projectFilter: projectId,
+      availabilitySummary,
     };
     
     document.getElementById('reports-modal').remove();
@@ -1943,6 +2004,19 @@ const TaskManager = {
 
   getReportActivityDescription(entry) {
     return String(entry.task_name || '').trim();
+  },
+
+  renderReportAvailabilitySummary(summary) {
+    const availability = summary || { leaveDays: 0, remoteDays: 0, leaveDates: [], remoteDates: [] };
+    if (!availability.leaveDays && !availability.remoteDays) return '';
+    const parts = [];
+    if (availability.leaveDays) {
+      parts.push(`<div style="padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#5b21b6"><strong>Concediu / absență aprobată:</strong> ${availability.leaveDays} ${availability.leaveDays === 1 ? 'zi lucrătoare' : 'zile lucrătoare'}${availability.leaveDates?.length ? ` · ${this.formatAvailabilityDays(availability.leaveDates)}` : ''}. Aceste zile nu reprezintă pontaj și sunt excluse din norma estimată din Control ore.</div>`);
+    }
+    if (availability.remoteDays) {
+      parts.push(`<div style="padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;color:#075985"><strong>Telemuncă aprobată:</strong> ${availability.remoteDays} ${availability.remoteDays === 1 ? 'zi lucrătoare' : 'zile lucrătoare'}${availability.remoteDates?.length ? ` · ${this.formatAvailabilityDays(availability.remoteDates)}` : ''}. Telemunca rămâne zi de lucru și nu modifică totalul orelor sau norma estimată.</div>`);
+    }
+    return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 16px">${parts.join('')}</div>`;
   },
 
   displayReport(data) {
@@ -2010,6 +2084,7 @@ const TaskManager = {
           </div>
         </div>
       </div>
+      ${this.renderReportAvailabilitySummary(data.availabilitySummary)}
       <div style="margin-top:20px">
     `;
     
@@ -2095,7 +2170,7 @@ const TaskManager = {
   },
 
   exportReportPDF(data) {
-    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0);
+    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0 || (data.availabilitySummary?.leaveDays || 0) > 0 || (data.availabilitySummary?.remoteDays || 0) > 0);
     if (!hasReportData) {
       alert('Nu sunt date de exportat');
       return;
@@ -2153,6 +2228,26 @@ const TaskManager = {
     doc.setFont(undefined, 'normal');
     doc.text(data.dateTimeStr, margin + 50, yPosition);
     yPosition += 12;
+
+    const availabilitySummary = data.availabilitySummary || { leaveDays: 0, remoteDays: 0, leaveDates: [], remoteDates: [] };
+    if (availabilitySummary.leaveDays || availabilitySummary.remoteDays) {
+      const availabilityLines = [];
+      if (availabilitySummary.leaveDays) {
+        availabilityLines.push(`Concediu / absenta aprobata: ${availabilitySummary.leaveDays} ${availabilitySummary.leaveDays === 1 ? 'zi lucratoare' : 'zile lucratoare'}${availabilitySummary.leaveDates?.length ? ` · ${this.formatAvailabilityDays(availabilitySummary.leaveDates)}` : ''}.`);
+      }
+      if (availabilitySummary.remoteDays) {
+        availabilityLines.push(`Telemunca aprobata: ${availabilitySummary.remoteDays} ${availabilitySummary.remoteDays === 1 ? 'zi lucratoare' : 'zile lucratoare'}${availabilitySummary.remoteDates?.length ? ` · ${this.formatAvailabilityDays(availabilitySummary.remoteDates)}` : ''}.`);
+      }
+      const detailLines = availabilityLines.flatMap(line => doc.splitTextToSize(line, pageWidth - (margin * 2) - 8));
+      doc.setFillColor(245, 243, 255);
+      doc.rect(margin, yPosition - 4, pageWidth - (margin * 2), Math.max(12, detailLines.length * 4 + 8), 'F');
+      doc.setTextColor(91, 33, 182);
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(9);
+      doc.text(detailLines, margin + 4, yPosition + 2);
+      yPosition += Math.max(16, detailLines.length * 4 + 12);
+      doc.setTextColor(0, 0, 0);
+    }
     
     const completionSummary = data.completionSummary || { total: 0, underBudget: 0, savedHours: 0 };
     if (completionSummary.total > 0) {
@@ -2285,7 +2380,7 @@ const TaskManager = {
   },
 
   exportReportExcel(data) {
-    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0);
+    const hasReportData = data && ((data.timeEntries || []).length > 0 || (data.completionSummary?.total || 0) > 0 || (data.availabilitySummary?.leaveDays || 0) > 0 || (data.availabilitySummary?.remoteDays || 0) > 0);
     if (!hasReportData) {
       alert('Nu sunt date de exportat');
       return;
@@ -2348,9 +2443,35 @@ const TaskManager = {
     savedRow.font = { bold: true, size: 10, color: { argb: 'FF92400E' } };
     savedRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
     savedRow.getCell(2).alignment = { horizontal: 'right' };
+
+    let dataHeaderIndex = 10;
+    const availabilitySummary = data.availabilitySummary || { leaveDays: 0, remoteDays: 0, leaveDates: [], remoteDates: [] };
+    const insertAvailabilityRow = (text, fill, color) => {
+      const row = worksheet.insertRow(dataHeaderIndex, [text]);
+      worksheet.mergeCells(`A${dataHeaderIndex}:E${dataHeaderIndex}`);
+      row.font = { bold: true, size: 10, color: { argb: color } };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+      row.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+      row.height = 28;
+      dataHeaderIndex += 1;
+    };
+    if (availabilitySummary.leaveDays) {
+      insertAvailabilityRow(
+        `Concediu / absență aprobată: ${availabilitySummary.leaveDays} ${availabilitySummary.leaveDays === 1 ? 'zi lucrătoare' : 'zile lucrătoare'}${availabilitySummary.leaveDates?.length ? ` · ${this.formatAvailabilityDays(availabilitySummary.leaveDates)}` : ''}. Aceste zile nu sunt pontaj și sunt excluse din norma estimată din Control ore.`,
+        'FFF5F3FF',
+        'FF5B21B6'
+      );
+    }
+    if (availabilitySummary.remoteDays) {
+      insertAvailabilityRow(
+        `Telemuncă aprobată: ${availabilitySummary.remoteDays} ${availabilitySummary.remoteDays === 1 ? 'zi lucrătoare' : 'zile lucrătoare'}${availabilitySummary.remoteDates?.length ? ` · ${this.formatAvailabilityDays(availabilitySummary.remoteDates)}` : ''}. Telemunca rămâne zi de lucru și nu modifică norma estimată.`,
+        'FFF0F9FF',
+        'FF075985'
+      );
+    }
     
     // Data header - YELLOW background
-    const dataHeaderRow = worksheet.insertRow(10, ['Proiect', 'Etapa', 'Activitate', 'Descriere', 'Ore']);
+    const dataHeaderRow = worksheet.insertRow(dataHeaderIndex, ['Proiect', 'Etapa', 'Activitate', 'Descriere', 'Ore']);
     dataHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC700' } };
     dataHeaderRow.font = { bold: true, color: { argb: 'FF000000' }, size: 11 };
     dataHeaderRow.alignment = { horizontal: 'center', vertical: 'center' };
@@ -2378,7 +2499,7 @@ const TaskManager = {
       grouped[projectId].phases[phaseId].tasks[entry.project_task_id].hours += entry.duration_minutes / 60;
     });
     
-    let rowNum = 11;
+    let rowNum = dataHeaderIndex + 1;
     Object.keys(grouped).forEach(projectId => {
       const group = grouped[projectId];
       Object.keys(group.phases).forEach(phaseId => {
