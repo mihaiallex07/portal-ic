@@ -577,7 +577,7 @@ const Proiecte = {
                 <th style="padding:10px 12px;text-align:center;width:100px">Rămas (H)</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Progres</th>
                 <th style="padding:10px 12px;text-align:left;width:160px">Responsabil</th>
-                <th style="padding:10px 12px;width:120px"></th>
+                <th style="padding:10px 14px;text-align:right;width:250px">Acțiuni</th>
               </tr>
             </thead>
             ${this.phases.map(phase => this.renderPhaseRows(phase, canEdit)).join('')}
@@ -644,12 +644,12 @@ const Proiecte = {
           </td>
           <td style="padding:10px 12px;font-size:12px;color:var(--text-muted)"></td>
           <td style="padding:10px 12px;text-align:center"></td>
-          <td style="padding:10px 12px;text-align:right">
-            ${canEdit ? `
-              <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--primary);font-size:13px;margin-right:6px" title="Adaugă sarcină">＋</button>
-              <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;margin-right:6px" title="Editează etapă">✎</button>
-              <button onclick="Proiecte.deletePhase(${phase.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Șterge etapă">🗑</button>
-            ` : ''}
+          <td style="padding:8px 14px;text-align:right;width:250px;vertical-align:middle">
+            ${canEdit ? `<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px">
+              <button onclick="Proiecte.openAddTaskModal(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#FFF8DB;border:1px solid #F5C400;cursor:pointer;color:#1A1A1A;font-size:15px;border-radius:6px" title="Adaugă sarcină">＋</button>
+              <button onclick="Proiecte.openEditPhaseModal(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;color:var(--text-muted);font-size:14px;border-radius:6px" title="Editează etapă">✎</button>
+              <button onclick="Proiecte.deletePhase(${phase.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#FEF2F2;border:1px solid #FECACA;cursor:pointer;color:var(--danger);font-size:13px;border-radius:6px" title="Șterge etapă">🗑</button>
+            </div>` : '<span style="color:var(--text-muted);font-size:12px">—</span>'}
           </td>
         </tr>
       </tbody>
@@ -788,14 +788,15 @@ const Proiecte = {
           ` : (assignedIds.length > 0 ? avatarsHtml : '—')}
         </td>
 
-        <td style="padding:8px 12px;text-align:right;white-space:nowrap">
-          ${canStart ? this.renderTimerBtn(task) : ''}
-          ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="background:none;border:none;cursor:pointer;color:#10B981;font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Consum manual ore">⏱</button>` : ''}
-          ${canEdit ? `
-            <button onclick="Proiecte.openEditTaskModal(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:13px;margin-left:4px;padding:2px 4px;border-radius:4px" title="Editează">✏️</button>
-          ` : ''}
-          ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.toggleTaskCompletion(${task.id})" style="background:none;border:1px solid var(--border);cursor:pointer;color:${isFinalized ? '#64748B' : 'var(--text-muted)'};font-size:10px;margin-left:4px;padding:2px 5px;border-radius:4px;font-weight:600" title="${isFinalized ? 'Redeschide task-ul' : 'Marchează task-ul ca finalizat'}">${isFinalized ? '↶ Redeschide' : '✓ Finalizează'}</button>` : ''}
-          ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.deleteTask(${task.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;margin-left:2px;padding:2px 4px;border-radius:4px" title="Șterge">🗑</button>` : ''}
+        <td style="padding:8px 14px;text-align:right;width:250px;vertical-align:middle">
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;min-height:28px;white-space:nowrap">
+            ${canStart ? this.renderTimerBtn(task) : ''}
+            ${canEdit ? `<button onclick="Proiecte.openManualConsumeModal(${task.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#ECFDF5;border:1px solid #A7F3D0;cursor:pointer;color:#047857;font-size:13px;padding:0;border-radius:6px" title="Consum manual ore">⏱</button>` : ''}
+            ${canEdit ? `<button onclick="Proiecte.openEditTaskModal(${task.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;color:var(--text-muted);font-size:13px;padding:0;border-radius:6px" title="Editează sarcina">✏️</button>` : ''}
+            ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.toggleTaskCompletion(${task.id})" style="height:28px;display:inline-flex;align-items:center;justify-content:center;gap:4px;background:${isFinalized ? '#F8FAFC' : '#FFF8DB'};border:1px solid ${isFinalized ? '#CBD5E1' : '#F5C400'};cursor:pointer;color:${isFinalized ? '#475569' : '#1A1A1A'};font-size:10px;padding:0 8px;border-radius:6px;font-weight:700" title="${isFinalized ? 'Redeschide task-ul' : 'Marchează task-ul ca finalizat'}">${isFinalized ? '↶ Redeschide' : '✓ Finalizează'}</button>` : ''}
+            ${(isAdminOrCoord && this.editMode) ? `<button onclick="Proiecte.deleteTask(${task.id})" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:#FEF2F2;border:1px solid #FECACA;cursor:pointer;color:var(--danger);font-size:13px;padding:0;border-radius:6px" title="Șterge sarcina">🗑</button>` : ''}
+            ${!canStart && !canEdit && !(isAdminOrCoord && this.editMode) ? '<span style="color:var(--text-muted);font-size:12px">—</span>' : ''}
+          </div>
         </td>
       </tr>
     `;
@@ -805,19 +806,19 @@ const Proiecte = {
     const isRunning = window.activeTimerData && window.activeTimerData.taskId === task.id;
     const isPaused = window.pausedTimerData && window.pausedTimerData.taskId === task.id;
     if (isRunning) {
-      return `
-        <button onclick="Proiecte.pauseTask(${task.id})" style="background:#F59E0B20;border:1px solid #F59E0B;color:#F59E0B;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px">⏸ Pauză</button>
-        <button onclick="Proiecte.stopTask(${task.id})" style="background:#EF444420;border:1px solid #EF4444;color:#EF4444;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:2px">⏹ Stop</button>
-      `;
+      return `<span style="display:inline-flex;align-items:center;gap:4px">
+        <button onclick="Proiecte.pauseTask(${task.id})" style="height:28px;background:#FFF7ED;border:1px solid #FDBA74;color:#9A3412;border-radius:6px;padding:0 8px;cursor:pointer;font-size:11px;font-weight:700">⏸ Pauză</button>
+        <button onclick="Proiecte.stopTask(${task.id})" style="height:28px;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;border-radius:6px;padding:0 8px;cursor:pointer;font-size:11px;font-weight:700">⏹ Stop</button>
+      </span>`;
     }
     if (isPaused) {
-      return `
-        <button onclick="Proiecte.resumeTask(${task.id})" style="background:#10B98120;border:1px solid #10B981;color:#10B981;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px">▶ Reia</button>
-        <button onclick="Proiecte.stopTask(${task.id})" style="background:#EF444420;border:1px solid #EF4444;color:#EF4444;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;margin-left:2px">⏹ Stop</button>
-      `;
+      return `<span style="display:inline-flex;align-items:center;gap:4px">
+        <button onclick="Proiecte.resumeTask(${task.id})" style="height:28px;background:#ECFDF5;border:1px solid #A7F3D0;color:#047857;border-radius:6px;padding:0 8px;cursor:pointer;font-size:11px;font-weight:700">▶ Reia</button>
+        <button onclick="Proiecte.stopTask(${task.id})" style="height:28px;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;border-radius:6px;padding:0 8px;cursor:pointer;font-size:11px;font-weight:700">⏹ Stop</button>
+      </span>`;
     }
     const taskNameEsc = (task.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-    return `<button onclick="Proiecte.startTask(${task.id},'${taskNameEsc}',${task.project_id},${task.phase_id})" style="background:var(--primary-light,#3B82F620);border:1px solid var(--primary);color:var(--primary);border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px">▶ Start</button>`;
+    return `<button onclick="Proiecte.startTask(${task.id},'${taskNameEsc}',${task.project_id},${task.phase_id})" style="height:28px;display:inline-flex;align-items:center;justify-content:center;gap:4px;background:#FFF8DB;border:1px solid #F5C400;color:#1A1A1A;border-radius:6px;padding:0 9px;cursor:pointer;font-size:11px;font-weight:700">▶ Start</button>`;
   },
 
   renderEchipaTab(canEdit) {
