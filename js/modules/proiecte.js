@@ -111,6 +111,8 @@ const Proiecte = {
   allUsers: [],
   taskAssignments: [],  // cache project_task_assignments pentru proiectul curent
   editMode: false,  // modul editare blocat implicit
+  selectedTaskIds: new Set(),  // selecție temporară pentru ștergere multiplă sigură
+  pendingBulkDeleteTaskIds: [],
 
   async init() {
     await this.loadData();
@@ -324,6 +326,8 @@ const Proiecte = {
     if (!loaded || Number(this.currentProject?.id) !== id) return false;
     this.currentTab = 'etape';
     this.editMode = false;  // reset la fiecare deschidere
+    this.selectedTaskIds.clear();
+    this.pendingBulkDeleteTaskIds = [];
     localStorage.setItem('ic_last_project_id', String(id));  // Fix 1: persistă proiectul curent
     this.renderProjectDetail();
     return true;
@@ -332,6 +336,10 @@ const Proiecte = {
   // ── Activează / dezactivează modul editare ────────────────────────────────
   toggleEditMode() {
     this.editMode = !this.editMode;
+    if (!this.editMode) {
+      this.selectedTaskIds.clear();
+      this.pendingBulkDeleteTaskIds = [];
+    }
     console.log('🔄 toggleEditMode:', { editMode: this.editMode });
     this.renderProjectDetail({ preserveScroll: true });
     // Re-renderizează tab-ul curent pentru a reflecta schimbarea canEdit
@@ -350,6 +358,8 @@ const Proiecte = {
   // ── Salvează și iese din mod editare ─────────────────────────────────────
   async saveEditMode() {
     this.editMode = false;
+    this.selectedTaskIds.clear();
+    this.pendingBulkDeleteTaskIds = [];
     this.renderProjectDetail({ preserveScroll: true });
     showToast('Modificări salvate ✓', 'success');
   },
@@ -432,6 +442,7 @@ const Proiecte = {
     const tabContent = document.getElementById('tab-content');
     if (tabContent) {
       tabContent.innerHTML = this.renderTab(this.currentTab, canEdit);
+      this.updateBulkTaskDeleteButton();
       this._restoreProjectEditScroll(scrollState);
     } else {
       this.renderProjectDetail({ preserveScroll: true });
@@ -547,9 +558,12 @@ const Proiecte = {
 
     return `
       <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap">
           <h3 style="font-size:16px;font-weight:600;margin:0">Etape de lucru</h3>
-          ${canEdit ? `<button class="btn-primary btn-sm" onclick="Proiecte.openAddPhaseModal()">+ Adaugă etapă</button>` : ''}
+          ${canEdit ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary btn-sm" onclick="Proiecte.openBulkDeleteTasksModal()" id="bulk-delete-tasks-btn" disabled title="Selectează sarcini fără ore înregistrate">🗑 Șterge selectate (<span id="bulk-delete-task-count">0</span>)</button>
+            <button class="btn-primary btn-sm" onclick="Proiecte.openAddPhaseModal()">+ Adaugă etapă</button>
+          </div>` : ''}
         </div>
 
         <div data-etape-scroll style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:65vh;overflow-y:auto">
@@ -746,6 +760,7 @@ const Proiecte = {
     return `
       <tr style="border-top:1px solid var(--border);font-size:13px" id="task-row-${task.id}">
         <td style="padding:8px 16px 8px 52px">
+          ${canEdit ? `<input type="checkbox" class="bulk-task-select" data-task-id="${task.id}" ${this.selectedTaskIds.has(String(task.id)) ? 'checked' : ''} onchange="Proiecte.toggleTaskSelection(${task.id},this.checked)" style="accent-color:var(--primary);margin:0 8px 0 0;vertical-align:middle;cursor:pointer" title="Selectează pentru ștergere multiplă">` : ''}
           <span style="color:var(--text-muted);margin-right:8px">${idx}.</span>
           ${task.name}
         </td>
@@ -2123,51 +2138,187 @@ const Proiecte = {
     await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
   },
 
+  toggleTaskSelection(taskId, selected) {
+    const normalizedId = String(taskId);
+    if (selected) this.selectedTaskIds.add(normalizedId);
+    else this.selectedTaskIds.delete(normalizedId);
+    this.updateBulkTaskDeleteButton();
+  },
+
+  updateBulkTaskDeleteButton() {
+    const button = document.getElementById('bulk-delete-tasks-btn');
+    const counter = document.getElementById('bulk-delete-task-count');
+    const count = this.selectedTaskIds.size;
+    if (counter) counter.textContent = String(count);
+    if (button) {
+      button.disabled = count === 0;
+      button.style.opacity = count === 0 ? '0.55' : '1';
+      button.style.cursor = count === 0 ? 'not-allowed' : 'pointer';
+    }
+  },
+
+  async openBulkDeleteTasksModal() {
+    const selectedTasks = this.tasks.filter(task => this.selectedTaskIds.has(String(task.id)));
+    if (selectedTasks.length === 0) { showToast('Selectează cel puțin o sarcină.', 'error'); return; }
+    const sb = getSupabase();
+    if (!sb || !this.currentProject) { showToast('Nu există conexiune la baza de date.', 'error'); return; }
+
+    const taskIds = selectedTasks.map(task => task.id);
+    const [timeRes, manualRes, assignmentsRes, requestsRes] = await Promise.all([
+      sb.from('time_entries').select('project_task_id').in('project_task_id', taskIds),
+      sb.from('manual_hours_log').select('task_id').in('task_id', taskIds),
+      sb.from('project_task_assignments').select('task_id').in('task_id', taskIds),
+      sb.from('budget_requests').select('task_id').in('task_id', taskIds),
+    ]);
+    const queryError = [timeRes.error, manualRes.error, assignmentsRes.error, requestsRes.error].find(Boolean);
+    if (queryError) { showToast('Nu s-a putut verifica istoricul sarcinilor: ' + queryError.message, 'error'); return; }
+
+    const protectedIds = new Set([
+      ...(timeRes.data || []).map(row => String(row.project_task_id)),
+      ...(manualRes.data || []).map(row => String(row.task_id)),
+      ...(assignmentsRes.data || []).map(row => String(row.task_id)),
+      ...(requestsRes.data || []).map(row => String(row.task_id)),
+      ...selectedTasks.filter(task => Number(task.minutes_worked) > 0).map(task => String(task.id)),
+      ...(window.activeTimerData?.taskId ? [String(window.activeTimerData.taskId)] : []),
+      ...(window.pausedTimerData?.taskId ? [String(window.pausedTimerData.taskId)] : []),
+    ]);
+    const deletableTasks = selectedTasks.filter(task => !protectedIds.has(String(task.id)));
+    const protectedTasks = selectedTasks.filter(task => protectedIds.has(String(task.id)));
+    if (deletableTasks.length === 0) {
+      showToast('Nicio sarcină selectată nu poate fi ștearsă în grup: au ore, alocări sau alte date asociate.', 'error');
+      return;
+    }
+
+    this.pendingBulkDeleteTaskIds = deletableTasks.map(task => task.id);
+    const safeList = deletableTasks.map(task => `<li style="margin:3px 0">${task.name}</li>`).join('');
+    const protectedList = protectedTasks.length > 0
+      ? `<div style="padding:10px 12px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:7px;font-size:12px;color:#92400E;line-height:1.45"><strong>${protectedTasks.length} ${protectedTasks.length === 1 ? 'sarcină rămâne protejată' : 'sarcini rămân protejate'}.</strong> Au ore înregistrate, consum manual, alocări, cereri de buget sau un timer activ și nu vor fi șterse: ${protectedTasks.map(task => task.name).join(', ')}.</div>`
+      : '';
+    openModal('Șterge sarcini selectate', `
+      <div style="display:grid;gap:12px">
+        <div style="padding:10px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:7px;font-size:13px;color:#991B1B;line-height:1.45">Vor fi șterse definitiv numai sarcinile fără ore, fără alocări și fără alte date asociate. Nu se șterg pontaje, consumuri manuale sau alocări existente.</div>
+        <div style="font-size:13px"><strong>Se vor șterge ${deletableTasks.length} ${deletableTasks.length === 1 ? 'sarcină' : 'sarcini'}:</strong><ul style="margin:7px 0 0;padding-left:18px;max-height:150px;overflow-y:auto">${safeList}</ul></div>
+        ${protectedList}
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-primary" style="background:#DC2626;border-color:#DC2626" onclick="Proiecte.confirmBulkDeleteTasks()">Șterge ${deletableTasks.length} selectate</button>
+    `);
+  },
+
+  async confirmBulkDeleteTasks() {
+    const taskIds = (this.pendingBulkDeleteTaskIds || []).map(Number).filter(Number.isFinite);
+    if (taskIds.length === 0 || !this.currentProject) { closeModalForce(); return; }
+    const tasksToDelete = this.tasks.filter(task => taskIds.includes(Number(task.id)));
+    const sb = getSupabase();
+    if (!sb) { showToast('Nu există conexiune la baza de date.', 'error'); return; }
+    const { data: deletedTasks, error } = await sb.rpc('bulk_delete_safe_project_tasks', {
+      p_project_id: this.currentProject.id,
+      p_task_ids: taskIds,
+    });
+    if (error) { showToast('Eroare la ștergerea sarcinilor: ' + error.message, 'error'); return; }
+    const deletedIds = new Set((deletedTasks || []).map(task => String(task.task_id)));
+    if (deletedIds.size === 0) {
+      showToast('Sarcinile nu au fost șterse deoarece între timp au primit ore, alocări sau alte date asociate.', 'error');
+      return;
+    }
+    const actuallyDeleted = tasksToDelete.filter(task => deletedIds.has(String(task.id)));
+    this.pendingBulkDeleteTaskIds = [];
+    actuallyDeleted.forEach(task => this.selectedTaskIds.delete(String(task.id)));
+    await this.logChange('delete', 'sarcini', `${actuallyDeleted.length} sarcini`, null, null, `Ștergere multiplă sigură: ${actuallyDeleted.map(task => task.name).join(', ')}`);
+    closeModalForce();
+    showToast(`${actuallyDeleted.length} ${actuallyDeleted.length === 1 ? 'sarcină a fost ștearsă' : 'sarcini au fost șterse'} în siguranță.`, 'success');
+    await this._refreshEtapeOnly();
+  },
+
   async deleteTask(taskId) {
-    if (!confirm('Sigur vrei să ștergi această sarcină? Aceasta va șterge și toate înregistrările de timp asociate.')) return;
-    const result = await dbQuery('project_tasks', q => q.delete().eq('id', taskId), null);
-    if (result && result.error) { showToast('Eroare: ' + result.error.message, 'error'); return; }
-    showToast('Sarcină ștearsă!', 'success');
-    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
+    this.selectedTaskIds.clear();
+    this.selectedTaskIds.add(String(taskId));
+    await this.openBulkDeleteTasksModal();
+  },
+
+  selectExistingPresetPhase(code) {
+    const customFields = document.getElementById('custom-phase-fields');
+    if (customFields) customFields.style.display = code === '__custom__' ? 'grid' : 'none';
+  },
+
+  toggleExistingPresetPhaseTasks(code) {
+    const list = document.getElementById(`preset-phase-tasks-${code}`);
+    const toggle = document.getElementById(`preset-phase-toggle-${code}`);
+    if (!list) return;
+    const isOpen = list.style.display !== 'none';
+    list.style.display = isOpen ? 'none' : 'grid';
+    if (toggle) toggle.textContent = isOpen ? '⌄' : '⌃';
+  },
+
+  setExistingPresetPhaseTasks(code, checked) {
+    document.querySelectorAll(`input[data-preset-task-code="${code}"]`).forEach(input => {
+      input.checked = checked;
+    });
+    this.updateExistingPresetPhaseTaskCount(code);
+  },
+
+  updateExistingPresetPhaseTaskCount(code) {
+    const inputs = [...document.querySelectorAll(`input[data-preset-task-code="${code}"]`)];
+    const counter = document.getElementById(`preset-phase-task-count-${code}`);
+    if (counter) counter.textContent = `${inputs.filter(input => input.checked).length}/${inputs.length} selectate`;
   },
 
   openAddPhaseModal() {
-    // Determină etapele prestabilite care lipsesc din proiect
+    // Determină etapele prestabilite care lipsesc din proiect.
     const existingCodes = new Set(this.phases.map(p => p.code).filter(Boolean));
     const missingPresets = PRESET_PHASES.filter(ph => !existingCodes.has(ph.code));
 
     const presetSection = missingPresets.length > 0 ? `
       <div style="margin-bottom:16px">
         <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Etape prestabilite disponibile</div>
-        <div style="display:grid;gap:6px;max-height:220px;overflow-y:auto">
+        <div style="display:grid;gap:8px;max-height:292px;overflow-y:auto;padding-right:2px">
           ${missingPresets.map(ph => `
-            <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-              <input type="radio" name="preset-phase" value="${ph.code}" style="accent-color:var(--primary)">
-              <div style="width:12px;height:12px;border-radius:50%;background:${ph.color};flex-shrink:0"></div>
-              <div>
-                <div style="font-weight:600;font-size:13px">${ph.code}. ${ph.name}</div>
-                <div style="font-size:11px;color:var(--text-muted)">${ph.tasks.length} sarcini prestabilite</div>
+            <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 12px">
+                <input id="preset-phase-${ph.code}" type="radio" name="preset-phase" value="${ph.code}" onchange="Proiecte.selectExistingPresetPhase('${ph.code}')" style="accent-color:var(--primary);flex-shrink:0">
+                <label for="preset-phase-${ph.code}" style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0">
+                  <div style="width:12px;height:12px;border-radius:50%;background:${ph.color};flex-shrink:0"></div>
+                  <div style="min-width:0">
+                    <div style="font-weight:600;font-size:13px">${ph.code}. ${ph.name}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">${ph.tasks.length} sarcini prestabilite · <span id="preset-phase-task-count-${ph.code}">${ph.tasks.length}/${ph.tasks.length} selectate</span></div>
+                  </div>
+                </label>
+                <button type="button" id="preset-phase-toggle-${ph.code}" onclick="Proiecte.toggleExistingPresetPhaseTasks('${ph.code}')" style="width:26px;height:26px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text-muted);cursor:pointer;font-size:15px;line-height:1" title="Arată sarcinile prestabilite">⌄</button>
               </div>
-            </label>
+              <div id="preset-phase-tasks-${ph.code}" style="display:none;gap:6px;padding:0 12px 12px 42px;border-top:1px solid var(--border)">
+                <div style="display:flex;gap:8px;padding:8px 0 2px">
+                  <button type="button" onclick="Proiecte.setExistingPresetPhaseTasks('${ph.code}',true)" style="border:none;background:none;color:var(--primary);font-size:11px;font-weight:600;cursor:pointer;padding:0">Selectează toate</button>
+                  <span style="color:var(--border)">·</span>
+                  <button type="button" onclick="Proiecte.setExistingPresetPhaseTasks('${ph.code}',false)" style="border:none;background:none;color:var(--text-muted);font-size:11px;font-weight:600;cursor:pointer;padding:0">Deselectează toate</button>
+                </div>
+                ${ph.tasks.map((taskName, taskIndex) => `
+                  <label style="display:flex;align-items:flex-start;gap:7px;font-size:12px;color:var(--text);cursor:pointer;line-height:1.35">
+                    <input type="checkbox" data-preset-task-code="${ph.code}" data-preset-task-index="${taskIndex}" checked onchange="Proiecte.updateExistingPresetPhaseTaskCount('${ph.code}')" style="accent-color:var(--primary);margin-top:2px">
+                    <span>${taskName}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
           `).join('')}
           <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-            <input type="radio" name="preset-phase" value="__custom__" style="accent-color:var(--primary)">
+            <input type="radio" name="preset-phase" value="__custom__" onchange="Proiecte.selectExistingPresetPhase('__custom__')" style="accent-color:var(--primary)">
             <div style="width:12px;height:12px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></div>
             <div style="font-weight:600;font-size:13px">+ Etapă personalizată</div>
           </label>
         </div>
       </div>
-      <div id="custom-phase-fields" style="display:none;border-top:1px solid var(--border);padding-top:14px;display:grid;gap:12px">
-    ` : `<div id="custom-phase-fields" style="display:grid;gap:12px">`;
+    ` : '';
 
     const customFields = `
+      <div id="custom-phase-fields" style="display:grid;gap:12px;${missingPresets.length > 0 ? 'border-top:1px solid var(--border);padding-top:14px' : ''}">
         <div>
           <label class="form-label">Nume etapă *</label>
           <input id="new-phase-name" class="form-input" placeholder="Ex: Proiectare Structură">
         </div>
         <div>
           <label class="form-label">Buget ore</label>
-          <input id="new-phase-budget" type="number" class="form-input" value="0" min="0">
+          <input id="new-phase-budget" type="number" class="form-input" value="0" min="0" step="0.25">
         </div>
         <div>
           <label class="form-label">Culoare</label>
@@ -2181,18 +2332,7 @@ const Proiecte = {
       </div>
     `;
 
-    const toggleScript = missingPresets.length > 0 ? `
-      <script>
-        document.querySelectorAll('input[name="preset-phase"]').forEach(function(r) {
-          r.addEventListener('change', function() {
-            var cf = document.getElementById('custom-phase-fields');
-            if (cf) cf.style.display = this.value === '__custom__' ? 'grid' : 'none';
-          });
-        });
-      <\/script>
-    ` : '';
-
-    openModal('Adaugă etapă', presetSection + customFields + toggleScript, `
+    openModal('Adaugă etapă', presetSection + customFields, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
       <button class="btn-primary" onclick="Proiecte.saveNewPhase()">Adaugă etapă</button>
     `);
@@ -2200,14 +2340,20 @@ const Proiecte = {
 
   async saveNewPhase() {
     const maxOrder = this.phases.reduce((m, p) => Math.max(m, p.display_order || 0), 0);
-    // Verifică dacă s-a selectat o etapă prestabilită
     const selectedRadio = document.querySelector('input[name="preset-phase"]:checked');
     const selectedCode = selectedRadio ? selectedRadio.value : null;
 
     if (selectedCode && selectedCode !== '__custom__') {
-      // Adaugă etapa prestabilită cu toate task-urile ei
       const preset = PRESET_PHASES.find(ph => ph.code === selectedCode);
-      if (!preset) { showToast('Etapă prestabilită negasită', 'error'); return; }
+      if (!preset) { showToast('Etapă prestabilită negăsită.', 'error'); return; }
+      const selectedTaskIndexes = new Set(
+        [...document.querySelectorAll(`input[data-preset-task-code="${selectedCode}"]:checked`)]
+          .map(input => Number(input.dataset.presetTaskIndex))
+          .filter(Number.isInteger)
+      );
+      const selectedTasks = preset.tasks
+        .map((taskName, index) => ({ taskName, index }))
+        .filter(task => selectedTaskIndexes.has(task.index));
       const phaseResult = await dbQuery('project_phases', q => q.insert({
         project_id: this.currentProject.id,
         name: preset.name,
@@ -2220,26 +2366,31 @@ const Proiecte = {
       }).select(), null);
       if (phaseResult && phaseResult.error) { showToast('Eroare: ' + phaseResult.error.message, 'error'); return; }
       const newPhase = phaseResult?.data?.[0];
-      if (newPhase && preset.tasks.length > 0) {
-        const tasksToInsert = preset.tasks.map((taskName, idx) => ({
+      if (newPhase && selectedTasks.length > 0) {
+        const tasksToInsert = selectedTasks.map(({ taskName, index }) => ({
           project_id: this.currentProject.id,
           phase_id: newPhase.id,
           name: taskName,
-          display_order: idx + 1,
+          display_order: index + 1,
           budget_hours: 0,
           minutes_worked: 0,
           status: 'todo',
           is_preset: true,
         }));
-        await dbQuery('project_tasks', q => q.insert(tasksToInsert), []);
+        const taskResult = await dbQuery('project_tasks', q => q.insert(tasksToInsert), null);
+        if (taskResult && taskResult.error) {
+          showToast('Etapa a fost creată, dar sarcinile nu au putut fi adăugate: ' + taskResult.error.message, 'error');
+          await this._refreshEtapeOnly();
+          return;
+        }
       }
       closeModalForce();
-      this.logChange('insert', 'etapă', preset.code + '. ' + preset.name, null, null, 'Etapă prestabilită adăugată cu ' + preset.tasks.length + ' sarcini');
-      showToast('Etapă ' + preset.code + '. ' + preset.name + ' adăugată cu ' + preset.tasks.length + ' sarcini!', 'success');
+      const taskLabel = selectedTasks.length === 1 ? '1 sarcină selectată' : `${selectedTasks.length} sarcini selectate`;
+      this.logChange('insert', 'etapă', preset.code + '. ' + preset.name, null, null, `Etapă prestabilită adăugată cu ${taskLabel}`);
+      showToast(`Etapa ${preset.code}. ${preset.name} a fost adăugată cu ${taskLabel}.`, 'success');
     } else {
-      // Etapă personalizată
       const name = document.getElementById('new-phase-name')?.value?.trim();
-      if (!name) { showToast('Completează numele etapei', 'error'); return; }
+      if (!name) { showToast('Completează numele etapei.', 'error'); return; }
       const budgetH = parseFloat(document.getElementById('new-phase-budget')?.value) || 0;
       const color = document.getElementById('new-phase-color')?.value || '#3B82F6';
       const result = await dbQuery('project_phases', q => q.insert({
@@ -2256,7 +2407,7 @@ const Proiecte = {
       this.logChange('insert', 'etapă', name, null, budgetH > 0 ? budgetH + 'h' : null, 'Etapă personalizată adăugată');
       showToast('Etapă adăugată!', 'success');
     }
-    await this._refreshEtapeOnly();  // Fix 2: fără scroll-reset
+    await this._refreshEtapeOnly();  // Fără scroll-reset.
   },
 
   openAddTaskModal(phaseId) {
