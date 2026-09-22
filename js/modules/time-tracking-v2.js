@@ -521,6 +521,31 @@ const TimeTracking = {
     return `${this.fmtTime(Math.floor(interval.start / 60), interval.start % 60)}–${this.fmtTime(Math.floor(interval.end / 60), interval.end % 60)}`;
   },
 
+  getBusyIntervals(date, excludeEntryId = null) {
+    const intervals = (this.entries || [])
+      .filter(entry => String(entry.date) === String(date) && (excludeEntryId === null || Number(entry.id) !== Number(excludeEntryId)))
+      .map(entry => this._entryInterval(entry))
+      .map(interval => ({ start: Math.max(0, interval.start), end: Math.min(24 * 60, interval.end) }))
+      .filter(interval => interval.end > interval.start)
+      .sort((a, b) => a.start - b.start);
+
+    return intervals.reduce((merged, interval) => {
+      const previous = merged[merged.length - 1];
+      if (previous && interval.start <= previous.end) {
+        previous.end = Math.max(previous.end, interval.end);
+      } else {
+        merged.push({ ...interval });
+      }
+      return merged;
+    }, []);
+  },
+
+  _formatBusyIntervals(intervals) {
+    return intervals.map(interval =>
+      `${this.fmtTime(Math.floor(interval.start / 60), interval.start % 60)}–${this.fmtTime(Math.floor(interval.end / 60), interval.end % 60)}`
+    ).join(' · ');
+  },
+
   _updateScheduleAvailability() {
     const hint = document.getElementById('tt-schedule-hint');
     const date = document.getElementById('tt-date')?.value;
@@ -561,17 +586,37 @@ const TimeTracking = {
     const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
     if (duration <= 0 || !Number.isFinite(selected)) return;
 
+    const busyIntervals = this.getBusyIntervals(date, editingEntryId || null);
+    const summary = document.getElementById('tt-occupied-summary');
+    if (summary) {
+      summary.textContent = busyIntervals.length > 0
+        ? `Ocupat: ${this._formatBusyIntervals(busyIntervals)}`
+        : 'Nu există intervale ocupate în această zi.';
+      summary.style.display = 'block';
+    }
+
     const values = [];
     for (let minute = 0; minute <= 23 * 60 + 45; minute += 5) values.push(minute);
     if (!values.includes(selected)) {
       values.push(selected);
       values.sort((a, b) => a - b);
     }
-    startEl.innerHTML = values.map(minute => {
-      const blocked = minute + duration > 24 * 60 || this.findScheduleConflicts(date, minute, duration, editingEntryId || null).length > 0;
+    const isBlocked = minute => minute + duration > 24 * 60 || busyIntervals.some(interval => interval.start < minute + duration && minute < interval.end);
+    const selectedBlocked = isBlocked(selected);
+    const availableOptions = values.filter(minute => !isBlocked(minute)).map(minute => {
       const label = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-      return `<option value="${minute}"${minute === selected ? ' selected' : ''}${blocked ? ' disabled' : ''}>${label}${blocked ? ' — ocupat' : ''}</option>`;
+      return `<option value="${minute}"${minute === selected ? ' selected' : ''}>${label}</option>`;
     }).join('');
+    const occupiedOptions = busyIntervals.map(interval =>
+      `<option value="busy-${interval.start}" disabled>${this._formatBusyIntervals([interval])} — ocupat</option>`
+    ).join('');
+    const selectedBlockedOption = selectedBlocked
+      ? `<option value="${selected}" selected disabled>${String(Math.floor(selected / 60)).padStart(2, '0')}:${String(selected % 60).padStart(2, '0')} — ocupat</option>`
+      : '';
+    startEl.innerHTML =
+      (occupiedOptions ? `<optgroup label="Intervale ocupate">${occupiedOptions}</optgroup>` : '') +
+      selectedBlockedOption +
+      `<optgroup label="Ore disponibile">${availableOptions}</optgroup>`;
   },
 
   openActivityModal({ entry = null, prefillDate, prefillHour, prefillMinute } = {}) {
@@ -609,6 +654,7 @@ const TimeTracking = {
           <div style="flex:1">
             <label class="label">Oră start</label>
             <select id="tt-start" class="select" onchange="TimeTracking._onTimeChange()">${startOptions}</select>
+            <div id="tt-occupied-summary" style="display:none;font-size:10px;line-height:1.4;color:var(--text-muted);margin-top:4px"></div>
           </div>
           <div style="flex:1">
             <label class="label">Oră final</label>
