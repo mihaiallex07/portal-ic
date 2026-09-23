@@ -41,7 +41,7 @@ const Beneficiari = {
               <input type="date" id="benef-until" class="input-field" value="${new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0]}" />
             </div>
           </div>
-          <p style="font-size:11px;color:var(--text-muted);line-height:1.45;margin:0 0 10px">Beneficiarul primește invitația pe e-mail. Linkul poate fi deschis numai după confirmarea unui cod trimis la adresa indicată aici.</p>
+          <p style="font-size:11px;color:var(--text-muted);line-height:1.45;margin:0 0 10px">Beneficiarul primește invitația pe e-mail și deschide direct proiectul din link. Linkul este individual, expirabil și poate fi revocat de aici.</p>
           <button class="btn-primary" style="width:100%" id="benef-invite-submit" onclick="Beneficiari.invite()">📧 Trimite invitația pe e-mail</button>
         </div>
         <div>
@@ -68,7 +68,7 @@ const Beneficiari = {
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
                       ${badge(statusLabel, statusColor)}
-                      <button title="Copiază linkul invitației" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Link copiat. Accesul cere în continuare codul primit pe e-mailul invitat.','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
+                      <button title="Copiază linkul invitației" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Linkul individual al invitației a fost copiat.','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
                       <button title="Retrimite invitația pe e-mail" onclick="Beneficiari.resend('${b.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px">📧</button>
                       <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry('${b.id}', '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
                       <button onclick="Beneficiari.revoke('${b.id}')" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>
@@ -130,7 +130,7 @@ const Beneficiari = {
     if (submitButton) { submitButton.disabled = false; submitButton.textContent = '📧 Trimite invitația pe e-mail'; }
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
 
-    showToast('Invitația a fost creată și trimisă pe e-mail. Beneficiarul va confirma accesul cu un cod primit la această adresă.', 'success');
+    showToast('Invitația a fost creată și trimisă pe e-mail. Beneficiarul deschide proiectul direct din link.', 'success');
     await this.openPanel(this.projectId, this.projectName);
   },
 
