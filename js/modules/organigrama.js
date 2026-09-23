@@ -13,8 +13,10 @@ const Organigrama = {
   async render() {
     const { data: users } = await DB.getUsers();
     const isAdmin = Auth.currentProfile?.role === 'admin';
-    // Toți utilizatorii autentificați văd toți colegii (pre-creați sau nu)
-    this.users = users || [];
+    // Organigrama și lista Echipă reprezintă exclusiv structura internă.
+    // Colaboratorii externi sunt gestionați numai în Echipă, la proiectul
+    // unde au fost invitați; nu sunt angajați și nu apar în organizație.
+    this.users = (users || []).filter(user => user?.role !== 'colaborator_extern');
     this.editMode = false;
 
     document.getElementById('page-content').innerHTML = `
