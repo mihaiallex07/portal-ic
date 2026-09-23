@@ -377,10 +377,6 @@ async function navigate(route, linkEl, fromHash = false) {
     el.classList.toggle('active', el.dataset.page === route);
   });
 
-  // Page title
-  const titleEl = document.getElementById('page-title');
-  if (titleEl) titleEl.textContent = ROUTES[route].label;
-
   // Show loading
   setPageLoading(true);
 
