@@ -3,739 +3,116 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Progres Proiect — Inginerie Creativă</title>
+  <title>Portal Beneficiar — Inginerie Creativă</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="assets/logo.png" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --brand: #FFCB09;
-      --brand-dark: #e6b800;
-      --bg: #f5f5f5;
-      --card-bg: #fff;
-      --text: #1a1a1a;
-      --text-muted: #6b7280;
-      --border: #e5e5e5;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-    }
-    body {
-      font-family: 'Barlow', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-    /* HEADER */
-    .ph-header {
-      background: #1a1a1a;
-      color: #fff;
-      padding: 0 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 64px;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    }
-    .ph-logo {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .ph-logo img { height: 32px; width: auto; object-fit: contain; }
-    .ph-logo-text { font-size: 16px; font-weight: 700; letter-spacing: 0.02em; }
-    .ph-logo-sub { font-size: 11px; color: #aaa; font-weight: 400; }
-    .ph-badge {
-      background: var(--brand);
-      color: #1a1a1a;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 20px;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-    /* HERO */
-    .ph-hero {
-      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-      color: #fff;
-      padding: 48px 32px 40px;
-      border-bottom: 3px solid var(--brand);
-    }
-    .ph-hero-inner { max-width: 960px; margin: 0 auto; }
-    .ph-project-code {
-      display: inline-block;
-      background: var(--brand);
-      color: #1a1a1a;
-      font-size: 13px;
-      font-weight: 700;
-      padding: 4px 12px;
-      border-radius: 4px;
-      margin-bottom: 12px;
-      letter-spacing: 0.05em;
-    }
-    .ph-project-name {
-      font-size: 32px;
-      font-weight: 700;
-      line-height: 1.2;
-      margin-bottom: 8px;
-    }
-    .ph-project-meta {
-      font-size: 14px;
-      color: #aaa;
-      margin-bottom: 24px;
-    }
-    .ph-stats-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 16px;
-      margin-top: 24px;
-    }
-    .ph-stat {
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px;
-      padding: 16px 20px;
-    }
-    .ph-stat-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--brand);
-      line-height: 1;
-      margin-bottom: 4px;
-    }
-    .ph-stat-label {
-      font-size: 12px;
-      color: #aaa;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    /* PROGRESS BAR */
-    .ph-progress-bar {
-      background: rgba(255,255,255,0.1);
-      border-radius: 8px;
-      height: 10px;
-      overflow: hidden;
-      margin-top: 16px;
-    }
-    .ph-progress-fill {
-      height: 100%;
-      background: var(--brand);
-      border-radius: 8px;
-      transition: width 0.8s cubic-bezier(0.23, 1, 0.32, 1);
-    }
-    .ph-progress-label {
-      font-size: 13px;
-      color: #aaa;
-      margin-top: 6px;
-      display: flex;
-      justify-content: space-between;
-    }
-    /* MAIN CONTENT */
-    .ph-main { max-width: 960px; margin: 0 auto; padding: 32px 32px 64px; }
-    .ph-section { margin-bottom: 32px; }
-    .ph-section-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 16px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    /* PHASE CARD */
-    .ph-phase-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 12px;
-      overflow: hidden;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    }
-    .ph-phase-header {
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      cursor: pointer;
-      user-select: none;
-      transition: background 0.15s;
-    }
-    .ph-phase-header:hover { background: #fafafa; }
-    .ph-phase-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .ph-phase-name {
-      font-size: 14px;
-      font-weight: 600;
-      flex: 1;
-    }
-    .ph-phase-pct {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text-muted);
-      min-width: 40px;
-      text-align: right;
-    }
-    .ph-phase-bar {
-      height: 4px;
-      background: var(--border);
-      margin: 0 20px 0;
-    }
-    .ph-phase-bar-fill {
-      height: 100%;
-      border-radius: 2px;
-      transition: width 0.8s cubic-bezier(0.23, 1, 0.32, 1);
-    }
-    .ph-tasks-list {
-      padding: 8px 20px 16px;
-      display: none;
-    }
-    .ph-tasks-list.open { display: block; }
-    .ph-task-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 13px;
-    }
-    .ph-task-row:last-child { border-bottom: none; }
-    .ph-task-status {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .ph-task-name { flex: 1; color: var(--text); }
-    .ph-task-pct {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
-      min-width: 36px;
-      text-align: right;
-    }
-    .ph-task-mini-bar {
-      width: 80px;
-      height: 4px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .ph-task-mini-fill {
-      height: 100%;
-      border-radius: 2px;
-    }
-    /* STATUS BADGE */
-    .ph-status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 10px;
-      border-radius: 20px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .ph-status-activ { background: #d1fae5; color: #065f46; }
-    .ph-status-in_progress { background: #dbeafe; color: #1e40af; }
-    .ph-status-finalizat { background: #f3f4f6; color: #374151; }
-    /* LOADING */
-    .ph-loading {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 60vh;
-      gap: 16px;
-    }
-    .ph-spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid var(--border);
-      border-top-color: var(--brand);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    /* ERROR */
-    .ph-error {
-      max-width: 480px;
-      margin: 80px auto;
-      text-align: center;
-      padding: 40px;
-      background: var(--card-bg);
-      border-radius: 16px;
-      border: 1px solid var(--border);
-    }
-    .ph-error-icon { font-size: 48px; margin-bottom: 16px; }
-    .ph-error-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
-    .ph-error-msg { font-size: 14px; color: var(--text-muted); }
-    /* FOOTER */
-    .ph-footer {
-      background: #1a1a1a;
-      color: #aaa;
-      text-align: center;
-      padding: 20px;
-      font-size: 12px;
-      margin-top: 40px;
-    }
-    .ph-footer a { color: var(--brand); text-decoration: none; }
-    /* RESPONSIVE */
-    @media (max-width: 640px) {
-      .ph-header { padding: 0 16px; }
-      .ph-hero { padding: 32px 16px 28px; }
-      .ph-main { padding: 20px 16px 48px; }
-      .ph-project-name { font-size: 24px; }
-      .ph-stats-row { grid-template-columns: repeat(2, 1fr); }
-    }
-    /* CHEVRON */
-    .ph-chevron {
-      width: 16px;
-      height: 16px;
-      transition: transform 0.2s;
-      color: var(--text-muted);
-    }
-    .ph-phase-header.open .ph-chevron { transform: rotate(90deg); }
+    :root{--brand:#FFCB09;--ink:#171717;--muted:#6B7280;--border:#E5E7EB;--surface:#fff;--canvas:#F5F6F8;--green:#10B981;--orange:#F59E0B;--red:#EF4444;--blue:#3B82F6}
+    *{box-sizing:border-box} body{margin:0;background:var(--canvas);color:var(--ink);font-family:Barlow,Arial,sans-serif;font-size:14px}
+    button,input{font:inherit}.topbar{height:64px;background:#1A1A1A;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(16px,4vw,42px);box-shadow:0 1px 3px #0003}.brand{display:flex;align-items:center;gap:12px}.brand img{height:31px;max-width:140px;object-fit:contain}.portal-badge{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;background:var(--brand);color:#171717;border-radius:999px;padding:6px 11px}
+    .auth-shell{min-height:calc(100vh - 64px);display:grid;place-items:center;padding:28px 16px}.auth-card{width:100%;max-width:480px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:34px;box-shadow:0 16px 44px #17203316}.auth-icon{width:54px;height:54px;display:grid;place-items:center;border-radius:14px;background:#FFF6CD;font-size:25px;margin-bottom:16px}.auth-card h1{font-size:25px;line-height:1.15;margin:0 0 8px}.auth-card p{color:var(--muted);line-height:1.55;margin:0 0 22px}.label{display:block;font-size:12px;font-weight:800;margin:0 0 6px;color:#374151}.input{width:100%;border:1px solid #CBD5E1;border-radius:8px;padding:11px 12px;outline:none;background:#fff}.input:focus{border-color:#D6A800;box-shadow:0 0 0 3px #FFCB0936}.btn{border:0;border-radius:8px;font-weight:800;cursor:pointer;padding:11px 14px}.btn-brand{background:var(--brand);color:#181818}.btn-brand:hover{background:#F4BD00}.btn-secondary{border:1px solid #D1D5DB;background:#fff;color:#374151}.btn:disabled{opacity:.6;cursor:not-allowed}.auth-actions{display:flex;gap:10px;margin-top:18px}.auth-actions .btn{flex:1}.notice{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.45}.notice-error{background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA}.notice-info{background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE}.code-input{letter-spacing:.35em;text-align:center;font-size:20px;font-weight:800}
+    .hero{background:linear-gradient(135deg,#161616,#2C2C2C);border-bottom:4px solid var(--brand);color:#fff;padding:38px clamp(16px,4vw,42px) 30px}.hero-inner,.page-main{max-width:1280px;margin:auto}.project-code{display:inline-block;border-radius:5px;background:var(--brand);color:#171717;font-size:13px;font-weight:800;letter-spacing:.05em;padding:5px 11px;margin-bottom:12px}.project-title{font-size:clamp(28px,4vw,38px);line-height:1.1;margin:0 0 8px}.meta{color:#D1D5DB;font-size:14px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}.status{display:inline-flex;align-items:center;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.status-activ{color:#065F46;background:#D1FAE5}.status-in_progress{color:#1E40AF;background:#DBEAFE}.status-finalizat{color:#374151;background:#F3F4F6}.status-suspendat,.status-arhivat{color:#9A3412;background:#FFEDD5}.progress-wrap{margin-top:24px}.progress-track{height:10px;border-radius:999px;background:#ffffff1f;overflow:hidden}.progress-fill{height:100%;border-radius:inherit;background:var(--brand)}.progress-label{display:flex;justify-content:space-between;margin-top:7px;color:#D1D5DB;font-size:13px}.progress-label strong{color:var(--brand)}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:23px}.stat{background:#ffffff0b;border:1px solid #ffffff14;border-radius:10px;padding:15px 17px}.stat-value{font-size:25px;font-weight:800;color:var(--brand);line-height:1}.stat-label{margin-top:5px;color:#B6BBC3;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .page-main{padding:26px clamp(16px,4vw,42px) 56px}.view-bar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px;font-size:13px;color:var(--muted)}.view-pill{display:inline-flex;align-items:center;gap:7px;background:#FFF9DC;border:1px solid #F6DB72;color:#735B00;border-radius:999px;padding:6px 10px;font-weight:700}.tabs{display:flex;gap:2px;overflow:auto;border-bottom:1px solid var(--border);margin-bottom:22px}.tab{appearance:none;background:transparent;border:0;border-bottom:3px solid transparent;color:#6B7280;cursor:pointer;white-space:nowrap;padding:12px 15px 10px;font-size:13px;font-weight:700}.tab.active{color:#242424;border-bottom-color:var(--brand)}.section-card{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px #17203308;margin-bottom:15px}.section-title{font-size:16px;margin:0 0 15px;font-weight:800}.phase-head{display:flex;align-items:center;gap:10px;padding:16px 18px;cursor:pointer;background:#fff}.phase-head:hover{background:#FCFCFC}.phase-dot{width:12px;height:12px;border-radius:50%;flex:0 0 12px}.phase-name{font-weight:800;flex:1}.phase-values{font-size:12px;color:var(--muted);font-weight:700}.chevron{font-size:17px;color:var(--muted);transition:transform .15s}.phase-head.open .chevron{transform:rotate(90deg)}.phase-progress{height:4px;background:#F0F1F3;margin:0 18px}.phase-progress-fill{height:100%;border-radius:4px}.task-list{display:none;padding:5px 18px 12px}.task-list.open{display:block}.task-row{display:grid;grid-template-columns:minmax(215px,2.2fr) minmax(110px,1fr) 72px 72px 76px;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #F0F1F3}.task-row:last-child{border-bottom:0}.task-name{font-weight:700}.task-description{font-size:12px;color:var(--muted);line-height:1.35;margin-top:2px}.task-period,.number{font-size:12px;color:#4B5563}.small-progress{height:5px;background:#E5E7EB;border-radius:999px;overflow:hidden}.small-progress>span{display:block;height:100%;border-radius:inherit}.pct{font-size:12px;font-weight:800;text-align:right}.task-mobile-meta{display:none}
+    .team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.member{border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:11px;align-items:center}.avatar,.avatar-fallback{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#FFF1A4;display:grid;place-items:center;font-weight:800;color:#695100;flex:0 0 38px}.member-name{font-weight:800}.member-meta{font-size:12px;color:var(--muted);margin-top:2px}.role{display:inline-flex;margin-top:5px;background:#F3F4F6;border-radius:999px;padding:2px 7px;color:#4B5563;font-size:10px;text-transform:uppercase;font-weight:800}.report-table{width:100%;border-collapse:collapse}.report-table th{background:#F9FAFB;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;font-size:10px;text-align:left;padding:10px 13px}.report-table td{border-top:1px solid #F0F1F3;padding:12px 13px;font-size:13px}.report-table td:last-child,.report-table th:last-child{text-align:right}.change{border-left:3px solid #E5E7EB;padding:0 0 0 13px;margin:0 0 16px}.change-title{font-weight:800}.change-info{font-size:12px;color:var(--muted);margin-top:3px}.change-values{display:grid;gap:4px;margin-top:7px;font-size:12px}.old{color:#B91C1C}.new{color:#047857}.decision{border-left:3px solid var(--brand);padding:0 0 0 13px;margin:0 0 19px}.decision-date{font-size:12px;font-weight:800;color:#6B7280}.decision-text{font-size:14px;line-height:1.6;margin-top:5px}.decision-meta{font-size:12px;color:var(--muted);margin-top:7px}.empty{padding:34px 16px;text-align:center;color:var(--muted);font-size:13px}.card-pad{padding:19px}.footer{background:#1A1A1A;color:#9CA3AF;text-align:center;padding:18px;font-size:12px}
+    @media(max-width:760px){.topbar{height:56px}.brand img{height:24px}.portal-badge{font-size:9px;padding:5px 8px}.hero{padding-top:29px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.task-row{grid-template-columns:1fr 55px;gap:8px}.task-period,.number,.small-progress{display:none}.task-mobile-meta{display:block;font-size:11px;color:var(--muted);margin-top:5px}.pct{align-self:center}.report-table{min-width:560px}.table-wrap{overflow:auto}.auth-card{padding:27px 22px}}
   </style>
 </head>
 <body>
-  <!-- HEADER -->
-  <header class="ph-header">
-    <div class="ph-logo">
-      <img src="assets/logo-full.png" alt="Inginerie Creativă" />
-    </div>
-    <span class="ph-badge">Portal Beneficiar</span>
+  <header class="topbar">
+    <div class="brand"><img src="assets/logo-full.png" alt="Inginerie Creativă" /></div>
+    <span class="portal-badge">Portal beneficiar</span>
   </header>
+  <main id="app"><div class="auth-shell"><div class="auth-card"><div class="auth-icon">⏳</div><h1>Se încarcă invitația</h1><p>Verificăm accesul securizat la proiect.</p></div></div></main>
+  <footer class="footer">© 2026 Inginerie Creativă · Portal beneficiar</footer>
 
-  <!-- CONTENT -->
-  <div id="ph-content">
-    <div class="ph-loading">
-      <div class="ph-spinner"></div>
-      <p style="color:var(--text-muted);font-size:14px">Se încarcă proiectul...</p>
-    </div>
-  </div>
-
-  <!-- FOOTER -->
-  <footer class="ph-footer">
-    <p>© 2025 Inginerie Creativă · Design &amp; Build · <a href="https://ingineriecreativa.ro" target="_blank">ingineriecreativa.ro</a></p>
-  </footer>
-
-  <!-- SCRIPTS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
-    // ============================================================
-    // CONFIG
-    // ============================================================
+    const BENEFICIARY_PORTAL_VERSION = 'secure-email-bound-20260923';
     const SUPABASE_URL = 'https://ofknvxwcqwgnthnvslfl.supabase.co';
-    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ma252eHdjcXdnbnRobnZzbGZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MDIwNTcsImV4cCI6MjA5NDE3ODA1N30.HhI-MAeGlmFIIEfL1mDWxQhKBbCPDn3qgaSKBS9otS8';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWIiLCJyZWYiOiJvZmtudnh3Y3F3Z250aG52c2xmbCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc4NjAyMDU3LCJleHAiOjIwOTQxNzgwNTd9.HhI-MAeGlmFIIEfL1mDWxQhKBbCPDn3qgaSKBS9otS8';
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+    const params = new URLSearchParams(location.search);
+    const invitationToken = params.get('invitation') || params.get('token');
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+    const formatDate = value => value ? new Date(value + (String(value).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('ro-RO',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const formatHours = minutes => `${Math.round((Number(minutes)||0) / 60 * 10) / 10}h`;
+    const roleLabel = role => ({admin:'Administrator',coordonator:'Coordonator',coord:'Coordonator',angajat:'Membru echipă',colaborator_extern:'Colaborator extern'}[role] || role || 'Membru echipă');
+    const app = document.getElementById('app');
+    let snapshot = null, activeTab = 'tasks', refreshTimer = null;
 
-    // ============================================================
-    // HELPERS
-    // ============================================================
-    function getStatusColor(pct) {
-      if (pct >= 80) return '#10b981';
-      if (pct >= 40) return '#f59e0b';
-      return '#6b7280';
+    function sessionKey(){ return invitationToken ? `ic_beneficiary_session_${invitationToken}` : null; }
+    function getSession(){ try{return sessionStorage.getItem(sessionKey())}catch(_){return null} }
+    function clearSession(){ try{sessionStorage.removeItem(sessionKey())}catch(_){} }
+    function errorPage(title, message){ app.innerHTML = `<div class="auth-shell"><div class="auth-card"><div class="auth-icon">🔒</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${invitationToken ? '<button class="btn btn-brand" onclick="showEmailStep()">Confirmă adresa invitată</button>' : ''}</div></div>`; }
+
+    function showEmailStep(){
+      if (!invitationToken) { errorPage('Link incomplet','Invitația nu conține identificatorul necesar. Contactează echipa proiectului pentru o invitație nouă.'); return; }
+      clearInterval(refreshTimer); refreshTimer = null;
+      app.innerHTML = `<div class="auth-shell"><section class="auth-card"><div class="auth-icon">✉️</div><h1>Confirmă adresa invitată</h1><p>Pentru a proteja informațiile proiectului, codul de acces va fi trimis numai la adresa de e-mail setată în invitație.</p><label class="label" for="benef-email">Adresă e-mail</label><input id="benef-email" class="input" autocomplete="email" type="email" placeholder="nume@companie.ro" /><div id="auth-message"></div><div class="auth-actions"><button class="btn btn-brand" id="send-code" onclick="requestCode()">Trimite codul de acces</button></div></section></div>`;
+      setTimeout(()=>document.getElementById('benef-email')?.focus(),20);
     }
 
-    function formatDate(d) {
-      if (!d) return '—';
-      return new Date(d).toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' });
+    function authMessage(message, type='info'){ const box=document.getElementById('auth-message'); if(box) box.innerHTML=`<div class="notice notice-${type}">${escapeHtml(message)}</div>`; }
+    async function requestCode(){
+      const email = document.getElementById('benef-email')?.value.trim().toLowerCase();
+      const button = document.getElementById('send-code');
+      if(!email || !email.includes('@')){ authMessage('Introdu o adresă de e-mail validă.','error'); return; }
+      button.disabled=true; button.textContent='Se trimite…';
+      const {data,error}=await sb.rpc('beneficiary_request_email_verification',{p_invitation_token:invitationToken,p_email:email});
+      button.disabled=false; button.textContent='Trimite codul de acces';
+      if(error){authMessage('Nu s-a putut trimite codul. Încearcă din nou peste câteva momente.','error');return;}
+      showCodeStep(email, data?.message || 'Dacă invitația este activă, codul a fost trimis la adresa configurată.');
     }
 
-    function getStatusLabel(status) {
-      const map = { activ: 'Activ', in_progress: 'În lucru', finalizat: 'Finalizat', arhivat: 'Arhivat' };
-      return map[status] || status;
+    function showCodeStep(email,message){
+      app.innerHTML = `<div class="auth-shell"><section class="auth-card"><div class="auth-icon">🔐</div><h1>Introdu codul de acces</h1><p>${escapeHtml(message)}</p><label class="label" for="benef-code">Cod cu 6 cifre</label><input id="benef-code" inputmode="numeric" maxlength="6" class="input code-input" autocomplete="one-time-code" placeholder="000000" /><div id="auth-message"></div><div class="auth-actions"><button class="btn btn-secondary" onclick="showEmailStep()">Înapoi</button><button class="btn btn-brand" id="verify-code" onclick="verifyCode('${encodeURIComponent(email)}')">Deschide proiectul</button></div><p style="font-size:12px;margin-top:18px;color:var(--muted)">Codul expiră în 15 minute și funcționează numai împreună cu adresa de e-mail invitată.</p></section></div>`;
+      setTimeout(()=>document.getElementById('benef-code')?.focus(),20);
     }
 
-    // ============================================================
-    // RENDER ERROR
-    // ============================================================
-    function renderError(title, msg) {
-      document.getElementById('ph-content').innerHTML = `
-        <div class="ph-error">
-          <div class="ph-error-icon">🔒</div>
-          <div class="ph-error-title">${title}</div>
-          <p class="ph-error-msg">${msg}</p>
-        </div>
-      `;
+    async function verifyCode(encodedEmail){
+      const email=decodeURIComponent(encodedEmail); const code=document.getElementById('benef-code')?.value.trim(); const button=document.getElementById('verify-code');
+      if(!/^\d{6}$/.test(code||'')){authMessage('Introdu codul de 6 cifre primit pe e-mail.','error');return;}
+      button.disabled=true;button.textContent='Se verifică…';
+      const {data,error}=await sb.rpc('beneficiary_verify_email_access',{p_invitation_token:invitationToken,p_email:email,p_code:code});
+      button.disabled=false;button.textContent='Deschide proiectul';
+      if(error || !data?.ok){authMessage(data?.message || 'Codul nu a putut fi verificat.','error');return;}
+      try{sessionStorage.setItem(sessionKey(),data.session_token)}catch(_){}
+      await loadSnapshot();
     }
 
-    // ============================================================
-    // TOGGLE PHASE
-    // ============================================================
-    function togglePhase(id) {
-      const header = document.getElementById('ph-phase-header-' + id);
-      const list = document.getElementById('ph-tasks-' + id);
-      if (!list) return;
-      const isOpen = list.classList.contains('open');
-      list.classList.toggle('open', !isOpen);
-      if (header) header.classList.toggle('open', !isOpen);
+    async function loadSnapshot(){
+      const sessionToken=getSession();
+      if(!sessionToken){showEmailStep();return;}
+      const {data,error}=await sb.rpc('beneficiary_get_project_snapshot',{p_session_token:sessionToken});
+      if(error || !data?.ok){clearSession();showEmailStep();return;}
+      snapshot=data; renderPortal();
+      clearInterval(refreshTimer); refreshTimer=setInterval(async()=>{ const {data:next}=await sb.rpc('beneficiary_get_project_snapshot',{p_session_token:getSession()}); if(next?.ok){snapshot=next;renderPortal({preserveTab:true});} },60000);
     }
 
-    // ============================================================
-    // EMAIL LOGIN (fără token în URL)
-    // ============================================================
-    function renderEmailLogin() {
-      const main = document.getElementById('ph-content');
-      if (!main) return;
-      main.innerHTML = `
-        <div style="max-width:480px;margin:80px auto;padding:0 16px">
-          <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-            <div style="text-align:center;margin-bottom:32px">
-              <div style="width:64px;height:64px;background:var(--brand);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">📋</div>
-              <h2 style="font-size:22px;font-weight:700;margin-bottom:8px">Acces Portal Proiecte</h2>
-              <p style="color:var(--text-muted);font-size:14px">Introduceți adresa de email cu care ați fost invitat pentru a vedea proiectele dumneavoastră.</p>
-            </div>
-            <div id="email-login-form">
-              <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Adresă email</label>
-              <input id="beneficiar-email" type="email" placeholder="exemplu@email.com"
-                style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s"
-                onkeydown="if(event.key==='Enter') lookupByEmail()"
-                onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--border)'" />
-              <div id="email-login-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>
-              <button onclick="lookupByEmail()"
-                style="width:100%;margin-top:16px;padding:12px;background:var(--brand);color:#1a1a1a;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s"
-                onmouseover="this.style.background='var(--brand-dark)'" onmouseout="this.style.background='var(--brand)'">
-                Accesează proiectele mele
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
+    function statusClass(status){return `status-${String(status||'').replace(/[^a-z_]/g,'')}`;}
+    function taskProgress(task){ const budget=Number(task.budget_hours)||0; return budget>0 ? Math.min(100,Math.round(((Number(task.minutes_worked)||0)/60/budget)*100)) : (task.status==='done'?100:0); }
+    function phaseData(phase){const tasks=(snapshot.tasks||[]).filter(t=>String(t.phase_id)===String(phase.id));const budget=tasks.reduce((sum,t)=>sum+(Number(t.budget_hours)||0),0);const worked=tasks.reduce((sum,t)=>sum+(Number(t.minutes_worked)||0),0);return {tasks,budget,worked,pct:budget>0?Math.min(100,Math.round(worked/60/budget*100)):0};}
+    function totalData(){const tasks=snapshot.tasks||[];const budget=tasks.reduce((sum,t)=>sum+(Number(t.budget_hours)||0),0);const worked=tasks.reduce((sum,t)=>sum+(Number(t.minutes_worked)||0),0);const done=tasks.filter(t=>t.status==='done').length;return {tasks,budget,worked,done,pct:budget>0?Math.min(100,Math.round(worked/60/budget*100)):0};}
+
+    function renderPortal(options={}){
+      const p=snapshot.project, totals=totalData(), phases=snapshot.phases||[];
+      app.innerHTML=`
+        <section class="hero"><div class="hero-inner"><div class="project-code">${escapeHtml(p.code||p.abbreviation||'IC')}</div><h1 class="project-title">${escapeHtml(p.name)}</h1><div class="meta">${p.client_name?`<strong>${escapeHtml(p.client_name)}</strong><span>·</span>`:''}<span>${formatDate(p.start_date)} — ${formatDate(p.end_date)}</span><span>·</span><span class="status ${statusClass(p.status)}">${escapeHtml(String(p.status||'activ').replace('_',' '))}</span></div><div class="progress-wrap"><div class="progress-track"><div class="progress-fill" style="width:${totals.pct}%"></div></div><div class="progress-label"><span>Progres total</span><span><strong>${totals.pct}%</strong> finalizat</span></div></div><div class="stats"><div class="stat"><div class="stat-value">${totals.pct}%</div><div class="stat-label">Progres</div></div><div class="stat"><div class="stat-value">${phases.length}</div><div class="stat-label">Etape</div></div><div class="stat"><div class="stat-value">${totals.done}/${totals.tasks.length}</div><div class="stat-label">Sarcini finalizate</div></div><div class="stat"><div class="stat-value">${formatHours(totals.worked)}</div><div class="stat-label">Ore lucrate</div></div></div></div></section>
+        <main class="page-main"><div class="view-bar"><span class="view-pill">👁 Vizualizare beneficiar · fără drept de modificare</span><span>Acces acordat pentru ${escapeHtml(snapshot.beneficiary.name||snapshot.beneficiary.email)}</span></div><nav class="tabs"><button class="tab ${activeTab==='tasks'?'active':''}" onclick="setTab('tasks')">Etape & sarcini</button><button class="tab ${activeTab==='team'?'active':''}" onclick="setTab('team')">Echipă</button><button class="tab ${activeTab==='reports'?'active':''}" onclick="setTab('reports')">Rapoarte</button><button class="tab ${activeTab==='changes'?'active':''}" onclick="setTab('changes')">Jurnal modificări</button><button class="tab ${activeTab==='journal'?'active':''}" onclick="setTab('journal')">Jurnal proiect</button></nav><section id="tab-content"></section></main>`;
+      renderTab();
     }
-
-    async function lookupByEmail() {
-      const emailInput = document.getElementById('beneficiar-email');
-      const errorDiv = document.getElementById('email-login-error');
-      const email = emailInput?.value?.trim().toLowerCase();
-      if (!email) {
-        errorDiv.textContent = 'Introduceți o adresă de email validă.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      errorDiv.style.display = 'none';
-      const btn = document.querySelector('#email-login-form button');
-      if (btn) { btn.textContent = 'Se caută...'; btn.disabled = true; }
-
-      const { data: records, error } = await sb
-        .from('project_beneficiaries')
-        .select('*, projects(id, name, code, color, status, start_date, end_date, client_name, description)')
-        .eq('email', email)
-        .neq('status', 'expired');
-
-      if (btn) { btn.textContent = 'Accesează proiectele mele'; btn.disabled = false; }
-
-      if (error || !records || records.length === 0) {
-        errorDiv.textContent = 'Nu am găsit nicio invitație pentru această adresă de email. Verificați adresa sau contactați echipa de proiect.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-
-      // Filtrăm recordurile cu token valid (neexpirat)
-      const valid = records.filter(r => !r.token_expires_at || new Date(r.token_expires_at) > new Date());
-      if (valid.length === 0) {
-        errorDiv.textContent = 'Toate invitațiile dumneavoastră au expirat. Contactați echipa de proiect.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-
-      if (valid.length === 1) {
-        // Un singur proiect: redirect cu token
-        window.location.href = '?token=' + valid[0].access_token;
-        return;
-      }
-
-      // Mai multe proiecte: afișăm lista
-      renderProjectList(valid, email);
-    }
-
-    async function confirmEmailAccess(token, expectedEmail) {
-      const input = document.getElementById('confirm-email-input');
-      const errorDiv = document.getElementById('confirm-email-error');
-      const enteredEmail = input?.value?.trim().toLowerCase();
-      const expected = expectedEmail.toLowerCase();
-      if (!enteredEmail) {
-        errorDiv.textContent = 'Introduceți adresa de email.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      if (enteredEmail !== expected) {
-        errorDiv.textContent = 'Adresa de email nu corespunde invitației. Verificați adresa sau contactați echipa de proiect.';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      // Email corect — marcăm ca acceptat și redirectăm
-      await sb.from('project_beneficiaries')
-        .update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: new Date().toISOString() })
-        .eq('access_token', token);
-      window.location.reload();
-    }
-
-    function renderProjectList(records, email) {
-      const main = document.getElementById('ph-content');
-      if (!main) return;
-      const projectsHtml = records.map(r => {
-        const p = r.projects || {};
-        const color = p.color || '#FFCB09';
-        return `
-          <a href="?token=${r.access_token}" style="display:block;text-decoration:none;padding:16px;border:1.5px solid var(--border);border-radius:10px;margin-bottom:12px;transition:border-color 0.2s;background:#fff"
-            onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
-            <div style="display:flex;align-items:center;gap:12px">
-              <div style="width:40px;height:40px;border-radius:8px;background:${color};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#1a1a1a;flex-shrink:0">
-                ${p.code || '?'}
-              </div>
-              <div>
-                <div style="font-weight:700;font-size:15px;color:var(--text)">${p.name || 'Proiect'}</div>
-                <div style="font-size:12px;color:var(--text-muted)">${p.code ? 'Cod: ' + p.code : ''} ${p.status ? '· ' + p.status : ''}</div>
-              </div>
-              <div style="margin-left:auto;color:var(--brand);font-size:20px">→</div>
-            </div>
-          </a>
-        `;
-      }).join('');
-      main.innerHTML = `
-        <div style="max-width:560px;margin:60px auto;padding:0 16px">
-          <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-            <h2 style="font-size:20px;font-weight:700;margin-bottom:4px">Proiectele tale</h2>
-            <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px">Ai acces la ${records.length} proiect${records.length > 1 ? 'e' : ''} ca beneficiar.</p>
-            ${projectsHtml}
-            <button onclick="renderEmailLogin()" style="margin-top:16px;background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;text-decoration:underline">← Caută cu alt email</button>
-          </div>
-        </div>
-      `;
-    }
-
-    // ============================================================
-    // MAIN LOAD
-    // ============================================================
-    async function loadProject() {
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
-
-      if (!token) {
-        // Fără token: afișăm formular de login pe email
-        renderEmailLogin();
-        return;
-      }
-
-      // Fetch beneficiary record
-      const { data: benef, error: bErr } = await sb
-        .from('project_beneficiaries')
-        .select('*, projects(id, name, code, color, status, start_date, end_date, client_name, description)')
-        .eq('access_token', token)
-        .single();
-
-      if (bErr || !benef) {
-        renderError('Link invalid', 'Token-ul de acces nu a fost găsit. Contactați echipa de proiect.');
-        return;
-      }
-
-      if (benef.status === 'expired' || (benef.token_expires_at && new Date(benef.token_expires_at) < new Date())) {
-        renderError('Link expirat', 'Acest link de acces a expirat. Contactați echipa de proiect pentru un nou link.');
-        return;
-      }
-
-      // Verificare email: daca beneficiarul a accesat inainte (status=accepted), nu cerem email
-      // Daca e prima accesare (pending), cerem confirmarea emailului
-      const needsEmailConfirm = benef.status === 'pending' && !benef.accepted_at;
-      if (needsEmailConfirm) {
-        // Afisam formular de confirmare email
-        const main = document.getElementById('ph-content');
-        if (main) main.innerHTML = `
-          <div style="max-width:480px;margin:80px auto;padding:0 16px">
-            <div style="background:#fff;border-radius:12px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-              <div style="text-align:center;margin-bottom:32px">
-                <div style="width:64px;height:64px;background:var(--brand);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">📌</div>
-                <h2 style="font-size:22px;font-weight:700;margin-bottom:8px">Confirmă identitatea</h2>
-                <p style="color:var(--text-muted);font-size:14px">Introduței adresa de email cu care ați fost invitat pentru a confirma accesul.</p>
-              </div>
-              <div id="email-confirm-form">
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Adresă email</label>
-                <input id="confirm-email-input" type="email" placeholder="exemplu@email.com"
-                  style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s"
-                  onkeydown="if(event.key==='Enter') confirmEmailAccess('${token}', '${benef.email}')"
-                  onfocus="this.style.borderColor='var(--brand)'" onblur="this.style.borderColor='var(--border)'" />
-                <div id="confirm-email-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>
-                <button onclick="confirmEmailAccess('${token}', '${benef.email}')"
-                  style="width:100%;margin-top:16px;padding:12px;background:var(--brand);color:#1a1a1a;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer">
-                  Confirmă accesul
-                </button>
-              </div>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      // Update last accessed
-      await sb.from('project_beneficiaries')
-        .update({ last_accessed_at: new Date().toISOString(), status: 'accepted', accepted_at: benef.accepted_at || new Date().toISOString() })
-        .eq('access_token', token);
-
-      const proj = benef.projects;
-      if (!proj) {
-        renderError('Proiect negăsit', 'Proiectul asociat acestui link nu a fost găsit.');
-        return;
-      }
-
-      // Fetch phases + tasks
-      const [phasesRes, tasksRes] = await Promise.all([
-        sb.from('project_phases').select('id, name, display_order').eq('project_id', proj.id).order('display_order'),
-        sb.from('project_tasks').select('id, name, phase_id, budget_hours, minutes_worked, start_date, end_date').eq('project_id', proj.id),
-      ]);
-
-      const phases = phasesRes.data || [];
-      const tasks = tasksRes.data || [];
-
-      // Compute stats
-      const totalBudget = tasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
-      const totalWorked = tasks.reduce((s, t) => s + (t.minutes_worked || 0) / 60, 0);
-      const totalPct = totalBudget > 0 ? Math.min(100, Math.round((totalWorked / totalBudget) * 100)) : 0;
-      const doneTasks = tasks.filter(t => (t.minutes_worked || 0) > 0).length;
-
-      // Build phases HTML
-      const phaseColors = ['#FFCB09', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
-      let phasesHtml = '';
-
-      phases.forEach((phase, pi) => {
-        const phaseTasks = tasks.filter(t => t.phase_id === phase.id);
-        const pBudget = phaseTasks.reduce((s, t) => s + (t.budget_hours || 0), 0);
-        const pWorked = phaseTasks.reduce((s, t) => s + (t.minutes_worked || 0) / 60, 0);
-        const pPct = pBudget > 0 ? Math.min(100, Math.round((pWorked / pBudget) * 100)) : 0;
-        const color = phaseColors[pi % phaseColors.length];
-
-        const tasksHtml = phaseTasks.map(task => {
-          const tBudget = task.budget_hours || 0;
-          const tWorked = (task.minutes_worked || 0) / 60;
-          const tPct = tBudget > 0 ? Math.min(100, Math.round((tWorked / tBudget) * 100)) : 0;
-          const dotColor = tPct >= 80 ? '#10b981' : tPct >= 40 ? '#f59e0b' : '#d1d5db';
-          return `
-            <div class="ph-task-row">
-              <div class="ph-task-status" style="background:${dotColor}"></div>
-              <div class="ph-task-name">${task.name}</div>
-              <div class="ph-task-mini-bar">
-                <div class="ph-task-mini-fill" style="width:${tPct}%;background:${color}"></div>
-              </div>
-              <div class="ph-task-pct">${tPct}%</div>
-            </div>
-          `;
-        }).join('');
-
-        phasesHtml += `
-          <div class="ph-phase-card">
-            <div class="ph-phase-header" id="ph-phase-header-${phase.id}" onclick="togglePhase('${phase.id}')">
-              <div class="ph-phase-dot" style="background:${color}"></div>
-              <div class="ph-phase-name">${phase.name}</div>
-              <div class="ph-phase-pct">${pPct}%</div>
-              <svg class="ph-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
-            </div>
-            <div class="ph-phase-bar">
-              <div class="ph-phase-bar-fill" style="width:${pPct}%;background:${color}"></div>
-            </div>
-            <div class="ph-tasks-list" id="ph-tasks-${phase.id}">
-              ${phaseTasks.length > 0 ? tasksHtml : '<p style="font-size:13px;color:var(--text-muted);padding:8px 0">Nicio sarcină în această etapă.</p>'}
-            </div>
-          </div>
-        `;
-      });
-
-      // Render full page
-      document.getElementById('ph-content').innerHTML = `
-        <!-- HERO -->
-        <div class="ph-hero">
-          <div class="ph-hero-inner">
-            <div class="ph-project-code">${proj.code || 'IC'}</div>
-            <h1 class="ph-project-name">${proj.name}</h1>
-            <div class="ph-project-meta">
-              ${proj.client_name ? `<strong>${proj.client_name}</strong> &nbsp;·&nbsp; ` : ''}
-              ${formatDate(proj.start_date)} — ${formatDate(proj.end_date)}
-              &nbsp;·&nbsp;
-              <span class="ph-status-badge ph-status-${proj.status}">${getStatusLabel(proj.status)}</span>
-            </div>
-            <div class="ph-progress-bar">
-              <div class="ph-progress-fill" style="width:${totalPct}%"></div>
-            </div>
-            <div class="ph-progress-label">
-              <span>Progres total</span>
-              <span><strong style="color:var(--brand)">${totalPct}%</strong> finalizat</span>
-            </div>
-            <div class="ph-stats-row">
-              <div class="ph-stat">
-                <div class="ph-stat-value">${totalPct}%</div>
-                <div class="ph-stat-label">Progres</div>
-              </div>
-              <div class="ph-stat">
-                <div class="ph-stat-value">${phases.length}</div>
-                <div class="ph-stat-label">Etape</div>
-              </div>
-              <div class="ph-stat">
-                <div class="ph-stat-value">${doneTasks}/${tasks.length}</div>
-                <div class="ph-stat-label">Sarcini active</div>
-              </div>
-              <div class="ph-stat">
-                <div class="ph-stat-value">${Math.round(totalWorked)}h</div>
-                <div class="ph-stat-label">Ore lucrate</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- MAIN -->
-        <div class="ph-main">
-          <div class="ph-section">
-            <div class="ph-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/>
-                <line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>
-              </svg>
-              Etape și sarcini
-            </div>
-            ${phases.length > 0 ? phasesHtml : '<p style="color:var(--text-muted);font-size:14px">Nu există etape definite pentru acest proiect.</p>'}
-          </div>
-
-          ${proj.description ? `
-          <div class="ph-section">
-            <div class="ph-section-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-              Descriere proiect
-            </div>
-            <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;font-size:14px;line-height:1.7;color:var(--text)">
-              ${proj.description}
-            </div>
-          </div>
-          ` : ''}
-
-          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px 20px;font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:10px">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <span>Această pagină este vizualizată de <strong>${benef.name || benef.email}</strong>. Datele se actualizează în timp real.</span>
-          </div>
-        </div>
-      `;
-    }
-
-    // START
-    loadProject();
+    function setTab(tab){activeTab=tab;renderPortal();}
+    function renderTab(){const target=document.getElementById('tab-content');if(!target)return;if(activeTab==='tasks') target.innerHTML=renderTasks();if(activeTab==='team')target.innerHTML=renderTeam();if(activeTab==='reports')target.innerHTML=renderReports();if(activeTab==='changes')target.innerHTML=renderChanges();if(activeTab==='journal')target.innerHTML=renderJournal();}
+    function renderTasks(){const phases=snapshot.phases||[]; return `${snapshot.project.description?`<div class="section-card card-pad" style="margin-bottom:18px"><h2 class="section-title">Descriere proiect</h2><div style="line-height:1.65;color:#4B5563">${escapeHtml(snapshot.project.description)}</div></div>`:''}<h2 class="section-title">Etape de lucru</h2>${phases.length?phases.map((phase,index)=>{const d=phaseData(phase),color=phase.color||['#FFCB09','#3B82F6','#10B981','#F59E0B','#8B5CF6'][index%5];return `<article class="section-card"><div class="phase-head" id="phase-${phase.id}" onclick="togglePhase('${phase.id}')"><i class="phase-dot" style="background:${escapeHtml(color)}"></i><span class="phase-name">${escapeHtml(phase.code?`${phase.code}. ${phase.name}`:phase.name)}</span><span class="phase-values">${formatHours(d.worked)} / ${d.budget}h · ${d.pct}%</span><span class="chevron">›</span></div><div class="phase-progress"><div class="phase-progress-fill" style="background:${escapeHtml(color)};width:${d.pct}%"></div></div><div class="task-list" id="tasks-${phase.id}">${d.tasks.length?d.tasks.map(task=>{const pct=taskProgress(task),remaining=Math.max(0,(Number(task.budget_hours)||0)-(Number(task.minutes_worked)||0)/60);return `<div class="task-row"><div><div class="task-name">${escapeHtml(task.name)}</div>${task.description?`<div class="task-description">${escapeHtml(task.description)}</div>`:''}<div class="task-mobile-meta">${task.task_start_date||task.task_end_date?`${formatDate(task.task_start_date)} — ${formatDate(task.task_end_date)}`:'Fără perioadă'} · ${formatHours(task.minutes_worked)} / ${Number(task.budget_hours)||0}h</div></div><div class="task-period">${task.task_start_date||task.task_end_date?`${formatDate(task.task_start_date)}<br>— ${formatDate(task.task_end_date)}`:'Fără perioadă'}</div><div class="number">${Number(task.budget_hours)||0}h</div><div><div class="small-progress"><span style="width:${pct}%;background:${escapeHtml(color)}"></span></div><div class="number" style="margin-top:5px">${formatHours(task.minutes_worked)} · ${Math.round(remaining*10)/10}h rămas</div></div><div class="pct">${pct}%</div></div>`}).join(''):'<div class="empty">Nu există sarcini în această etapă.</div>'}</div></article>`}).join(''):'<div class="section-card empty">Nu există etape definite pentru acest proiect.</div>'}`;}
+    function togglePhase(id){const list=document.getElementById(`tasks-${id}`),head=document.getElementById(`phase-${id}`);if(!list)return;list.classList.toggle('open');head?.classList.toggle('open');}
+    function renderTeam(){const members=snapshot.members||[];return `<h2 class="section-title">Echipa proiectului</h2><div class="section-card card-pad"><div class="team-grid">${members.length?members.map(member=>`<div class="member">${member.avatar_url?`<img class="avatar" src="${escapeHtml(member.avatar_url)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar-fallback',textContent:'${escapeHtml((member.name||'?').trim().charAt(0).toUpperCase())}'}))">`:`<span class="avatar-fallback">${escapeHtml((member.name||'?').trim().charAt(0).toUpperCase())}</span>`}<div><div class="member-name">${escapeHtml(member.name)}</div><div class="member-meta">${escapeHtml(member.position||member.department||'—')}</div><span class="role">${escapeHtml(roleLabel(member.role))}</span></div></div>`).join(''):'<div class="empty">Nu sunt membri înregistrați pentru acest proiect.</div>'}</div></div>`;}
+    function renderReports(){const phases=snapshot.phases||[];const totals=totalData();return `<h2 class="section-title">Raport de progres</h2><div class="section-card"><div class="table-wrap"><table class="report-table"><thead><tr><th>Etapă</th><th>Buget</th><th>Lucrat</th><th>Rămas</th><th>Progres</th></tr></thead><tbody>${phases.map(phase=>{const d=phaseData(phase);return `<tr><td><strong>${escapeHtml(phase.code?`${phase.code}. ${phase.name}`:phase.name)}</strong></td><td>${d.budget}h</td><td>${formatHours(d.worked)}</td><td>${Math.max(0,Math.round((d.budget-d.worked/60)*10)/10)}h</td><td><strong>${d.pct}%</strong></td></tr>`}).join('')}<tr style="background:#FFFDF3"><td><strong>Total proiect</strong></td><td><strong>${totals.budget}h</strong></td><td><strong>${formatHours(totals.worked)}</strong></td><td><strong>${Math.max(0,Math.round((totals.budget-totals.worked/60)*10)/10)}h</strong></td><td><strong>${totals.pct}%</strong></td></tr></tbody></table></div></div>`;}
+    function renderChanges(){const changes=snapshot.changes||[];return `<h2 class="section-title">Jurnal modificări</h2><div class="section-card card-pad">${changes.length?changes.map(change=>`<div class="change"><div class="change-title">${escapeHtml(change.description||`${change.change_type||'Actualizare'}: ${change.entity_name||change.entity_type||'proiect'}`)}</div><div class="change-info">${escapeHtml(change.changed_by_name||'Echipa proiectului')} · ${formatDate(change.created_at)} ${new Date(change.created_at).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}</div>${change.old_value||change.new_value?`<div class="change-values">${change.old_value?`<span class="old">Anterior: ${escapeHtml(change.old_value)}</span>`:''}${change.new_value?`<span class="new">Actual: ${escapeHtml(change.new_value)}</span>`:''}</div>`:''}</div>`).join(''):'<div class="empty">Nu există modificări înregistrate pentru acest proiect.</div>'}</div>`;}
+    function renderJournal(){const decisions=snapshot.decisions||[];return `<h2 class="section-title">Jurnal proiect</h2><div class="section-card card-pad">${decisions.length?decisions.map(decision=>`<article class="decision"><div class="decision-date">În vigoare din ${formatDate(decision.decision_date||decision.created_at)}</div><div class="decision-text">${escapeHtml(decision.decision)}</div><div class="decision-meta">Decizie luată de: ${escapeHtml((decision.decision_makers||[]).join(', ')||'—')} · Completat de: ${escapeHtml(decision.completed_by||'Echipa proiectului')}</div></article>`).join(''):'<div class="empty">Nu există decizii publicate pentru acest proiect.</div>'}</div>`;}
+    window.showEmailStep=showEmailStep;window.requestCode=requestCode;window.verifyCode=verifyCode;window.setTab=setTab;window.togglePhase=togglePhase;
+    if(!invitationToken) errorPage('Link incomplet','Această pagină poate fi deschisă numai din invitația primită pe e-mail.'); else if(getSession()) loadSnapshot(); else showEmailStep();
   </script>
 </body>
 </html>
