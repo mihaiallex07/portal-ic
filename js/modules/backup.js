@@ -55,6 +55,36 @@ const Backup = {
     return match?.[1] || null;
   },
 
+  getIsoWeekData(date = new Date()) {
+    const reference = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const isoDay = reference.getUTCDay() || 7;
+    reference.setUTCDate(reference.getUTCDate() + 4 - isoDay);
+    const isoYear = reference.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+    const week = Math.ceil((((reference - yearStart) / 86400000) + 1) / 7);
+    const monday = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() || 7) - 1));
+    const sunday = new Date(monday);
+    sunday.setUTCDate(sunday.getUTCDate() + 6);
+    return { week, isoYear, monday, sunday };
+  },
+
+  formatDriveBackupFileName(date = new Date()) {
+    const { week, isoYear, monday, sunday } = this.getIsoWeekData(date);
+    const formatDay = value => String(value.getUTCDate()).padStart(2, '0');
+    const formatMonth = value => String(value.getUTCMonth() + 1).padStart(2, '0');
+    return `Săpt. ${String(week).padStart(2, '0')} — ${formatDay(monday)}.${formatMonth(monday)}–${formatDay(sunday)}.${formatMonth(sunday)} — ${isoYear}.json`;
+  },
+
+  parseDriveStoragePath(storagePath) {
+    if (!storagePath) return null;
+    try {
+      const parsed = JSON.parse(storagePath);
+      if (parsed?.provider === 'google_drive' && parsed.file_id) return parsed;
+    } catch (_) {}
+    return null;
+  },
+
   renderPage(logs) {
     const driveConfig = this.driveConfig;
     const driveDestinationCard = driveConfig ? `
@@ -94,12 +124,12 @@ const Backup = {
         <div class="card" style="margin-bottom:20px;border-left:4px solid var(--brand)">
           <h2 style="font-size:15px;font-weight:700;margin-bottom:16px">📦 Export date</h2>
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
-            Exportă toate datele din portal într-un fișier JSON sau CSV. Fișierul conține proiecte, etape, sarcini, ore înregistrate și membrii echipei.
+            Exportul JSON este salvat direct în folderul Drive configurat. La prima utilizare, administratorul care inițiază exportul confirmă în Google permisiunea strictă de a crea și gestiona exporturile portalului.
           </p>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <button class="btn-primary" onclick="Backup.exportJSON()" style="display:flex;align-items:center;gap:8px">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              Export JSON complet
+              Export JSON în Drive
             </button>
             <button class="btn-secondary" onclick="Backup.exportCSV()" style="display:flex;align-items:center;gap:8px">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
@@ -122,8 +152,8 @@ const Backup = {
           <div style="display:flex;gap:12px;align-items:flex-start">
             <div style="font-size:22px;line-height:1">☁️</div>
             <div style="flex:1;min-width:0">
-              <div style="font-weight:700;font-size:15px;margin-bottom:5px">Backup săptămânal în Google Drive</div>
-              <p style="font-size:13px;color:var(--text-muted);line-height:1.55;margin:0 0 13px">Destinația este configurată manual aici. Backupul complet va include baza de date, documentele private, avatarele și un manifest pentru restaurare.</p>
+              <div style="font-weight:700;font-size:15px;margin-bottom:5px">Export manual în Google Drive</div>
+              <p style="font-size:13px;color:var(--text-muted);line-height:1.55;margin:0 0 13px">Destinația este configurată manual aici. Apăsarea butonului de export creează arhiva JSON direct în acest folder; nu rulează nimic automat în fundal.</p>
               ${driveDestinationCard}
             </div>
           </div>
@@ -154,17 +184,21 @@ const Backup = {
                 </tr>
               </thead>
               <tbody>
-                ${logs.map(l => `
-                  <tr style="border-bottom:1px solid var(--border)">
-                    <td style="padding:8px 12px">${l.backup_type || 'full'}</td>
-                    <td style="padding:8px 12px">${formatDate(l.created_at)} ${new Date(l.created_at).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})}</td>
-                    <td style="padding:8px 12px">${badge(l.status, l.status === 'completed' ? 'green' : 'red')}</td>
-                    <td style="padding:8px 12px">${l.file_size_bytes ? Math.round(l.file_size_bytes/1024) + ' KB' : '—'}</td>
-                    <td style="padding:8px 12px">
-                      <button onclick="Backup.deleteLog('${l.id}')" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--danger)';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='var(--danger)'">🗑 Șterge</button>
-                    </td>
-                  </tr>
-                `).join('')}
+                ${logs.map(l => {
+                  const driveFile = this.parseDriveStoragePath(l.storage_path);
+                  return `
+                    <tr style="border-bottom:1px solid var(--border)">
+                      <td style="padding:8px 12px">${l.backup_type || 'full'}</td>
+                      <td style="padding:8px 12px">${formatDate(l.created_at)} ${new Date(l.created_at).toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})}</td>
+                      <td style="padding:8px 12px">${badge(l.status, l.status === 'completed' ? 'green' : 'red')}</td>
+                      <td style="padding:8px 12px">${l.file_size_bytes ? Math.round(l.file_size_bytes/1024) + ' KB' : '—'}</td>
+                      <td style="padding:8px 12px;white-space:nowrap">
+                        ${driveFile ? `<a href="${this.escapeHtml(driveFile.web_view_link || `https://drive.google.com/file/d/${driveFile.file_id}/view`)}" target="_blank" rel="noopener noreferrer" style="color:#1769AA;font-size:12px;font-weight:700;text-decoration:none;margin-right:8px">Deschide ↗</a>` : ''}
+                        <button onclick="Backup.deleteLog('${l.id}')" style="background:none;border:1px solid var(--danger);color:var(--danger);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--danger)';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='var(--danger)'">🗑 Șterge</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>`
           }
@@ -235,7 +269,16 @@ const Backup = {
   },
 
   async exportJSON() {
-    showToast('Se pregătește exportul...', 'info');
+    if (!this.driveConfig?.folder_id) {
+      showToast('Configurează mai întâi folderul Google Drive pentru export.', 'error');
+      return;
+    }
+    if (!window.DriveViewer?.uploadJsonToFolder) {
+      showToast('Conectorul Google Drive nu este disponibil. Reîncarcă pagina și încearcă din nou.', 'error');
+      return;
+    }
+
+    showToast('Se pregătește exportul pentru Google Drive...', 'info');
     try {
       const sb = getSupabase();
       const [projRes, phasesRes, tasksRes, membersRes, timeRes] = await Promise.all([
@@ -245,11 +288,15 @@ const Backup = {
         sb.from('project_members').select('*, profiles(full_name, email)'),
         sb.from('time_entries').select('*, profiles(full_name)').order('date', { ascending: false }).limit(5000),
       ]);
+      const readError = [projRes, phasesRes, tasksRes, membersRes, timeRes].find(result => result.error)?.error;
+      if (readError) throw readError;
 
+      const fileName = this.formatDriveBackupFileName(new Date());
       const exportData = {
         exported_at: new Date().toISOString(),
         exported_by: Auth.currentProfile?.full_name || Auth.currentUser?.email,
         version: '1.0',
+        file_name: fileName,
         data: {
           projects: projRes.data || [],
           phases: phasesRes.data || [],
@@ -265,27 +312,34 @@ const Backup = {
       };
 
       const json = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `portal-ic-backup-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const uploadedFile = await DriveViewer.uploadJsonToFolder(
+        this.driveConfig.folder_id,
+        fileName,
+        json
+      );
 
-      // Log backup
-      await DB.createBackupLog({
-        backup_type: 'json-export',
+      const { error: logError } = await DB.createBackupLog({
+        backup_type: 'json-drive-export',
         status: 'completed',
         file_size_bytes: json.length,
+        storage_path: JSON.stringify({
+          provider: 'google_drive',
+          folder_id: this.driveConfig.folder_id,
+          file_id: uploadedFile.id,
+          file_name: uploadedFile.name || fileName,
+          web_view_link: uploadedFile.webViewLink || `https://drive.google.com/file/d/${uploadedFile.id}/view`,
+        }),
         created_by: Auth.currentUser?.id,
         completed_at: new Date().toISOString(),
       });
 
-      showToast('Export JSON descărcat cu succes!', 'success');
+      if (logError) console.warn('[Backup] Exportul a fost încărcat, dar nu a putut fi adăugat în istoric:', logError.message);
+      showToast(logError
+        ? 'Exportul a fost salvat în Google Drive, însă nu a putut fi adăugat în istoric.'
+        : 'Exportul JSON a fost salvat direct în folderul Google Drive.', 'success');
       this.render();
     } catch (e) {
-      showToast('Eroare la export: ' + e.message, 'error');
+      showToast('Eroare la exportul în Google Drive: ' + e.message, 'error');
     }
   },
 
@@ -433,15 +487,31 @@ const Backup = {
   },
 
   async deleteLog(id) {
-    if (!confirm('Ștergi acest backup din istoric? Acțiunea nu poate fi anulată.')) return;
+    const sb = getSupabase();
+    const { data: backupLog, error: lookupError } = await sb.from('backup_logs')
+      .select('id, storage_path')
+      .eq('id', id)
+      .maybeSingle();
+    if (lookupError || !backupLog) {
+      showToast('Backupul nu mai este disponibil în istoric.', 'error');
+      return;
+    }
+
+    const driveFile = this.parseDriveStoragePath(backupLog.storage_path);
+    const confirmationText = driveFile
+      ? 'Ștergi acest backup din Google Drive și din istoric? Acțiunea nu poate fi anulată.'
+      : 'Ștergi acest backup din istoric? Acțiunea nu poate fi anulată.';
+    if (!confirm(confirmationText)) return;
     try {
-      const sb = getSupabase();
+      if (driveFile?.file_id) {
+        await DriveViewer.deletePortalFile(driveFile.file_id);
+      }
       const { error } = await sb.from('backup_logs').delete().eq('id', id);
       if (error) throw error;
-      showToast('Backup șters din istoric.', 'success');
+      showToast(driveFile ? 'Backup șters din Google Drive și din istoric.' : 'Backup șters din istoric.', 'success');
       this.render();
     } catch (e) {
-      showToast('Eroare la ștergere: ' + e.message, 'error');
+      showToast('Backupul nu a putut fi șters: ' + e.message, 'error');
     }
   },
 };
