@@ -41,7 +41,7 @@ const Beneficiari = {
               <input type="date" id="benef-until" class="input-field" value="${new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0]}" />
             </div>
           </div>
-          <p style="font-size:11px;color:var(--text-muted);line-height:1.45;margin:0 0 10px">Beneficiarul primește invitația pe e-mail și deschide direct proiectul din link. Linkul este individual, expirabil și poate fi revocat de aici.</p>
+          <p style="font-size:11px;color:var(--text-muted);line-height:1.45;margin:0 0 10px">Beneficiarul primește invitația pe e-mail și deschide direct proiectul din link. Linkul este individual și expirabil; „Revocă” elimină definitiv invitația și blochează accesul.</p>
           <button class="btn-primary" style="width:100%" id="benef-invite-submit" onclick="Beneficiari.invite()">📧 Trimite invitația pe e-mail</button>
         </div>
         <div>
@@ -49,11 +49,10 @@ const Beneficiari = {
           ${beneficiari.length === 0
             ? `<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px">Niciun beneficiar invitat încă</p>`
             : beneficiari.map(b => {
-                const isRevoked = Boolean(b.revoked_at);
-                const isExpired = !isRevoked && ((b.token_expires_at && new Date(b.token_expires_at) < new Date()) || (b.access_end && new Date(b.access_end + 'T23:59:59') < new Date()));
-                const statusColor = isRevoked ? 'red' : b.status === 'accepted' ? 'green' : isExpired ? 'red' : 'yellow';
-                const statusLabel = isRevoked ? 'Revocat' : b.status === 'accepted' ? 'Activ' : isExpired ? 'Expirat' : 'Invitat';
-                const canManage = !isRevoked && !isExpired;
+                const isExpired = (b.token_expires_at && new Date(b.token_expires_at) < new Date()) || (b.access_end && new Date(b.access_end + 'T23:59:59') < new Date());
+                const statusColor = b.status === 'accepted' ? 'green' : isExpired ? 'red' : 'yellow';
+                const statusLabel = b.status === 'accepted' ? 'Activ' : isExpired ? 'Expirat' : 'Invitat';
+                const canManage = !isExpired;
                 const link = window.location.origin + '/beneficiar.html?invitation=' + b.access_token;
                 const expiresStr = b.token_expires_at ? new Date(b.token_expires_at).toLocaleDateString('ro-RO') : '—';
                 return `
@@ -153,10 +152,10 @@ const Beneficiari = {
   },
 
   async revoke(id) {
-    if (!confirm('Ești sigur că vrei să revoci accesul acestui beneficiar?')) return;
-    const { data, error } = await sb.rpc('beneficiary_revoke_invitation', { p_beneficiary_id: id });
-    if (error || !data?.ok) { showToast(data?.message || 'Eroare: ' + (error?.message || 'revocarea nu a putut fi aplicată.'), 'error'); return; }
-    showToast('Acces revocat', 'success');
+    if (!confirm('Elimini definitiv această invitație? Linkul și accesul beneficiarului vor fi invalidate imediat.')) return;
+    const { data, error } = await sb.rpc('beneficiary_delete_invitation', { p_beneficiary_id: id });
+    if (error || !data?.ok) { showToast(data?.message || 'Eroare: ' + (error?.message || 'invitația nu a putut fi eliminată.'), 'error'); return; }
+    showToast('Invitație eliminată și acces blocat', 'success');
     await this.openPanel(this.projectId, this.projectName);
   },
   async resend(id) {
