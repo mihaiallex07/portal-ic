@@ -7,22 +7,28 @@
 const DriveViewer = {
   CLIENT_ID: '1079754177727-89qmga68d5r0utsdclspd0tfqldil0og.apps.googleusercontent.com',
   SCOPE: 'https://www.googleapis.com/auth/drive.readonly',
+  WRITE_SCOPE: 'https://www.googleapis.com/auth/drive.file',
   _tokenClient: null,
   _accessToken: null,
   _tokenExpiry: 0,
   _pendingResolve: null,
+  _writeTokenClient: null,
+  _writeAccessToken: null,
+  _writeTokenExpiry: 0,
+  _pendingWriteResolve: null,
 
   // Inițializează Google Identity Services
   async init() {
     return new Promise((resolve) => {
       if (typeof google !== 'undefined' && google.accounts) {
         this._setupTokenClient();
+        this._setupWriteTokenClient();
         resolve();
         return;
       }
       const script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
-      script.onload = () => { this._setupTokenClient(); resolve(); };
+      script.onload = () => { this._setupTokenClient(); this._setupWriteTokenClient(); resolve(); };
       script.onerror = () => resolve();
       document.head.appendChild(script);
     });
@@ -61,6 +67,28 @@ const DriveViewer = {
     });
   },
 
+  // Permisiune separată, cerută numai administratorului care inițiază
+  // exportul manual. drive.file permite gestionarea strict a fișierelor
+  // create de portal, fără acces general de editare la Drive.
+  _setupWriteTokenClient() {
+    if (!google?.accounts?.oauth2 || this._writeTokenClient) return;
+    this._writeTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: this.CLIENT_ID,
+      scope: this.WRITE_SCOPE,
+      include_granted_scopes: true,
+      callback: (resp) => {
+        if (resp.error) {
+          console.warn('GIS Drive write token error:', resp.error);
+          if (this._pendingWriteResolve) { this._pendingWriteResolve(null); this._pendingWriteResolve = null; }
+          return;
+        }
+        this._writeAccessToken = resp.access_token;
+        this._writeTokenExpiry = Date.now() + Math.max(0, (resp.expires_in - 60) * 1000);
+        if (this._pendingWriteResolve) { this._pendingWriteResolve(this._writeAccessToken); this._pendingWriteResolve = null; }
+      }
+    });
+  },
+
   // Obține un token valid (din cache sau nou)
   async getToken(forcePrompt = false) {
     if (!forcePrompt && this._accessToken && Date.now() < this._tokenExpiry) {
@@ -72,6 +100,81 @@ const DriveViewer = {
       this._pendingResolve = resolve;
       this._tokenClient.requestAccessToken({ prompt: forcePrompt ? 'consent' : '' });
     });
+  },
+
+  async getWriteToken(forcePrompt = false) {
+    if (!forcePrompt && this._writeAccessToken && Date.now() < this._writeTokenExpiry) {
+      return this._writeAccessToken;
+    }
+    await this.init();
+    if (!this._writeTokenClient) return null;
+    return new Promise((resolve) => {
+      this._pendingWriteResolve = resolve;
+      this._writeTokenClient.requestAccessToken({ prompt: forcePrompt ? 'consent' : '' });
+    });
+  },
+
+  async uploadJsonToFolder(folderId, fileName, jsonContent) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(String(folderId || ''))) {
+      throw new Error('Folderul Drive configurat nu este valid.');
+    }
+    const token = await this.getWriteToken(true);
+    if (!token) {
+      throw new Error('Permisiunea Google pentru încărcarea exportului nu a fost acordată.');
+    }
+
+    const boundary = `portal_ic_backup_${Date.now()}`;
+    const metadata = {
+      name: fileName,
+      mimeType: 'application/json',
+      parents: [folderId],
+    };
+    const requestBody = new Blob([
+      `--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\n`,
+      'Content-Type: application/json\r\n\r\n',
+      jsonContent,
+      `\r\n--${boundary}--`,
+    ], { type: `multipart/related; boundary=${boundary}` });
+
+    const response = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,createdTime,size',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body: requestBody,
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      if (response.status === 403) {
+        throw new Error('Contul Google conectat nu poate adăuga fișiere în folderul configurat. Verifică partajarea folderului.');
+      }
+      throw new Error(`Google Drive a refuzat încărcarea (${response.status})${errorText ? `: ${errorText}` : ''}`);
+    }
+    return response.json();
+  },
+
+  async deletePortalFile(fileId) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(String(fileId || ''))) {
+      throw new Error('Identificatorul fișierului Drive nu este valid.');
+    }
+    const token = await this.getWriteToken(false);
+    if (!token) {
+      throw new Error('Acordă permisiunea Google pentru a șterge acest export din Drive.');
+    }
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Google Drive nu a putut șterge fișierul (${response.status}).`);
+    }
   },
 
   // Listează fișierele dintr-un folder Drive (suportă Shared Drives),
