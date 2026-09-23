@@ -49,9 +49,11 @@ const Beneficiari = {
           ${beneficiari.length === 0
             ? `<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px">Niciun beneficiar invitat încă</p>`
             : beneficiari.map(b => {
-                const isExpired = b.token_expires_at && new Date(b.token_expires_at) < new Date();
-                const statusColor = b.status === 'accepted' ? 'green' : isExpired ? 'red' : 'yellow';
-                const statusLabel = b.status === 'accepted' ? 'Activ' : isExpired ? 'Expirat' : 'Invitat';
+                const isRevoked = Boolean(b.revoked_at);
+                const isExpired = !isRevoked && ((b.token_expires_at && new Date(b.token_expires_at) < new Date()) || (b.access_end && new Date(b.access_end + 'T23:59:59') < new Date()));
+                const statusColor = isRevoked ? 'red' : b.status === 'accepted' ? 'green' : isExpired ? 'red' : 'yellow';
+                const statusLabel = isRevoked ? 'Revocat' : b.status === 'accepted' ? 'Activ' : isExpired ? 'Expirat' : 'Invitat';
+                const canManage = !isRevoked && !isExpired;
                 const link = window.location.origin + '/beneficiar.html?invitation=' + b.access_token;
                 const expiresStr = b.token_expires_at ? new Date(b.token_expires_at).toLocaleDateString('ro-RO') : '—';
                 return `
@@ -68,10 +70,11 @@ const Beneficiari = {
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
                       ${badge(statusLabel, statusColor)}
-                      <button title="Copiază linkul invitației" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Linkul individual al invitației a fost copiat.','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
-                      <button title="Retrimite invitația pe e-mail" onclick="Beneficiari.resend('${b.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px">📧</button>
-                      <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry('${b.id}', '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
-                      <button onclick="Beneficiari.revoke('${b.id}')" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>
+                      ${canManage ? `
+                        <button title="Copiază linkul invitației" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Linkul individual al invitației a fost copiat.','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
+                        <button title="Retrimite invitația pe e-mail" onclick="Beneficiari.resend('${b.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px">📧</button>
+                        <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry('${b.id}', '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
+                        <button onclick="Beneficiari.revoke('${b.id}')" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>` : ''}
                     </div>
                   </div>
                 </div>`;
@@ -151,14 +154,8 @@ const Beneficiari = {
 
   async revoke(id) {
     if (!confirm('Ești sigur că vrei să revoci accesul acestui beneficiar?')) return;
-    const { error } = await DB.updateBeneficiary(id, {
-      status: 'expired',
-      access_session_token: null,
-      access_session_expires_at: null,
-      verification_code_hash: null,
-      verification_expires_at: null,
-    });
-    if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
+    const { data, error } = await sb.rpc('beneficiary_revoke_invitation', { p_beneficiary_id: id });
+    if (error || !data?.ok) { showToast(data?.message || 'Eroare: ' + (error?.message || 'revocarea nu a putut fi aplicată.'), 'error'); return; }
     showToast('Acces revocat', 'success');
     await this.openPanel(this.projectId, this.projectName);
   },
