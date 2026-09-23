@@ -3,6 +3,8 @@
 // Export date proiecte (JSON/CSV) + management backup-uri
 // ============================================================
 const Backup = {
+  driveConfig: null,
+
   async render() {
     const profile = Auth.currentProfile;
     if (profile?.role !== 'admin') {
@@ -18,11 +20,67 @@ const Backup = {
       return;
     }
 
-    const { data: logs } = await DB.getBackupLogs();
-    this.renderPage(logs || []);
+    const sb = getSupabase();
+    const [logsResult, configResult] = await Promise.all([
+      DB.getBackupLogs(),
+      sb.from('app_settings')
+        .select('value, updated_at')
+        .eq('key', 'backup_drive_destination')
+        .maybeSingle(),
+    ]);
+    this.driveConfig = this.parseDriveConfig(configResult?.data);
+    this.renderPage(logsResult?.data || []);
+  },
+
+  parseDriveConfig(setting) {
+    if (!setting?.value) return null;
+    try {
+      const parsed = typeof setting.value === 'string' ? JSON.parse(setting.value) : setting.value;
+      if (!parsed || typeof parsed !== 'object' || !parsed.folder_id || !parsed.folder_url) return null;
+      return { ...parsed, updated_at: setting.updated_at || parsed.updated_at || null };
+    } catch (_) {
+      return null;
+    }
+  },
+
+  escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    }[char]));
+  },
+
+  extractDriveFolderId(folderUrl) {
+    const raw = String(folderUrl || '').trim();
+    const match = raw.match(/^https:\/\/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)(?:[/?#].*)?$/);
+    return match?.[1] || null;
   },
 
   renderPage(logs) {
+    const driveConfig = this.driveConfig;
+    const driveDestinationCard = driveConfig ? `
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px">
+            <span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;background:#E7F7EF;color:#16805C;font-size:11px;font-weight:700">Folder configurat</span>
+            <span style="font-size:12px;color:var(--text-muted)">Setarea este salvată în portal, nu în cod.</span>
+          </div>
+          <a href="${this.escapeHtml(driveConfig.folder_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;color:#1769AA;font-size:13px;font-weight:700;word-break:break-all">Deschide folderul de backup ↗</a>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Ultima actualizare: ${driveConfig.updated_at ? `${formatDate(driveConfig.updated_at)} ${new Date(driveConfig.updated_at).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })}` : '—'}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" onclick="Backup.openDriveConfigModal()">Modifică folderul</button>
+          <button onclick="Backup.removeDriveConfig()" style="border:1px solid #F3C7C3;background:#FFF7F6;color:#B42318;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:700;cursor:pointer">Elimină</button>
+        </div>
+      </div>
+    ` : `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">Niciun folder nu este configurat</div>
+          <p style="font-size:12px;color:var(--text-muted);line-height:1.5;margin:0">Alege un folder Drive dedicat. Linkul va rămâne modificabil aici de către administratori și nu va fi inclus în codul portalului.</p>
+        </div>
+        <button class="btn-brand" onclick="Backup.openDriveConfigModal()">Configurează folderul</button>
+      </div>
+    `;
     document.getElementById('page-content').innerHTML = `
       <div style="width:100%;max-width:860px;margin:0 auto">
         <div class="page-header">
@@ -59,17 +117,24 @@ const Backup = {
           </div>
         </div>
 
-        <!-- INFO BACKUP SUPABASE -->
+        <!-- DESTINAȚIE BACKUP DRIVE -->
+        <div class="card" style="margin-bottom:20px;border-left:4px solid #FFCB09">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <div style="font-size:22px;line-height:1">☁️</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:15px;margin-bottom:5px">Backup săptămânal în Google Drive</div>
+              <p style="font-size:13px;color:var(--text-muted);line-height:1.55;margin:0 0 13px">Destinația este configurată manual aici. Backupul complet va include baza de date, documentele private, avatarele și un manifest pentru restaurare.</p>
+              ${driveDestinationCard}
+            </div>
+          </div>
+        </div>
+
         <div class="card" style="margin-bottom:20px;background:rgba(59,130,246,0.05);border-left:4px solid #3b82f6">
           <div style="display:flex;gap:12px;align-items:flex-start">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01"/></svg>
             <div>
-              <div style="font-weight:600;font-size:13px;margin-bottom:4px">Backup automat Supabase</div>
-              <p style="font-size:13px;color:var(--text-muted)">
-                Supabase face backup automat zilnic al bazei de date. Poți restaura datele din 
-                <a href="https://supabase.com/dashboard/project/ofknvxwcqwgnthnvslfl/database/backups" target="_blank" style="color:#3b82f6">Supabase Dashboard → Database → Backups</a>.
-                Backup-urile sunt păstrate 7 zile (plan gratuit) sau 30 zile (plan Pro).
-              </p>
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px">Protecție suplimentară Supabase</div>
+              <p style="font-size:13px;color:var(--text-muted);line-height:1.55;margin:0">Backupurile Supabase depind de planul proiectului și acoperă doar baza de date, nu fișierele din Storage. Verifică starea curentă în <a href="https://supabase.com/dashboard/project/ofknvxwcqwgnthnvslfl/database/backups" target="_blank" rel="noopener noreferrer" style="color:#3b82f6">Supabase Dashboard → Database → Backups</a>.</p>
             </div>
           </div>
         </div>
@@ -106,6 +171,67 @@ const Backup = {
         </div>
       </div>
     `;
+  },
+
+  openDriveConfigModal() {
+    const currentUrl = this.escapeHtml(this.driveConfig?.folder_url || '');
+    openModal('Configurează folderul de backup', `
+      <div class="space-y-3">
+        <div style="padding:10px 12px;border-radius:7px;background:#FFF8D6;color:#5B4700;font-size:12px;line-height:1.5">
+          Folosește un folder Google Drive dedicat pentru backupuri. Linkul este salvat ca setare administrabilă în baza de date — nu ajunge în codul portalului sau în GitHub.
+        </div>
+        <div>
+          <label class="label">Link folder Google Drive *</label>
+          <input id="backup-drive-folder-url" class="input" type="url" value="${currentUrl}" placeholder="https://drive.google.com/drive/folders/..." autocomplete="off" />
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.45;margin-top:6px">Partajează folderul doar cu contul tehnic al portalului, cu rol de Editor. Nu folosi un folder cu documente HR sau personale.</div>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
+      <button class="btn-brand" onclick="Backup.saveDriveConfig()">Salvează folderul</button>
+    `);
+  },
+
+  async saveDriveConfig() {
+    const folderUrl = String(document.getElementById('backup-drive-folder-url')?.value || '').trim();
+    const folderId = this.extractDriveFolderId(folderUrl);
+    if (!folderId) {
+      showToast('Introdu un link valid de folder Google Drive.', 'error');
+      return;
+    }
+
+    const config = {
+      folder_id: folderId,
+      folder_url: `https://drive.google.com/drive/folders/${folderId}`,
+      configured_at: new Date().toISOString(),
+    };
+    const sb = getSupabase();
+    const { error } = await sb.from('app_settings').upsert({
+      key: 'backup_drive_destination',
+      value: JSON.stringify(config),
+      updated_by: Auth.currentUser?.id || Auth.currentProfile?.id || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+    if (error) {
+      showToast(`Nu s-a putut salva folderul: ${error.message}`, 'error');
+      return;
+    }
+
+    closeModalForce();
+    showToast('Folderul de backup a fost salvat. Adresa poate fi modificată oricând de un administrator.', 'success');
+    await this.render();
+  },
+
+  async removeDriveConfig() {
+    if (!this.driveConfig || !confirm('Elimini configurația folderului de backup? Backupurile existente din Drive nu sunt șterse.')) return;
+    const sb = getSupabase();
+    const { error } = await sb.from('app_settings').delete().eq('key', 'backup_drive_destination');
+    if (error) {
+      showToast(`Nu s-a putut elimina configurația: ${error.message}`, 'error');
+      return;
+    }
+    showToast('Configurația folderului a fost eliminată. Backupurile existente rămân neschimbate în Drive.', 'success');
+    await this.render();
   },
 
   async exportJSON() {
