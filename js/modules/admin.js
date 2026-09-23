@@ -19,7 +19,10 @@ const Admin = {
       return;
     }
     const { data } = await DB.getUsers();
-    this.users = data || [];
+    // Colaboratorii externi sunt identități tehnice de acces la proiect,
+    // administrate exclusiv din fila Echipă a proiectului. Nu fac parte din
+    // registrul global de utilizatori/angajați și nu sunt șterși de aici.
+    this.users = (data || []).filter(user => user?.role !== 'colaborator_extern');
     this.renderPage();
   },
 
