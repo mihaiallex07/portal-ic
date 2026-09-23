@@ -146,6 +146,35 @@ const Auth = {
     }
   },
 
+  async externalCollaboratorAccessIsActive(sb, userId, email) {
+    if (!userId || !email) return false;
+    const { data, error } = await sb
+      .from('project_external_collaborator_access')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('email', String(email).trim().toLowerCase())
+      .lte('access_from', new Date().toISOString().slice(0, 10))
+      .gte('access_until', new Date().toISOString().slice(0, 10))
+      .limit(1);
+    if (error) {
+      console.warn('[Auth] Nu s-a putut valida accesul extern:', error.message);
+      return false;
+    }
+    return Boolean(data && data.length);
+  },
+
+  async ensureExternalCollaboratorAccess(sb, profile, userId, email) {
+    if (profile?.role !== 'colaborator_extern') return true;
+    const active = await this.externalCollaboratorAccessIsActive(sb, userId, email);
+    if (!active) {
+      console.warn('[Auth] Acces extern expirat, viitor sau eliminat:', email);
+      this.currentProfile = null;
+      this._accessDenied = true;
+      return false;
+    }
+    return true;
+  },
+
   async loadProfile(userId) {
     const sb = getSupabase();
     if (!sb) return;
@@ -172,6 +201,7 @@ const Auth = {
       }
       const avatarUrl = await this.resolveGoogleAvatar(user);
       this.currentProfile = await this.syncAvatar(sb, userId, profileById, avatarUrl);
+      if (!(await this.ensureExternalCollaboratorAccess(sb, this.currentProfile, userId, user?.email))) return;
       if (user?.email) await this.restoreOrphanedProjectLinks(sb, userId, user.email);
       return;
     }
@@ -239,6 +269,7 @@ const Auth = {
           return;
         }
         this.currentProfile = await this.syncAvatar(sb, userId, verifiedProfile, avatarUrl);
+        if (!(await this.ensureExternalCollaboratorAccess(sb, this.currentProfile, userId, user.email))) return;
         await this.restoreOrphanedProjectLinks(sb, userId, user.email);
         return;
       }
@@ -264,6 +295,7 @@ const Auth = {
         delete updatedProfile.created_at;
         await sb.from('profiles').upsert(updatedProfile, { onConflict: 'email' });
         this.currentProfile = updatedProfile;
+        if (!(await this.ensureExternalCollaboratorAccess(sb, this.currentProfile, userId, user.email))) return;
         return;
       }
       // Email extern fără invitație — REFUZĂ ACCESUL (securitate)
@@ -351,7 +383,7 @@ const Auth = {
     const { error } = await sb.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + window.location.pathname,
+        redirectTo: window.location.origin + window.location.pathname + window.location.search,
         scopes: 'openid email profile',
         ...(requestFreshGoogleConsent ? { queryParams: { prompt: 'consent' } } : {}),
       },
