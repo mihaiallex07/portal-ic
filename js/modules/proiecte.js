@@ -110,6 +110,7 @@ const Proiecte = {
   tasks: [],
   allUsers: [],
   taskAssignments: [],  // cache project_task_assignments pentru proiectul curent
+  externalCollaboratorAccess: [], // invitații externe cu perioadă, doar pentru administrare
   editMode: false,  // modul editare blocat implicit
   selectedTaskIds: new Set(),  // selecție temporară pentru ștergere multiplă sigură
   pendingBulkDeleteTaskIds: [],
@@ -155,11 +156,12 @@ const Proiecte = {
   },
 
   async loadProjectDetails(projectId) {
-    const [membersRes, phasesRes, tasksRes, assignRes] = await Promise.all([
+    const [membersRes, phasesRes, tasksRes, assignRes, externalAccessRes] = await Promise.all([
       dbQuery('project_members', q => q.select('*, profiles!project_members_user_id_fkey(id,full_name,name,email,employee_code,role)').eq('project_id', projectId), []),
       dbQuery('project_phases', q => q.select('*').eq('project_id', projectId).order('display_order'), []),
       dbQuery('project_tasks', q => q.select('*').eq('project_id', projectId).order('display_order'), []),
       dbQuery('project_task_assignments', q => q.select('task_id,user_id,start_date,end_date').eq('project_id', projectId), []),
+      dbQuery('project_external_collaborator_access', q => q.select('id,project_id,user_id,email,full_name,access_from,access_until,created_at').eq('project_id', projectId).order('created_at', { ascending: false }), []),
     ]);
     // Un proiect nou poate fi selectat înainte ca răspunsul anterior să ajungă.
     // Nu lăsăm răspunsul vechi să suprascrie detaliile proiectului curent.
@@ -168,6 +170,7 @@ const Proiecte = {
     this.phases = phasesRes.data || [];
     this.tasks = tasksRes.data || [];
     this.taskAssignments = assignRes.data || [];
+    this.externalCollaboratorAccess = externalAccessRes.data || [];
     // Sincronizare automată minutes_worked din time_entries + manual_hours_log
     // Rulează în background și re-renderizează dacă găsește diferențe
     this._syncTaskMinutes(projectId).catch(e => console.warn('[Proiecte] _syncTaskMinutes error:', e));
@@ -458,6 +461,9 @@ const Proiecte = {
     const isCoord = this.members.some(m => String(m.user_id) === profileIdStr && (m.role === 'coordonator' || m.role === 'coord'));
     const canManage = isAdmin || isCoord;  // poate vedea butoanele de editare
     const canEdit = canManage && this.editMode;  // poate modifica efectiv câmpurile
+    // Portalul colaboratorului este standardizat pe vizualizarea etapelor. Celelalte
+    // tab-uri interne nu sunt prezentate, chiar dacă ar fi selectate accidental.
+    if (profile?.role === 'colaborator_extern' && this.currentTab !== 'etape') this.currentTab = 'etape';
     // DEBUG temporar pentru a diagnostica problemele de permisiuni
     console.log('[Proiecte] renderProjectDetail:', { profileId: profileIdStr, role: profile?.role, isAdmin, isCoord, canManage, editMode: this.editMode, canEdit, membersCount: this.members.length });
 
@@ -520,7 +526,7 @@ const Proiecte = {
 
       ${canManage && this.editMode ? `<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;font-size:13px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span style="color:#92400E"><strong>Mod editare activ</strong> — modifică bugetele și responsabilii, apoi apasă <strong>Salvează</strong>.</span></div>` : ''}
       <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-        ${['etape','echipa','rapoarte','jurnal','jurnal-proiect'].map(tab => `
+        ${(profile?.role === 'colaborator_extern' ? ['etape'] : ['etape','echipa','rapoarte','jurnal','jurnal-proiect']).map(tab => `
           <button onclick="Proiecte.switchTab('${tab}')" id="tab-${tab}" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:${this.currentTab===tab?'600':'400'};color:${this.currentTab===tab?'var(--primary)':'var(--text-muted)'};border-bottom:${this.currentTab===tab?'2px solid var(--primary)':'2px solid transparent'};margin-bottom:-2px;transition:all 0.2s">
             ${{etape:'Etape & Sarcini',echipa:'Echipă',rapoarte:'Rapoarte',jurnal:'Jurnal modificări','jurnal-proiect':'Jurnal Proiect'}[tab]}
           </button>
@@ -735,9 +741,10 @@ const Proiecte = {
     // Verifică și project_task_assignments pentru alocare
     const taskAssignedUserIds = (this.taskAssignments || []).filter(a => a.task_id === task.id).map(a => a.user_id);
     const isAssigned = assignedIds.includes(profile.id) || taskAssignedUserIds.includes(profile.id);
-    // Pagina Proiecte este read-only pentru angajați: doar administratorii/coordonatorii
-    // pot controla un timer de aici, exclusiv pentru un task la care sunt alocați.
-    const canStart = isAdminOrCoord && isAssigned;
+    // Angajații rămân read-only în această pagină. Colaboratorii externi pot porni
+    // exclusiv sarcinile alocate lor; baza de date validează aceeași regulă la salvare.
+    const isExternalCollaborator = profile?.role === 'colaborator_extern';
+    const canStart = (isAdminOrCoord || isExternalCollaborator) && isAssigned;
 
     // Generăm avatarele pentru toți responsabilii (stivă cu overlap)
     const avatarsHtml = assignedIds.length > 0
@@ -864,20 +871,26 @@ const Proiecte = {
   },
   renderCollaboratorCard(m, canEdit) {
     const u = m.profiles || {};
-    const name = u.full_name || u.name || u.email || 'Colaborator extern';
-    const email = u.email || m.external_email || '';
+    const access = (this.externalCollaboratorAccess || []).find(item => String(item.user_id) === String(m.user_id));
+    const name = access?.full_name || u.full_name || u.name || u.email || 'Colaborator extern';
+    const email = access?.email || u.email || '';
     const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2) || 'CE';
+    const formatRange = value => value ? formatDate(value) : '—';
+    const period = access ? `${formatRange(access.access_from)} – ${formatRange(access.access_until)}` : 'Perioada nu este configurată';
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--card-bg);border:1px solid #F59E0B40;border-radius:8px;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:36px;height:36px;border-radius:50%;background:#78350f;display:flex;align-items:center;justify-content:center;color:#F59E0B;font-weight:700;font-size:13px">${initials}</div>
-          <div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <div style="width:36px;height:36px;border-radius:50%;background:#78350f;display:flex;align-items:center;justify-content:center;color:#F59E0B;font-weight:700;font-size:13px;flex-shrink:0">${initials}</div>
+          <div style="min-width:0">
             <div style="font-weight:600;font-size:13px">${name}</div>
-            <div style="font-size:11px;color:var(--text-muted)">${email}</div>
-            <div style="font-size:10px;color:#F59E0B;margin-top:2px">🔒 Acces limitat — vede doar task-urile lui</div>
+            <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis">${email}</div>
+            <div style="font-size:10px;color:#B45309;margin-top:3px">🔒 Acces: ${period} · vede proiectul, lucrează numai la task-urile lui</div>
           </div>
         </div>
-        ${canEdit ? `<button onclick="Proiecte.removeMember(${m.id})" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px" title="Elimină">✕</button>` : ''}
+        ${canEdit ? (access
+          ? `<button onclick="Proiecte.removeExternalCollaborator('${access.id}')" style="background:none;border:1px solid #FECACA;cursor:pointer;color:#B91C1C;font-size:11px;padding:5px 8px;border-radius:5px" title="Elimină invitația și accesul">Elimină</button>`
+          : `<button onclick="Proiecte.removeMember(${m.id})" style="background:none;border:1px solid #FECACA;cursor:pointer;color:#B91C1C;font-size:11px;padding:5px 8px;border-radius:5px" title="Elimină membrul">Elimină</button>`)
+          : ''}
       </div>
     `;
   },
@@ -1566,6 +1579,12 @@ const Proiecte = {
 
   // ===== TIMER =====
   startTask(taskId, taskName, projectId, phaseId) {
+    const profile = Auth.currentProfile;
+    const task = this.tasks.find(item => Number(item.id) === Number(taskId));
+    if (profile?.role === 'colaborator_extern' && !this.isTaskAssignedToProfile(task, profile.id)) {
+      showToast('Poți porni numai sarcinile care îți sunt alocate.', 'warning');
+      return;
+    }
     if (window.activeTimerData) {
       showToast('Oprește task-ul activ înainte de a începe altul.', 'warning');
       return;
@@ -2556,77 +2575,95 @@ const Proiecte = {
   },
 
   openAddCollaboratorModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    const nextYear = new Date();
+    nextYear.setFullYear(nextYear.getFullYear() + 1);
+    const defaultEnd = nextYear.toISOString().slice(0, 10);
     openModal('Invită colaborator extern', `
       <div style="display:grid;gap:14px">
-        <div style="padding:12px;background:#78350f15;border:1px solid #F59E0B40;border-radius:8px;font-size:12px;color:#F59E0B">
-          🔒 Colaboratorul extern va putea să se autentifice pe hub.ingineriecreativa.ro cu adresa de email introdusă și va vedea <strong>doar proiectul curent</strong> și task-urile asignate lui.
+        <div style="padding:12px;background:#78350f15;border:1px solid #F59E0B40;border-radius:8px;font-size:12px;color:#92400E;line-height:1.5">
+          🔒 Invitația este legată de adresa introdusă și de perioada selectată. Colaboratorul vede structura acestui proiect, dar poate porni și înregistra timp numai pentru task-urile alocate lui.
         </div>
-        <div>
-          <label class="form-label">Adresă email colaborator *</label>
-          <input id="collab-email" class="form-input" type="email" placeholder="exemplu@domeniu.ro">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="form-label">Adresă e-mail colaborator *</label>
+            <input id="collab-email" class="form-input" type="email" placeholder="exemplu@domeniu.ro">
+          </div>
+          <div>
+            <label class="form-label">Nume complet (opțional)</label>
+            <input id="collab-name" class="form-input" type="text" placeholder="Prenume Nume">
+          </div>
         </div>
-        <div>
-          <label class="form-label">Nume complet (opțional)</label>
-          <input id="collab-name" class="form-input" type="text" placeholder="Prenume Nume">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="form-label">Acces de la *</label>
+            <input id="collab-access-from" class="form-input" type="date" value="${today}">
+          </div>
+          <div>
+            <label class="form-label">Acces până la *</label>
+            <input id="collab-access-until" class="form-input" type="date" value="${defaultEnd}">
+          </div>
         </div>
-        <div style="font-size:11px;color:var(--text-muted)">
-          ℹ️ Colaboratorul nu trebuie să aibă adresă @ingineriecreativa.ro. După invitare, poate fi asignat la task-uri din proiect. Orele nu sunt contorizate automat.
+        <div style="font-size:11px;color:var(--text-muted);line-height:1.5">
+          Invitația se trimite de la <strong>portal.ic@ingineriecreativa.ro</strong>. La expirare sau la eliminarea invitației, accesul se oprește automat.
         </div>
       </div>
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
-      <button class="btn-primary" onclick="Proiecte.addCollaborator()" style="background:#F59E0B;border-color:#F59E0B;color:#000">🤝 Invită colaborator</button>
+      <button id="collab-invite-submit" class="btn-primary" onclick="Proiecte.addCollaborator()" style="background:#F59E0B;border-color:#F59E0B;color:#000">✉ Trimite invitația pe e-mail</button>
     `);
   },
   async addCollaborator() {
+    if (this._collaboratorInviteSubmitting) return;
     const email = document.getElementById('collab-email')?.value?.trim().toLowerCase();
-    const name = document.getElementById('collab-name')?.value?.trim();
-    if (!email || !email.includes('@')) { showToast('Introdu o adresă de email validă', 'error'); return; }
+    const name = document.getElementById('collab-name')?.value?.trim() || null;
+    const accessFrom = document.getElementById('collab-access-from')?.value;
+    const accessUntil = document.getElementById('collab-access-until')?.value;
+    if (!email || !email.includes('@')) { showToast('Introdu o adresă de e-mail validă', 'error'); return; }
+    if (!accessFrom || !accessUntil || accessUntil < accessFrom) { showToast('Selectează o perioadă de acces validă', 'error'); return; }
+    const sb = getSupabase();
+    if (!sb || !this.currentProject?.id) { showToast('Eroare: conexiune indisponibilă', 'error'); return; }
+
+    this._collaboratorInviteSubmitting = true;
+    const submit = document.getElementById('collab-invite-submit');
+    if (submit) { submit.disabled = true; submit.textContent = 'Se trimite…'; }
+    try {
+      const { data, error } = await sb.rpc('invite_external_collaborator', {
+        p_project_id: this.currentProject.id,
+        p_email: email,
+        p_full_name: name,
+        p_access_from: accessFrom,
+        p_access_until: accessUntil,
+      });
+      if (error) throw error;
+      closeModalForce();
+      this.logChange('assign', 'echipă', email, null, 'colaborator_extern', `Colaborator extern invitat pentru perioada ${formatDate(accessFrom)} – ${formatDate(accessUntil)}`);
+      showToast('Invitația a fost trimisă pe e-mail', 'success');
+      await this.loadProjectDetails(this.currentProject.id);
+      this.switchTab('echipa');
+    } catch (error) {
+      console.error('[addCollaborator] Eroare invitație:', error);
+      showToast(error?.message || 'Invitația nu a putut fi trimisă', 'error');
+      if (submit) { submit.disabled = false; submit.textContent = '✉ Trimite invitația pe e-mail'; }
+    } finally {
+      this._collaboratorInviteSubmitting = false;
+    }
+  },
+  async removeExternalCollaborator(accessId) {
+    if (!confirm('Elimini această invitație? Accesul la proiect și alocările colaboratorului din acest proiect vor fi retrase imediat.')) return;
     const sb = getSupabase();
     if (!sb) { showToast('Eroare: conexiune indisponibilă', 'error'); return; }
-    // Verifică dacă există deja un profil cu acest email
-    let userId = null;
-    const { data: existingProfiles } = await sb.from('profiles').select('id,email,full_name').eq('email', email).limit(1);
-    if (existingProfiles && existingProfiles.length > 0) {
-      userId = existingProfiles[0].id;
-    } else {
-      // Creează un profil minimal pentru colaboratorul extern (fără cont Supabase Auth)
-      // Folosim un UUID generat local ca placeholder
-      // Generează UUID explicit (profiles.id este NOT NULL)
-      const tempId = crypto.randomUUID ? crypto.randomUUID() : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
-      const { data: newProfile, error: profileErr } = await sb.from('profiles').insert({
-        id: tempId,
-        email,
-        full_name: name || email.split('@')[0],
-        role: 'colaborator_extern',
-        employee_code: 'EXT',
-        is_pre_created: true,
-      }).select('id').single();
-      if (profileErr) {
-        // Dacă profilul există deja (conflict), încercă să-l găsim din nou
-        const { data: retry } = await sb.from('profiles').select('id').eq('email', email).limit(1);
-        if (retry && retry.length > 0) { userId = retry[0].id; }
-        else { showToast('Eroare la creare profil: ' + profileErr.message, 'error'); return; }
-      } else {
-        userId = newProfile.id;
-      }
+    try {
+      const { error } = await sb.rpc('remove_external_collaborator_invitation', { p_access_id: accessId });
+      if (error) throw error;
+      this.logChange('delete', 'echipă', 'colaborator extern', null, null, 'Invitație colaborator extern eliminată; accesul și alocările au fost retrase.');
+      showToast('Invitația și accesul colaboratorului au fost eliminate', 'success');
+      await this.loadProjectDetails(this.currentProject.id);
+      this.switchTab('echipa');
+    } catch (error) {
+      console.error('[removeExternalCollaborator] Eroare eliminare:', error);
+      showToast(error?.message || 'Invitația nu a putut fi eliminată', 'error');
     }
-    // Verifică dacă este deja în proiect
-    const alreadyIn = this.members.some(m => String(m.user_id) === String(userId));
-    if (alreadyIn) { showToast('Acest colaborator este deja în proiect', 'error'); return; }
-    // Adaugă în project_members cu rol colaborator_extern
-    const { error: insertErr } = await sb.from('project_members').insert({
-      project_id: this.currentProject.id,
-      user_id: userId,
-      role: 'colaborator_extern',
-      added_by: Auth.currentProfile?.id || null,
-    });
-    if (insertErr) { showToast('Eroare la invitare: ' + insertErr.message, 'error'); return; }
-    closeModalForce();
-    this.logChange('assign', 'echipă', email, null, 'colaborator_extern', `Colaborator extern invitat: ${email}`);
-    showToast(`✅ Colaborator invitat: ${email}`, 'success');
-    await this.loadProjectDetails(this.currentProject.id);
-    this.switchTab('echipa');
   },
 
   openAssignModal(taskId) {
