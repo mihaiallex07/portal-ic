@@ -4,6 +4,7 @@
 const Beneficiari = {
   projectId: null,
   projectName: null,
+  _inviting: false,
 
   async openPanel(projectId, projectName) {
     this.projectId = projectId;
@@ -40,7 +41,8 @@ const Beneficiari = {
               <input type="date" id="benef-until" class="input-field" value="${new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0]}" />
             </div>
           </div>
-          <button class="btn-primary" style="width:100%" onclick="Beneficiari.invite()">📧 Generează link invitație</button>
+          <p style="font-size:11px;color:var(--text-muted);line-height:1.45;margin:0 0 10px">Beneficiarul primește invitația pe e-mail. Linkul poate fi deschis numai după confirmarea unui cod trimis la adresa indicată aici.</p>
+          <button class="btn-primary" style="width:100%" id="benef-invite-submit" onclick="Beneficiari.invite()">📧 Trimite invitația pe e-mail</button>
         </div>
         <div>
           <h3 style="font-size:13px;font-weight:600;margin-bottom:12px">Beneficiari invitați (${beneficiari.length})</h3>
@@ -50,7 +52,7 @@ const Beneficiari = {
                 const isExpired = b.token_expires_at && new Date(b.token_expires_at) < new Date();
                 const statusColor = b.status === 'accepted' ? 'green' : isExpired ? 'red' : 'yellow';
                 const statusLabel = b.status === 'accepted' ? 'Activ' : isExpired ? 'Expirat' : 'Invitat';
-                const link = window.location.origin + '/beneficiar.html?token=' + b.access_token;
+                const link = window.location.origin + '/beneficiar.html?invitation=' + b.access_token;
                 const expiresStr = b.token_expires_at ? new Date(b.token_expires_at).toLocaleDateString('ro-RO') : '—';
                 return `
                 <div class="card" style="padding:12px 16px;margin-bottom:8px" id="benef-row-${b.id}">
@@ -66,7 +68,8 @@ const Beneficiari = {
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
                       ${badge(statusLabel, statusColor)}
-                      <button title="Copiază link" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Link copiat!','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
+                      <button title="Copiază linkul invitației" onclick="navigator.clipboard.writeText('${link}').then(()=>showToast('Link copiat. Accesul cere în continuare codul primit pe e-mailul invitat.','success'))" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px">🔗</button>
+                      <button title="Retrimite invitația pe e-mail" onclick="Beneficiari.resend('${b.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px">📧</button>
                       <button title="Modifică perioadă acces" onclick="Beneficiari.editExpiry('${b.id}', '${b.token_expires_at || ''}')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px" title="Editează expirare">✏️</button>
                       <button onclick="Beneficiari.revoke('${b.id}')" style="background:none;border:1px solid #ef4444;color:#ef4444;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px">Revocă</button>
                     </div>
@@ -81,12 +84,25 @@ const Beneficiari = {
   },
 
   async invite() {
+    if (this._inviting) return;
     const email = document.getElementById('benef-email')?.value?.trim();
     const name = document.getElementById('benef-name')?.value?.trim();
+    const fromDate = document.getElementById('benef-from')?.value;
     const untilDate = document.getElementById('benef-until')?.value;
     if (!email || !email.includes('@')) { showToast('Email invalid', 'error'); return; }
+    if (!fromDate) { showToast('Selectează data de început a accesului', 'error'); return; }
     if (!untilDate) { showToast('Selectează data de expirare', 'error'); return; }
-    if (new Date(untilDate) <= new Date()) { showToast('Data de expirare trebuie să fie în viitor', 'error'); return; }
+    if (new Date(untilDate + 'T23:59:59') < new Date(fromDate + 'T00:00:00')) { showToast('Data de expirare trebuie să fie după data de început', 'error'); return; }
+
+    const normalizedEmail = email.toLowerCase();
+    const { data: existing } = await DB.getProjectBeneficiaries(this.projectId);
+    const alreadyInvited = (existing || []).some(item =>
+      String(item.email || '').trim().toLowerCase() === normalizedEmail && item.status !== 'expired'
+    );
+    if (alreadyInvited) {
+      showToast('Există deja o invitație activă pentru această adresă. Folosește butonul 📧 pentru retrimitere.', 'error');
+      return;
+    }
 
     const access_token = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
@@ -95,21 +111,26 @@ const Beneficiari = {
           return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
         });
 
+    const submitButton = document.getElementById('benef-invite-submit');
+    this._inviting = true;
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Se trimite…'; }
     const { error } = await DB.inviteBeneficiary({
       project_id: this.projectId,
-      email,
+      email: normalizedEmail,
       name: name || null,
       invited_by: Auth.currentUser?.id,
       access_token,
+      access_start: fromDate,
+      access_end: untilDate,
       token_expires_at: new Date(untilDate + 'T23:59:59').toISOString(),
       status: 'invited',
       invited_at: new Date().toISOString(),
     });
+    this._inviting = false;
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = '📧 Trimite invitația pe e-mail'; }
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
 
-    const link = window.location.origin + '/beneficiar.html?token=' + access_token;
-    navigator.clipboard.writeText(link).catch(() => {});
-    showToast('Invitație creată! Link copiat în clipboard.', 'success');
+    showToast('Invitația a fost creată și trimisă pe e-mail. Beneficiarul va confirma accesul cu un cod primit la această adresă.', 'success');
     await this.openPanel(this.projectId, this.projectName);
   },
 
@@ -119,6 +140,7 @@ const Beneficiari = {
     if (!newDate) return;
     if (isNaN(Date.parse(newDate))) { showToast('Dată invalidă', 'error'); return; }
     const { error } = await DB.updateBeneficiary(id, {
+      access_end: newDate,
       token_expires_at: new Date(newDate + 'T23:59:59').toISOString(),
       status: new Date(newDate) > new Date() ? 'invited' : 'expired',
     });
@@ -129,10 +151,21 @@ const Beneficiari = {
 
   async revoke(id) {
     if (!confirm('Ești sigur că vrei să revoci accesul acestui beneficiar?')) return;
-    const { error } = await DB.deleteBeneficiary(id);
+    const { error } = await DB.updateBeneficiary(id, {
+      status: 'expired',
+      access_session_token: null,
+      access_session_expires_at: null,
+      verification_code_hash: null,
+      verification_expires_at: null,
+    });
     if (error) { showToast('Eroare: ' + error.message, 'error'); return; }
     showToast('Acces revocat', 'success');
     await this.openPanel(this.projectId, this.projectName);
+  },
+  async resend(id) {
+    const { data, error } = await sb.rpc('beneficiary_resend_invitation', { p_beneficiary_id: id });
+    if (error || !data?.ok) { showToast(data?.message || error?.message || 'Invitația nu a putut fi retrimisă.', 'error'); return; }
+    showToast('Invitația a fost pusă în coada de e-mail.', 'success');
   },
 };
 
