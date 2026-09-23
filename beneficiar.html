@@ -29,9 +29,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
-    const BENEFICIARY_PORTAL_VERSION = 'direct-invitation-link-20260923';
+    const BENEFICIARY_PORTAL_VERSION = 'beneficiary-access-key-20260923';
     const SUPABASE_URL = 'https://ofknvxwcqwgnthnvslfl.supabase.co';
-    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWIiLCJyZWYiOiJvZmtudnh3Y3F3Z250aG52c2xmbCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc4NjAyMDU3LCJleHAiOjIwOTQxNzgwNTd9.HhI-MAeGlmFIIEfL1mDWxQhKBbCPDn3qgaSKBS9otS8';
+    const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ma252eHdjcXdnbnRobnZzbGZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MDIwNTcsImV4cCI6MjA5NDE3ODA1N30.HhI-MAeGlmFIIEfL1mDWxQhKBbCPDn3qgaSKBS9otS8';
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
     const params = new URLSearchParams(location.search);
     const invitationToken = params.get('invitation') || params.get('token');
