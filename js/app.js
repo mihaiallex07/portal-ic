@@ -292,8 +292,15 @@ function showApp(user, profile) {
     // Arată butonul de logout din topbar
     const logoutExt = document.getElementById('topbar-logout-ext');
     if (logoutExt) logoutExt.style.display = 'flex';
-    // Navighează direct la proiecte şi blochează orice altă rută
-    navigate('proiecte', null);
+    // Navighează direct la proiecte şi blochează orice altă rută. Un link trimis
+    // pe e-mail poate indica explicit proiectul aprobat, iar accesul rămâne validat de DB.
+    const externalProjectId = Number(new URLSearchParams(window.location.search).get('external_project'));
+    navigate('proiecte', null).then(async () => {
+      if (!Number.isFinite(externalProjectId) || externalProjectId <= 0) return;
+      await openProjectDirect(externalProjectId);
+      const currentHash = window.location.hash || '#/proiecte';
+      window.history.replaceState({}, document.title, window.location.pathname + currentHash);
+    });
     window.addEventListener('hashchange', () => {
       const h = window.location.hash.replace('#/', '');
       if (h !== 'proiecte') { navigate('proiecte', null, false); }
