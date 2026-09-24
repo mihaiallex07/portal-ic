@@ -369,9 +369,22 @@ const DB = {
     return sb.from('notifications').insert(notifications);
   },
 
-  async getUsers() {
-    if (APP_CONFIG.demoMode) return { data: this.demo.users };
-    return dbQuery('profiles', q => q.select('*').order('full_name'), this.demo.users);
+  async getUsers(options = {}) {
+    // Colaboratorii externi nu sunt utilizatori ai organizației. În mod implicit
+    // nu sunt livrați către paginile globale (organigramă, echipă, rapoarte,
+    // evenimente, administrare). Doar modulul Proiecte cere explicit această
+    // identitate pentru a o afișa în echipa proiectului unde a fost invitată.
+    const includeExternal = options?.includeExternal === true;
+    const visibleUsers = users => includeExternal
+      ? (users || [])
+      : (users || []).filter(user => user?.role !== 'colaborator_extern');
+
+    if (APP_CONFIG.demoMode) return { data: visibleUsers(this.demo.users) };
+    return dbQuery('profiles', q => {
+      let query = q.select('*').order('full_name');
+      if (!includeExternal) query = query.neq('role', 'colaborator_extern');
+      return query;
+    }, visibleUsers(this.demo.users));
   },
 
   async getEvents(month, year) {
