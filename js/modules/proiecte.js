@@ -125,7 +125,9 @@ const Proiecte = {
     const isAdmin = Auth.currentProfile?.role === 'admin';
     const [projRes, usersRes, membershipsRes, allTasksRes] = await Promise.all([
       DB.getProjects(),
-      DB.getUsers(),
+      // Echipa proiectului este singurul context global în care un colaborator
+      // extern poate fi afișat, pentru perioada invitației sale.
+      DB.getUsers({ includeExternal: true }),
       dbQuery('project_members', q => q.select('project_id,role').eq('user_id', userId), []),
       // Fetchăm toate task-urile pentru a calcula consumed_hours și budget_hours pe fiecare proiect
       dbQuery('project_tasks', q => q.select('project_id,minutes_worked,budget_hours'), []),
