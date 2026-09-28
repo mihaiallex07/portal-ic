@@ -450,7 +450,7 @@ const TimeTracking = {
 
   // ── Modal adăugare activitate ─────────────────────────────────────────────
 
-  // Construiește opțiuni HH:MM la pas de 5 minute; o valoare existentă cu minut exact rămâne selectabilă.
+  // Construiește sugestii HH:MM la pas de 5 minute; o valoare existentă cu minut exact rămâne selectabilă.
   _buildTimeOptions(fromTotalMin, toTotalMin, selectedTotalMin) {
     const values = [];
     for (let m = fromTotalMin; m <= toTotalMin; m += 5) {
@@ -460,27 +460,37 @@ const TimeTracking = {
       values.push(selectedTotalMin);
       values.sort((a, b) => a - b);
     }
-    return values.map(m => {
-      const h = Math.floor(m / 60);
-      const mm = m % 60;
-      const label = String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
-      const sel = m === selectedTotalMin ? ' selected' : '';
-      return `<option value="${m}"${sel}>${label}</option>`;
-    }).join('');
+    return values.map(m => `<option value="${this._formatTimeInputValue(m)}"></option>`).join('');
   },
 
-  _setTimeSelectValue(selectEl, totalMinutes) {
-    if (!selectEl) return;
+  _formatTimeInputValue(totalMinutes) {
     const value = Math.max(0, Math.min(24 * 60, Number(totalMinutes) || 0));
-    const exists = Array.from(selectEl.options).some(option => Number(option.value) === value);
-    if (!exists) {
-      const option = document.createElement('option');
-      option.value = String(value);
-      option.textContent = `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
-      const before = Array.from(selectEl.options).find(item => Number(item.value) > value);
-      selectEl.insertBefore(option, before || null);
+    return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+  },
+
+  _readTimeInput(inputEl, allowMidnight = false) {
+    const raw = String(inputEl?.value || '').trim();
+    const match = raw.match(/^(\d{1,2})\s*[:.]\s*(\d{1,2})$/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes < 0 || minutes > 59) return null;
+    if (hours < 0 || hours > 23) {
+      if (!(allowMidnight && hours === 24 && minutes === 0)) return null;
     }
-    selectEl.value = String(value);
+    return hours * 60 + minutes;
+  },
+
+  _setTimeInputValue(inputEl, totalMinutes) {
+    if (!inputEl) return;
+    inputEl.value = this._formatTimeInputValue(totalMinutes);
+  },
+
+  _normalizeTimeInput(inputId, allowMidnight = false) {
+    const inputEl = document.getElementById(inputId);
+    const value = this._readTimeInput(inputEl, allowMidnight);
+    if (value !== null) this._setTimeInputValue(inputEl, value);
+    this._onTimeChange();
   },
 
   openAddModal(prefillDate, prefillHour, prefillMinute) {
@@ -549,12 +559,18 @@ const TimeTracking = {
   _updateScheduleAvailability() {
     const hint = document.getElementById('tt-schedule-hint');
     const date = document.getElementById('tt-date')?.value;
-    const start = Number(document.getElementById('tt-start')?.value);
+    const start = this._readTimeInput(document.getElementById('tt-start'));
     const manualH = Math.max(0, Number(document.getElementById('tt-manual-h')?.value) || 0);
     const manualM = Math.max(0, Math.min(59, Number(document.getElementById('tt-manual-m')?.value) || 0));
     const duration = manualH * 60 + manualM;
     const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
-    if (!hint || !date || !Number.isFinite(start) || duration <= 0) return;
+    if (!hint || !date || duration <= 0) return;
+    if (start === null) {
+      hint.textContent = '⚠ Introdu o oră de start validă, între 00:00 și 23:59.';
+      hint.style.color = '#B91C1C';
+      hint.style.display = 'block';
+      return;
+    }
     const end = start + duration;
     if (end > 24 * 60) {
       hint.textContent = '⚠ Intervalul depășește ora 24:00. Alege o durată mai mică.';
@@ -579,12 +595,12 @@ const TimeTracking = {
     const startEl = document.getElementById('tt-start');
     const date = document.getElementById('tt-date')?.value;
     if (!startEl || !date) return;
-    const selected = Number(startEl.value);
+    const selected = this._readTimeInput(startEl);
     const manualH = Math.max(0, Number(document.getElementById('tt-manual-h')?.value) || 0);
     const manualM = Math.max(0, Math.min(59, Number(document.getElementById('tt-manual-m')?.value) || 0));
     const duration = manualH * 60 + manualM;
     const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
-    if (duration <= 0 || !Number.isFinite(selected)) return;
+    if (duration <= 0 || selected === null) return;
 
     const busyIntervals = this.getBusyIntervals(date, editingEntryId || null);
     const summary = document.getElementById('tt-occupied-summary');
@@ -602,21 +618,13 @@ const TimeTracking = {
       values.sort((a, b) => a - b);
     }
     const isBlocked = minute => minute + duration > 24 * 60 || busyIntervals.some(interval => interval.start < minute + duration && minute < interval.end);
-    const selectedBlocked = isBlocked(selected);
-    const availableOptions = values.filter(minute => !isBlocked(minute)).map(minute => {
-      const label = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-      return `<option value="${minute}"${minute === selected ? ' selected' : ''}>${label}</option>`;
-    }).join('');
-    const occupiedOptions = busyIntervals.map(interval =>
-      `<option value="busy-${interval.start}" disabled>${this._formatBusyIntervals([interval])} — ocupat</option>`
-    ).join('');
-    const selectedBlockedOption = selectedBlocked
-      ? `<option value="${selected}" selected disabled>${String(Math.floor(selected / 60)).padStart(2, '0')}:${String(selected % 60).padStart(2, '0')} — ocupat</option>`
-      : '';
-    startEl.innerHTML =
-      (occupiedOptions ? `<optgroup label="Intervale ocupate">${occupiedOptions}</optgroup>` : '') +
-      selectedBlockedOption +
-      `<optgroup label="Ore disponibile">${availableOptions}</optgroup>`;
+    const listEl = document.getElementById('tt-start-options');
+    if (listEl) {
+      listEl.innerHTML = values
+        .filter(minute => !isBlocked(minute))
+        .map(minute => `<option value="${this._formatTimeInputValue(minute)}"></option>`)
+        .join('');
+    }
   },
 
   openActivityModal({ entry = null, prefillDate, prefillHour, prefillMinute } = {}) {
@@ -628,7 +636,9 @@ const TimeTracking = {
     // La editare, păstrăm minutul exact salvat (ex. 10:20), nu îl rotunjim la 00/15/30/45.
     // _buildTimeOptions adaugă automat această valoare în dropdown atunci când nu este pe pasul de 5 minute.
     const startTotal = startHour * 60 + startMin;
-    const storedDuration = Number(entry?.duration_minutes || 60);
+    // Pentru o activitate nouă propunem doar 10 minute. Activitățile existente
+    // păstrează strict durata salvată.
+    const storedDuration = entry ? Number(entry.duration_minutes || 0) : 10;
     const storedEnd = parsedEnd ? parsedEnd.h * 60 + parsedEnd.m : null;
     const endTotal = storedEnd && storedEnd > startTotal ? storedEnd : Math.min(startTotal + storedDuration, 24 * 60);
     const selectedProjectId = entry?.project_id || null;
@@ -639,7 +649,7 @@ const TimeTracking = {
       `<option value="${p.id}"${Number(selectedProjectId) === Number(p.id) ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
     ).join('');
     const startOptions = this._buildTimeOptions(0, 23 * 60 + 45, startTotal);
-    const endOptions = this._buildTimeOptions(15, 24 * 60, endTotal);
+    const endOptions = this._buildTimeOptions(0, 24 * 60, endTotal);
     const durationHours = Math.floor(storedDuration / 60);
     const durationMinutes = storedDuration % 60;
     const safeTaskName = String(entry?.task_name || '').replace(/"/g, '&quot;');
@@ -653,12 +663,14 @@ const TimeTracking = {
         <div class="flex gap-3">
           <div style="flex:1">
             <label class="label">Oră start</label>
-            <select id="tt-start" class="select" onchange="TimeTracking._onTimeChange()">${startOptions}</select>
+            <input type="text" id="tt-start" class="input" list="tt-start-options" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(startTotal)}" onchange="TimeTracking._normalizeTimeInput('tt-start')" onblur="TimeTracking._normalizeTimeInput('tt-start')">
+            <datalist id="tt-start-options">${startOptions}</datalist>
             <div id="tt-occupied-summary" style="display:none;font-size:10px;line-height:1.4;color:var(--text-muted);margin-top:4px"></div>
           </div>
           <div style="flex:1">
             <label class="label">Oră final</label>
-            <select id="tt-end" class="select" onchange="TimeTracking._onTimeChange()">${endOptions}</select>
+            <input type="text" id="tt-end" class="input" list="tt-end-options" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(endTotal)}" onchange="TimeTracking._normalizeTimeInput('tt-end', true)" onblur="TimeTracking._normalizeTimeInput('tt-end', true)">
+            <datalist id="tt-end-options">${endOptions}</datalist>
           </div>
         </div>
         <div>
@@ -741,12 +753,17 @@ const TimeTracking = {
     const endEl = document.getElementById('tt-end');
     const dispEl = document.getElementById('tt-duration-display');
     if (!startEl || !endEl) return;
-    const startMin = parseInt(startEl.value);
-    let endMin = parseInt(endEl.value);
-    // Auto-corecție: dacă end <= start, setează end = start + 15
+    const startMin = this._readTimeInput(startEl);
+    let endMin = this._readTimeInput(endEl, true);
+    if (startMin === null || endMin === null) {
+      if (dispEl) { dispEl.textContent = '—'; dispEl.style.color = '#dc2626'; }
+      this._updateScheduleAvailability();
+      return;
+    }
+    // Auto-corecție: dacă end <= start, setează end = start + 10 minute.
     if (endMin <= startMin) {
-      endMin = Math.min(startMin + 15, 24 * 60);
-      endEl.value = endMin;
+      endMin = Math.min(startMin + 10, 24 * 60);
+      this._setTimeInputValue(endEl, endMin);
     }
     const dur = endMin - startMin;
     const h = Math.floor(dur / 60);
@@ -793,9 +810,11 @@ const TimeTracking = {
     const startEl = document.getElementById('tt-start');
     const endEl = document.getElementById('tt-end');
     if (startEl && endEl && dur > 0) {
-      const startMin = parseInt(startEl.value) || 0;
-      const newEnd = Math.min(startMin + dur, 24 * 60);
-      this._setTimeSelectValue(endEl, newEnd);
+      const startMin = this._readTimeInput(startEl);
+      if (startMin !== null) {
+        const newEnd = Math.min(startMin + dur, 24 * 60);
+        this._setTimeInputValue(endEl, newEnd);
+      }
     }
     this._refreshAvailableStartTimes();
     this._updateScheduleAvailability();
@@ -867,9 +886,17 @@ const TimeTracking = {
     const manualM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-manual-m')?.value) || 0));
     const manualDur = manualH * 60 + manualM;
 
-    // Citim Ora start și Ora final
-    const startTotalMin = parseInt(document.getElementById('tt-start')?.value) || 0;
-    const endTotalMin = parseInt(document.getElementById('tt-end')?.value) || 0;
+    // Citim Ora start și Ora final, inclusiv valori introduse manual (ex. 08:30).
+    const startTotalMin = this._readTimeInput(document.getElementById('tt-start'));
+    const endTotalMin = this._readTimeInput(document.getElementById('tt-end'), true);
+    if (startTotalMin === null) {
+      showToast('Introdu o oră de start validă, de exemplu 08:30.', 'error');
+      return;
+    }
+    if (endTotalMin === null) {
+      showToast('Introdu o oră finală validă, de exemplu 08:40.', 'error');
+      return;
+    }
     const startEndDur = endTotalMin > startTotalMin ? endTotalMin - startTotalMin : 0;
 
     // Prioritate: câmpuri manuale dacă sunt completate, altfel start/end
@@ -1000,8 +1027,16 @@ const TimeTracking = {
     if (!taskName) { showToast('Completează descrierea activității', 'error'); return; }
     const dateVal = document.getElementById('tt-date')?.value;
     if (!dateVal) { showToast('Selectează data', 'error'); return; }
-    const startTotalMin = parseInt(document.getElementById('tt-start')?.value) || 0;
-    const endTotalMin = parseInt(document.getElementById('tt-end')?.value) || 0;
+    const startTotalMin = this._readTimeInput(document.getElementById('tt-start'));
+    const endTotalMin = this._readTimeInput(document.getElementById('tt-end'), true);
+    if (startTotalMin === null) {
+      showToast('Introdu o oră de start validă, de exemplu 08:30.', 'error');
+      return;
+    }
+    if (endTotalMin === null) {
+      showToast('Introdu o oră finală validă, de exemplu 08:40.', 'error');
+      return;
+    }
     const manualH = Math.max(0, parseInt(document.getElementById('tt-manual-h')?.value) || 0);
     const manualM = Math.max(0, Math.min(59, parseInt(document.getElementById('tt-manual-m')?.value) || 0));
     const durationMinutes = manualH * 60 + manualM || Math.max(0, endTotalMin - startTotalMin);
