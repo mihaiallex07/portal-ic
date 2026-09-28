@@ -511,7 +511,12 @@ const TimeTracking = {
   _getTimePickerValues(inputId) {
     const inputEl = document.getElementById(inputId);
     const selected = this._readTimeInput(inputEl, inputId === 'tt-end');
-    const values = this._buildTimeValues(0, inputId === 'tt-end' ? 24 * 60 : 23 * 60 + 45, selected);
+    const allValues = this._buildTimeValues(0, inputId === 'tt-end' ? 24 * 60 : 23 * 60 + 45, selected);
+    // Pentru Start, lista pornește de la ora deja aleasă (de exemplu 09:00 după click în grilă),
+    // astfel încât nu este nevoie de scroll de la 00:00. Ora anterioară rămâne editabilă manual.
+    const values = inputId === 'tt-start' && selected !== null
+      ? allValues.filter(minute => minute >= selected)
+      : allValues;
     if (inputId !== 'tt-start') return values;
 
     const date = document.getElementById('tt-date')?.value;
@@ -772,7 +777,6 @@ const TimeTracking = {
             </div>
           </div>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:-6px">Scrie direct <strong>0830</strong> sau <strong>08:30</strong>, ori alege o oră din listă.</div>
         <div>
           <label class="label">Timp lucrat *</label>
           <div class="flex gap-3" style="align-items:center">
