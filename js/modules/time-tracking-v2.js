@@ -16,6 +16,7 @@ const TimeTracking = {
   allocatedProjects: [],
   tasks: [],
   currentTimeIndicatorTimer: null,
+  timePickerDismissHandler: null,
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -450,8 +451,8 @@ const TimeTracking = {
 
   // ── Modal adăugare activitate ─────────────────────────────────────────────
 
-  // Construiește sugestii HH:MM la pas de 5 minute; o valoare existentă cu minut exact rămâne selectabilă.
-  _buildTimeOptions(fromTotalMin, toTotalMin, selectedTotalMin) {
+  // Construiește valori HH:MM la pas de 5 minute; o valoare existentă cu minut exact rămâne selectabilă.
+  _buildTimeValues(fromTotalMin, toTotalMin, selectedTotalMin) {
     const values = [];
     for (let m = fromTotalMin; m <= toTotalMin; m += 5) {
       values.push(m);
@@ -460,7 +461,7 @@ const TimeTracking = {
       values.push(selectedTotalMin);
       values.sort((a, b) => a - b);
     }
-    return values.map(m => `<option value="${this._formatTimeInputValue(m)}"></option>`).join('');
+    return values;
   },
 
   _formatTimeInputValue(totalMinutes) {
@@ -470,10 +471,24 @@ const TimeTracking = {
 
   _readTimeInput(inputEl, allowMidnight = false) {
     const raw = String(inputEl?.value || '').trim();
-    const match = raw.match(/^(\d{1,2})\s*[:.]\s*(\d{1,2})$/);
-    if (!match) return null;
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
+    const separated = raw.match(/^(\d{1,2})\s*[:.]\s*(\d{1,2})$/);
+    const compact = raw.match(/^(\d{3,4})$/);
+    const hourOnly = raw.match(/^(\d{1,2})$/);
+    let hours;
+    let minutes;
+    if (separated) {
+      hours = Number(separated[1]);
+      minutes = Number(separated[2]);
+    } else if (compact) {
+      const value = compact[1].padStart(4, '0');
+      hours = Number(value.slice(0, 2));
+      minutes = Number(value.slice(2));
+    } else if (hourOnly) {
+      hours = Number(hourOnly[1]);
+      minutes = 0;
+    } else {
+      return null;
+    }
     if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes < 0 || minutes > 59) return null;
     if (hours < 0 || hours > 23) {
       if (!(allowMidnight && hours === 24 && minutes === 0)) return null;
@@ -491,6 +506,96 @@ const TimeTracking = {
     const value = this._readTimeInput(inputEl, allowMidnight);
     if (value !== null) this._setTimeInputValue(inputEl, value);
     this._onTimeChange();
+  },
+
+  _getTimePickerValues(inputId) {
+    const inputEl = document.getElementById(inputId);
+    const selected = this._readTimeInput(inputEl, inputId === 'tt-end');
+    const values = this._buildTimeValues(0, inputId === 'tt-end' ? 24 * 60 : 23 * 60 + 45, selected);
+    if (inputId !== 'tt-start') return values;
+
+    const date = document.getElementById('tt-date')?.value;
+    const manualH = Math.max(0, Number(document.getElementById('tt-manual-h')?.value) || 0);
+    const manualM = Math.max(0, Math.min(59, Number(document.getElementById('tt-manual-m')?.value) || 0));
+    const duration = manualH * 60 + manualM;
+    const editingEntryId = document.getElementById('tt-entry-id')?.value || null;
+    if (!date || duration <= 0) return values;
+    const busyIntervals = this.getBusyIntervals(date, editingEntryId || null);
+    return values.filter(minute =>
+      minute + duration <= 24 * 60 && !busyIntervals.some(interval => interval.start < minute + duration && minute < interval.end)
+    );
+  },
+
+  _closeTimePickers(exceptId = null) {
+    ['tt-start', 'tt-end'].forEach(inputId => {
+      if (inputId === exceptId) return;
+      const menu = document.getElementById(`${inputId}-picker-menu`);
+      if (menu) menu.style.display = 'none';
+    });
+  },
+
+  _renderTimePickerOptions(inputId) {
+    const inputEl = document.getElementById(inputId);
+    const menu = document.getElementById(`${inputId}-picker-menu`);
+    if (!inputEl || !menu) return;
+    const query = inputEl.dataset.ttPickerFilter === 'true'
+      ? String(inputEl.value || '').replace(/[^0-9]/g, '')
+      : '';
+    const matchingValues = this._getTimePickerValues(inputId).filter(minute => {
+      const compact = this._formatTimeInputValue(minute).replace(':', '');
+      return !query || compact.startsWith(query);
+    });
+    menu.innerHTML = matchingValues.length
+      ? matchingValues.map(minute => `
+          <button type="button" role="option" onmousedown="event.preventDefault()" onclick="TimeTracking.selectTimePickerOption('${inputId}', ${minute})"
+            style="display:block;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--border);background:var(--surface);color:var(--text);text-align:left;font:inherit;font-size:13px;font-weight:600;cursor:pointer"
+            onmouseenter="this.style.background='var(--bg-secondary)'" onmouseleave="this.style.background='var(--surface)'">${this._formatTimeInputValue(minute)}</button>`).join('')
+      : '<div style="padding:10px 12px;color:var(--text-muted);font-size:12px">Nu există ore disponibile pentru durata aleasă.</div>';
+    menu.style.display = 'block';
+  },
+
+  openTimePicker(inputId) {
+    const inputEl = document.getElementById(inputId);
+    if (inputEl) inputEl.dataset.ttPickerFilter = 'false';
+    this._closeTimePickers(inputId);
+    this._renderTimePickerOptions(inputId);
+  },
+
+  toggleTimePicker(inputId) {
+    const menu = document.getElementById(`${inputId}-picker-menu`);
+    if (!menu || menu.style.display === 'none') this.openTimePicker(inputId);
+    else menu.style.display = 'none';
+  },
+
+  onTimePickerInput(inputId) {
+    const inputEl = document.getElementById(inputId);
+    if (inputEl) inputEl.dataset.ttPickerFilter = 'true';
+    this._closeTimePickers(inputId);
+    this._renderTimePickerOptions(inputId);
+    this._updateScheduleAvailability();
+  },
+
+  selectTimePickerOption(inputId, totalMinutes) {
+    const inputEl = document.getElementById(inputId);
+    if (inputEl) inputEl.dataset.ttPickerFilter = 'false';
+    this._setTimeInputValue(inputEl, totalMinutes);
+    this._closeTimePickers();
+    this._onTimeChange();
+  },
+
+  onTimePickerBlur(inputId, allowMidnight = false) {
+    window.setTimeout(() => {
+      this._normalizeTimeInput(inputId, allowMidnight);
+      this._closeTimePickers();
+    }, 120);
+  },
+
+  _installTimePickerDismissHandler() {
+    if (this.timePickerDismissHandler) return;
+    this.timePickerDismissHandler = event => {
+      if (!event.target.closest('.tt-time-picker')) this._closeTimePickers();
+    };
+    document.addEventListener('pointerdown', this.timePickerDismissHandler);
   },
 
   openAddModal(prefillDate, prefillHour, prefillMinute) {
@@ -611,20 +716,10 @@ const TimeTracking = {
       summary.style.display = 'block';
     }
 
-    const values = [];
-    for (let minute = 0; minute <= 23 * 60 + 45; minute += 5) values.push(minute);
-    if (!values.includes(selected)) {
-      values.push(selected);
-      values.sort((a, b) => a - b);
-    }
-    const isBlocked = minute => minute + duration > 24 * 60 || busyIntervals.some(interval => interval.start < minute + duration && minute < interval.end);
-    const listEl = document.getElementById('tt-start-options');
-    if (listEl) {
-      listEl.innerHTML = values
-        .filter(minute => !isBlocked(minute))
-        .map(minute => `<option value="${this._formatTimeInputValue(minute)}"></option>`)
-        .join('');
-    }
+    const startMenu = document.getElementById('tt-start-picker-menu');
+    if (startMenu?.style.display !== 'none') this._renderTimePickerOptions('tt-start');
+    const endMenu = document.getElementById('tt-end-picker-menu');
+    if (endMenu?.style.display !== 'none') this._renderTimePickerOptions('tt-end');
   },
 
   openActivityModal({ entry = null, prefillDate, prefillHour, prefillMinute } = {}) {
@@ -634,7 +729,7 @@ const TimeTracking = {
     const startHour = parsedStart ? parsedStart.h : (prefillHour !== undefined ? prefillHour : now.getHours());
     const startMin = parsedStart ? parsedStart.m : (prefillMinute !== undefined ? prefillMinute : 0);
     // La editare, păstrăm minutul exact salvat (ex. 10:20), nu îl rotunjim la 00/15/30/45.
-    // _buildTimeOptions adaugă automat această valoare în dropdown atunci când nu este pe pasul de 5 minute.
+    // Selectorul intern adaugă automat această valoare atunci când nu este pe pasul de 5 minute.
     const startTotal = startHour * 60 + startMin;
     // Pentru o activitate nouă propunem doar 10 minute. Activitățile existente
     // păstrează strict durata salvată.
@@ -648,8 +743,6 @@ const TimeTracking = {
     const projectOptions = (this.allocatedProjects || []).map(p =>
       `<option value="${p.id}"${Number(selectedProjectId) === Number(p.id) ? ' selected' : ''}>${p.emoji || ''} ${p.name}</option>`
     ).join('');
-    const startOptions = this._buildTimeOptions(0, 23 * 60 + 45, startTotal);
-    const endOptions = this._buildTimeOptions(0, 24 * 60, endTotal);
     const durationHours = Math.floor(storedDuration / 60);
     const durationMinutes = storedDuration % 60;
     const safeTaskName = String(entry?.task_name || '').replace(/"/g, '&quot;');
@@ -663,16 +756,23 @@ const TimeTracking = {
         <div class="flex gap-3">
           <div style="flex:1">
             <label class="label">Oră start</label>
-            <input type="text" id="tt-start" class="input" list="tt-start-options" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(startTotal)}" onchange="TimeTracking._normalizeTimeInput('tt-start')" onblur="TimeTracking._normalizeTimeInput('tt-start')">
-            <datalist id="tt-start-options">${startOptions}</datalist>
+            <div class="tt-time-picker" style="position:relative">
+              <input type="text" id="tt-start" class="input" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(startTotal)}" style="padding-right:38px" onfocus="TimeTracking.openTimePicker('tt-start')" oninput="TimeTracking.onTimePickerInput('tt-start')" onblur="TimeTracking.onTimePickerBlur('tt-start')">
+              <button type="button" aria-label="Alege ora de start" onmousedown="event.preventDefault()" onclick="TimeTracking.toggleTimePicker('tt-start')" style="position:absolute;right:1px;top:1px;bottom:1px;width:34px;border:0;border-left:1px solid var(--border);border-radius:0 var(--radius) var(--radius) 0;background:transparent;color:var(--text-muted);cursor:pointer;font-size:15px">⌄</button>
+              <div id="tt-start-picker-menu" role="listbox" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;max-height:190px;overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.18)"></div>
+            </div>
             <div id="tt-occupied-summary" style="display:none;font-size:10px;line-height:1.4;color:var(--text-muted);margin-top:4px"></div>
           </div>
           <div style="flex:1">
             <label class="label">Oră final</label>
-            <input type="text" id="tt-end" class="input" list="tt-end-options" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(endTotal)}" onchange="TimeTracking._normalizeTimeInput('tt-end', true)" onblur="TimeTracking._normalizeTimeInput('tt-end', true)">
-            <datalist id="tt-end-options">${endOptions}</datalist>
+            <div class="tt-time-picker" style="position:relative">
+              <input type="text" id="tt-end" class="input" inputmode="numeric" autocomplete="off" placeholder="HH:MM" value="${this._formatTimeInputValue(endTotal)}" style="padding-right:38px" onfocus="TimeTracking.openTimePicker('tt-end')" oninput="TimeTracking.onTimePickerInput('tt-end')" onblur="TimeTracking.onTimePickerBlur('tt-end', true)">
+              <button type="button" aria-label="Alege ora finală" onmousedown="event.preventDefault()" onclick="TimeTracking.toggleTimePicker('tt-end')" style="position:absolute;right:1px;top:1px;bottom:1px;width:34px;border:0;border-left:1px solid var(--border);border-radius:0 var(--radius) var(--radius) 0;background:transparent;color:var(--text-muted);cursor:pointer;font-size:15px">⌄</button>
+              <div id="tt-end-picker-menu" role="listbox" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;max-height:190px;overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 10px 24px rgba(15,23,42,.18)"></div>
+            </div>
           </div>
         </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:-6px">Scrie direct <strong>0830</strong> sau <strong>08:30</strong>, ori alege o oră din listă.</div>
         <div>
           <label class="label">Timp lucrat *</label>
           <div class="flex gap-3" style="align-items:center">
@@ -732,6 +832,7 @@ const TimeTracking = {
     `, { closeOnBackdrop: false, showClose: false });
 
     setTimeout(() => {
+      this._installTimePickerDismissHandler();
       if (selectedProjectId) {
         const projectSelect = document.getElementById('tt-project');
         if (projectSelect) projectSelect.value = selectedProjectId;
