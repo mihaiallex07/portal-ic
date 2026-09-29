@@ -833,7 +833,7 @@ const TimeTracking = {
     `, `
       <button class="btn-secondary" onclick="closeModalForce()">Anulează</button>
       <button class="btn-brand" onclick="${entry ? `TimeTracking.saveEditEntry(${entry.id})` : 'TimeTracking.saveEntry()'}">Finalizează</button>
-    `, { closeOnBackdrop: false, showClose: false });
+    `, { closeOnBackdrop: false, showClose: false, draggable: true });
 
     setTimeout(() => {
       this._installTimePickerDismissHandler();
