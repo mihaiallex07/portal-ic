@@ -25,10 +25,89 @@ function showToast(message, type = 'default', duration = 3500) {
 }
 
 // ── MODAL ──────────────────────────────────────────────────
+let modalDragCleanup = null;
+
+function clearModalDrag() {
+  if (modalDragCleanup) modalDragCleanup();
+  modalDragCleanup = null;
+  const box = document.getElementById('modal-box');
+  if (!box) return;
+  box.style.position = '';
+  box.style.left = '';
+  box.style.top = '';
+  box.style.margin = '';
+  box.style.cursor = '';
+  box.style.userSelect = '';
+  box.removeAttribute('data-draggable-modal');
+}
+
+function enableModalDrag() {
+  const box = document.getElementById('modal-box');
+  const header = box?.querySelector('.modal-header');
+  if (!box || !header) return;
+
+  box.dataset.draggableModal = 'true';
+  header.style.cursor = 'move';
+  header.style.userSelect = 'none';
+
+  let dragging = false;
+  let pointerId = null;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  const endDrag = event => {
+    if (!dragging || (event && pointerId !== null && event.pointerId !== pointerId)) return;
+    dragging = false;
+    if (header.hasPointerCapture?.(pointerId)) header.releasePointerCapture(pointerId);
+    pointerId = null;
+    header.style.cursor = 'move';
+  };
+
+  const move = event => {
+    if (!dragging || event.pointerId !== pointerId) return;
+    const rect = box.getBoundingClientRect();
+    const margin = 12;
+    const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+    box.style.left = `${Math.min(maxLeft, Math.max(margin, event.clientX - offsetX))}px`;
+    box.style.top = `${Math.min(maxTop, Math.max(margin, event.clientY - offsetY))}px`;
+  };
+
+  const start = event => {
+    if (event.button !== 0 || event.target.closest('button, input, select, textarea, a')) return;
+    const rect = box.getBoundingClientRect();
+    dragging = true;
+    pointerId = event.pointerId;
+    offsetX = event.clientX - rect.left;
+    offsetY = event.clientY - rect.top;
+    box.style.position = 'fixed';
+    box.style.left = `${rect.left}px`;
+    box.style.top = `${rect.top}px`;
+    box.style.margin = '0';
+    header.style.cursor = 'grabbing';
+    header.setPointerCapture?.(pointerId);
+    event.preventDefault();
+  };
+
+  header.addEventListener('pointerdown', start);
+  header.addEventListener('pointermove', move);
+  header.addEventListener('pointerup', endDrag);
+  header.addEventListener('pointercancel', endDrag);
+  modalDragCleanup = () => {
+    header.removeEventListener('pointerdown', start);
+    header.removeEventListener('pointermove', move);
+    header.removeEventListener('pointerup', endDrag);
+    header.removeEventListener('pointercancel', endDrag);
+    header.style.cursor = '';
+    header.style.userSelect = '';
+  };
+}
+
 function openModal(title, contentHtml, footerHtml = '', options = {}) {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
-  const { closeOnBackdrop = true, showClose = true } = options;
+  const { closeOnBackdrop = true, showClose = true, draggable = false } = options;
+  clearModalDrag();
   overlay.dataset.closeOnBackdrop = String(closeOnBackdrop);
   
   content.innerHTML = `
@@ -44,12 +123,14 @@ function openModal(title, contentHtml, footerHtml = '', options = {}) {
   
   overlay.style.display = 'flex';
   document.body.style.overflow = 'hidden';
+  if (draggable) enableModalDrag();
 }
 
 function closeModal(event) {
   const overlay = document.getElementById('modal-overlay');
   if (event && event.target !== overlay) return;
   if (event && overlay.dataset.closeOnBackdrop === 'false') return;
+  clearModalDrag();
   overlay.style.display = 'none';
   // Only reset overflow if we're not in the app (auth page doesn't need overflow hidden)
   if (document.getElementById('app').style.display !== 'none') {
@@ -59,6 +140,7 @@ function closeModal(event) {
 
 function closeModalForce() {
   const overlay = document.getElementById('modal-overlay');
+  clearModalDrag();
   overlay.style.display = 'none';
   delete overlay.dataset.closeOnBackdrop;
   if (document.getElementById('app').style.display !== 'none') {
