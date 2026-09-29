@@ -1632,38 +1632,51 @@ const Proiecte = {
     showToast('▶ Task reluat', 'success');
   },
 
-  async stopTask(taskId) {
+  async stopTask(taskId, options = {}) {
     const timerData = (window.activeTimerData && window.activeTimerData.taskId === taskId) ? window.activeTimerData
                     : (window.pausedTimerData && window.pausedTimerData.taskId === taskId) ? window.pausedTimerData
                     : null;
-    if (!timerData) return;
+    if (!timerData) return false;
 
     if (typeof stopGlobalTimerInterval === 'function') stopGlobalTimerInterval();
-    window.activeTimerData = null;
-    window.pausedTimerData = null;
-
-    const elapsed = Date.now() - timerData.startTime - (timerData.pausedMs || 0);
+    const currentStopAt = window.pausedTimerData ? (timerData.pausedAt || Date.now()) : Date.now();
+    const requestedStopAt = Math.min(currentStopAt, options.stopAt || timerData.scheduledStopAt || currentStopAt);
+    const elapsed = requestedStopAt - timerData.startTime - (timerData.pausedMs || 0);
     const minutes = Math.max(1, Math.round(elapsed / 60000));
 
     // Salvăm în time_entries via TimeTracking.saveFromTimer (câmpuri camelCase corecte)
     if (typeof TimeTracking !== 'undefined' && TimeTracking.saveFromTimer) {
-      const result = await TimeTracking.saveFromTimer(timerData, minutes);
+      const result = await TimeTracking.saveFromTimer(timerData, minutes, requestedStopAt);
       if (result && result.error) {
         showToast('Eroare la salvarea timpului: ' + result.error.message, 'error');
+        // Timerul rămâne activ/în pauză dacă baza de date refuză salvarea; nu se pierde munca.
+        if (window.activeTimerData && typeof startGlobalTimer === 'function') startGlobalTimer();
+        if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
+        this.renderProjectDetail();
+        return false;
       } else {
+        window.activeTimerData = null;
+        window.pausedTimerData = null;
         // Recalculează minutes_worked din zero (nu incremental) pentru acuratețe maximă
         await this._recalcAndSaveTaskMinutes(taskId);
-        const h = Math.floor(minutes / 60);
-        const m = minutes % 60;
-        showToast('⏹ Task oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate în Time-Tracking.', 'success');
+        const savedMinutes = Number(result?.effectiveMinutes ?? minutes);
+        const h = Math.floor(savedMinutes / 60);
+        const m = savedMinutes % 60;
+        const scheduleNote = result?.limitedBySchedule ? ` până la începutul „${result.scheduledActivityName}”` : '';
+        showToast('⏹ Task oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate în Time-Tracking' + scheduleNote + '.', 'success');
       }
     } else {
-      showToast('⏹ Task oprit (' + minutes + 'm)', 'success');
+      showToast('Timerul nu poate fi salvat încă. Reîncarcă pagina și încearcă din nou; intervalul rămâne activ.', 'error');
+      if (window.activeTimerData && typeof startGlobalTimer === 'function') startGlobalTimer();
+      if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
+      this.renderProjectDetail();
+      return false;
     }
 
     if (typeof _timerClear === 'function') _timerClear();
     if (typeof updateHeaderTimer === 'function') updateHeaderTimer();
     this.renderProjectDetail();
+    return true;
   },
 
 
