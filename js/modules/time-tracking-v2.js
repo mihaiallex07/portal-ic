@@ -1248,19 +1248,79 @@ const TimeTracking = {
     return realMinutes;
   },
 
-  async saveFromTimer(timerData, minutes) {
+  // Găsește prima activitate deja salvată care ar intra în suprapunere cu timerul.
+  // Citirea este directă din baza de date, nu doar din calendarul deja încărcat în pagină.
+  async getTimerScheduleBoundary(timerData, intendedEndAt = Date.now()) {
+    const startDt = new Date(timerData?.startTime);
+    const requestedEndDt = new Date(intendedEndAt);
+    const userId = timerData?.userId || this.getNumericUserId();
+    if (!userId || Number.isNaN(startDt.getTime()) || Number.isNaN(requestedEndDt.getTime()) || requestedEndDt <= startDt) return null;
+
+    const endOfStartDay = new Date(startDt);
+    endOfStartDay.setHours(23, 59, 59, 999);
+    const endDt = new Date(Math.min(requestedEndDt.getTime(), endOfStartDay.getTime()));
+    const sb = getSupabase();
+    if (!sb) return null;
+
+    const { data, error } = await sb
+      .from('time_entries')
+      .select('id,date,start_time,end_time,duration_minutes,task_name')
+      .eq('user_id', userId)
+      .eq('date', this.localDateStr(startDt))
+      .order('start_time', { ascending: true });
+    if (error) throw error;
+
+    const firstConflict = (data || [])
+      .map(entry => {
+        const interval = this._entryInterval(entry);
+        const entryStart = new Date(startDt);
+        entryStart.setHours(Math.floor(interval.start / 60), interval.start % 60, 0, 0);
+        const entryEnd = new Date(startDt);
+        entryEnd.setHours(Math.floor(interval.end / 60), interval.end % 60, 0, 0);
+        return { entry, entryStart, entryEnd };
+      })
+      .filter(item => item.entryStart < endDt && item.entryEnd > startDt)
+      .sort((a, b) => a.entryStart - b.entryStart)[0];
+
+    if (!firstConflict) return null;
+    return {
+      stopAt: Math.max(startDt.getTime(), firstConflict.entryStart.getTime()),
+      taskName: firstConflict.entry.task_name || 'activitate programată',
+      entryId: firstConflict.entry.id,
+    };
+  },
+
+  async saveFromTimer(timerData, minutes, requestedStopAt = Date.now()) {
     const userId = this.getNumericUserId();
     if (!userId) return { error: { message: 'Utilizator neidentificat' } };
 
     const sb = getSupabase();
     if (!sb) return { error: { message: 'Supabase indisponibil' } };
 
-    const now = new Date();
-    const startDt = timerData.startTime ? new Date(timerData.startTime) : new Date(now.getTime() - minutes * 60000);
+    const requestedEndDt = new Date(requestedStopAt);
+    const startDt = timerData.startTime ? new Date(timerData.startTime) : new Date(requestedEndDt.getTime() - minutes * 60000);
+    if (Number.isNaN(startDt.getTime()) || Number.isNaN(requestedEndDt.getTime()) || requestedEndDt <= startDt) {
+      return { error: { message: 'Intervalul timerului nu este valid.' } };
+    }
+
+    let scheduleBoundary = null;
+    try {
+      // Ultima verificare înainte de INSERT protejează și cazul în care s-a adăugat
+      // între două actualizări ale cronometrului o activitate în același interval.
+      scheduleBoundary = await this.getTimerScheduleBoundary(timerData, requestedEndDt);
+    } catch (error) {
+      console.warn('[TimeTracking] Nu s-a putut verifica programul înainte de oprirea timerului:', error.message);
+    }
+    const endDt = scheduleBoundary ? new Date(scheduleBoundary.stopAt) : requestedEndDt;
+    const effectiveMinutes = Math.max(0, Math.round((endDt.getTime() - startDt.getTime() - (Number(timerData.pausedMs) || 0)) / 60000));
+    if (effectiveMinutes <= 0) {
+      return { error: { message: `Timerul nu poate fi salvat: începe în intervalul deja rezervat pentru „${scheduleBoundary?.taskName || 'o activitate'}”.` } };
+    }
+
     const localDate = this.localDateStr(startDt);
     // Format HH:MM:SS pentru start_time și end_time (tip TIME în Supabase)
     const startTimeStr = String(startDt.getHours()).padStart(2,'0') + ':' + String(startDt.getMinutes()).padStart(2,'0') + ':00';
-    const endTimeStr = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':00';
+    const endTimeStr = String(endDt.getHours()).padStart(2,'0') + ':' + String(endDt.getMinutes()).padStart(2,'0') + ':00';
 
     // Câmpuri EXACTE din schema Supabase reală (snake_case)
     const entry = {
@@ -1268,7 +1328,7 @@ const TimeTracking = {
       date: localDate,
       start_time: startTimeStr,
       end_time: endTimeStr,
-      duration_minutes: minutes,
+      duration_minutes: effectiveMinutes,
       task_name: timerData.taskName || '',
       project_id: timerData.projectId ? parseInt(timerData.projectId) : null,
       project_task_id: timerData.taskId ? parseInt(timerData.taskId) : null,
@@ -1276,6 +1336,13 @@ const TimeTracking = {
       status: 'salvat',
     };
 
-    return await sb.from('time_entries').insert(entry).select().single();
+    const result = await sb.from('time_entries').insert(entry).select().single();
+    return {
+      ...result,
+      effectiveMinutes,
+      effectiveStopAt: endDt.getTime(),
+      limitedBySchedule: Boolean(scheduleBoundary),
+      scheduledActivityName: scheduleBoundary?.taskName || null,
+    };
   },
 };
