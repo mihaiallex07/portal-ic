@@ -665,6 +665,61 @@ function _timerClear() {
 window.activeTimerData = null;
 window.pausedTimerData = null;
 let _globalTimerInterval = null;
+let _timerScheduleCheckInFlight = false;
+let _timerScheduleLastCheckAt = 0;
+
+function _timerScheduleStopAt(timerData) {
+  const stopAt = Number(timerData?.scheduledStopAt);
+  return Number.isFinite(stopAt) && stopAt > Number(timerData?.startTime) ? stopAt : null;
+}
+
+function _timerScheduleStopLabel(stopAt) {
+  const date = new Date(stopAt);
+  return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+}
+
+function _timerScheduleSearchEnd(timerData) {
+  const end = new Date(timerData.startTime);
+  end.setHours(23, 59, 59, 999);
+  return end.getTime();
+}
+
+function _checkTimerScheduleBoundary() {
+  const timerData = window.activeTimerData;
+  if (!timerData || typeof TimeTracking === 'undefined' || typeof TimeTracking.getTimerScheduleBoundary !== 'function') return;
+
+  const now = Date.now();
+  const knownStopAt = _timerScheduleStopAt(timerData);
+  if (knownStopAt && now >= knownStopAt) {
+    if (!window._scheduleStopTriggered) {
+      window._scheduleStopTriggered = true;
+      const activityName = timerData.scheduledActivityName || 'o activitate programată';
+      showToast(`⏹ Timer oprit automat la ${_timerScheduleStopLabel(knownStopAt)}, înainte de „${activityName}”.`, 'warning', 8000);
+      setTimeout(() => stopActiveTimer({ stopAt: knownStopAt, scheduleActivityName: activityName }), 100);
+    }
+    return;
+  }
+
+  // Revalidarea la 30 secunde preia și activitățile create după pornirea timerului.
+  if (_timerScheduleCheckInFlight || now - _timerScheduleLastCheckAt < 30000) return;
+  _timerScheduleCheckInFlight = true;
+  _timerScheduleLastCheckAt = now;
+  // Căutăm până la finalul zilei pentru ca oprirea să fie programată chiar de la start
+  // (de exemplu, timer 08:00 se oprește la Daily-ul deja salvat pentru 10:00).
+  TimeTracking.getTimerScheduleBoundary(timerData, _timerScheduleSearchEnd(timerData))
+    .then(boundary => {
+      if (!window.activeTimerData || !boundary?.stopAt || boundary.stopAt <= timerData.startTime) return;
+      const currentStopAt = _timerScheduleStopAt(window.activeTimerData);
+      if (!currentStopAt || boundary.stopAt < currentStopAt) {
+        window.activeTimerData.scheduledStopAt = boundary.stopAt;
+        window.activeTimerData.scheduledActivityName = boundary.taskName;
+        _timerSave();
+      }
+      if (Date.now() >= boundary.stopAt) _checkTimerScheduleBoundary();
+    })
+    .catch(error => console.warn('[Timer] Nu s-a putut verifica activitatea programată:', error.message))
+    .finally(() => { _timerScheduleCheckInFlight = false; });
+}
 
 // Restaurează starea la încărcarea paginii
 _timerLoad();
@@ -672,6 +727,8 @@ _timerLoad();
 function startGlobalTimer() {
   stopGlobalTimerInterval();
   window._autoStopTriggered = false; // resetează auto-stop la fiecare start nou
+  window._scheduleStopTriggered = false;
+  _timerScheduleLastCheckAt = 0;
   _timerSave();
   _globalTimerInterval = setInterval(updateHeaderTimer, 1000);
   updateHeaderTimer();
@@ -710,6 +767,7 @@ function updateHeaderTimer() {
     const taskName = window.activeTimerData.taskName || 'Task activ';
     const shortName = taskName.length > 22 ? taskName.substring(0, 22) + '…' : taskName;
     document.title = '● ' + _fmtTime(elapsed) + ' — ' + shortName;
+    _checkTimerScheduleBoundary();
     // ── AUTO-STOP după N ore configurabile ──────────────────────
     const _autoStopH = Auth.currentProfile?.timer_auto_stop_hours;
     if (_autoStopH && _autoStopH > 0) {
@@ -774,12 +832,14 @@ function resumeActiveTimer() {
 }
 
 // Stop from header (sau din orice pagina)
-async function stopActiveTimer() {
+async function stopActiveTimer(options = {}) {
   const data = window.activeTimerData || window.pausedTimerData;
   if (!data) return;
+  const requestedStopAt = Math.min(Date.now(), options.stopAt || _timerScheduleStopAt(data) || Date.now());
   // Dacă suntem în pagina Proiecte, delegăm stopTask pentru a salva time_entry
   if (typeof Proiecte !== 'undefined' && Proiecte.stopTask) {
-    await Proiecte.stopTask(data.taskId);
+    const saved = await Proiecte.stopTask(data.taskId, { stopAt: requestedStopAt, scheduleActivityName: options.scheduleActivityName || data.scheduledActivityName });
+    if (saved === false) return;
     // Fallback: dacă stopTask nu a curatat starea (ex: taskId nepotrivit), curatăm noi
     if (window.activeTimerData || window.pausedTimerData) {
       window.activeTimerData = null;
@@ -790,18 +850,27 @@ async function stopActiveTimer() {
   } else {
     // Stop din altă pagină — salvăm direct via TimeTracking.saveFromTimer
     stopGlobalTimerInterval();
-    const elapsed = Date.now() - data.startTime - (data.pausedMs || 0);
+    const elapsed = requestedStopAt - data.startTime - (data.pausedMs || 0);
     const minutes = Math.max(1, Math.round(elapsed / 60000));
 
     if (typeof TimeTracking !== 'undefined' && TimeTracking.saveFromTimer) {
-      const result = await TimeTracking.saveFromTimer(data, minutes);
+      const result = await TimeTracking.saveFromTimer(data, minutes, requestedStopAt);
       if (result && result.error) {
         showToast('Eroare la salvare: ' + result.error.message, 'error');
+        // Nu ștergem timerul dacă salvarea a eșuat; utilizatorul îl poate opri după corectarea problemei.
+        if (window.activeTimerData) startGlobalTimer();
+        return;
       } else {
-        const h = Math.floor(minutes / 60);
-        const m = minutes % 60;
-        showToast('⏹ Task oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate în Time-Tracking.', 'success');
+        const savedMinutes = Number(result?.effectiveMinutes ?? minutes);
+        const h = Math.floor(savedMinutes / 60);
+        const m = savedMinutes % 60;
+        const scheduleNote = result?.limitedBySchedule ? ` până la începutul „${result.scheduledActivityName}”` : '';
+        showToast('⏹ Task oprit. ' + (h > 0 ? h + 'h ' : '') + m + 'm înregistrate în Time-Tracking' + scheduleNote + '.', 'success');
       }
+    } else {
+      showToast('Timerul nu poate fi salvat încă. Reîncarcă pagina și încearcă din nou; intervalul rămâne activ.', 'error');
+      if (window.activeTimerData) startGlobalTimer();
+      return;
     }
 
     window.activeTimerData = null;
